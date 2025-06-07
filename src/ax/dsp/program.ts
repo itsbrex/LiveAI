@@ -12,7 +12,7 @@ import type { AxAIMemory } from '../mem/types.js'
 import type { AxInputFunctionType } from './functions.js'
 import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
-import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
+import type { AxFieldValue, AxGenIn, AxGenOut, AxMessage } from './types.js'
 import { mergeProgramUsage, validateValue } from './util.js'
 
 export type AxProgramTrace = {
@@ -47,8 +47,15 @@ export type AxProgramForwardOptions = {
   fastFail?: boolean
   debug?: boolean
   debugHideSystemPrompt?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest' | 'disable'
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none'
   traceLabel?: string
+  abortSignal?: AbortSignal
 }
 
 export type AxProgramStreamingForwardOptions = Omit<
@@ -68,8 +75,15 @@ export type AxGenStreamingOut<OUT extends AxGenOut> = AsyncGenerator<
   unknown
 >
 
+export type AxSetExamplesOptions = {
+  optionalOutputFields?: string[]
+}
+
 export interface AxTunable {
-  setExamples: (examples: Readonly<AxProgramExamples>) => void
+  setExamples: (
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) => void
   setId: (id: string) => void
   setParentId: (parentId: string) => void
   getTraces: () => AxProgramTrace[]
@@ -90,13 +104,17 @@ export interface AxProgramWithSignatureOptions {
   description?: string
 }
 
-export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
+export class AxProgramWithSignature<
+    IN extends AxGenIn | ReadonlyArray<AxMessage>,
+    OUT extends AxGenOut,
+  >
   implements AxTunable, AxUsable
 {
   protected signature: AxSignature
   protected sigHash: string
 
   protected examples?: Record<string, AxFieldValue>[]
+  protected examplesOptions?: AxSetExamplesOptions
   protected demos?: Record<string, AxFieldValue>[]
   protected trace?: Record<string, AxFieldValue>
   protected usage: AxProgramUsage[] = []
@@ -165,19 +183,25 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
-    this._setExamples(examples)
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
+    this._setExamples(examples, options)
 
     if (!('programId' in examples)) {
       return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples)
+      child.setExamples(examples, options)
     }
   }
 
-  private _setExamples(examples: Readonly<AxProgramExamples>) {
+  private _setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
     let traces: Record<string, AxFieldValue>[] = []
 
     if ('programId' in examples && examples.programId === this.key.id) {
@@ -189,6 +213,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     if (traces) {
+      this.examplesOptions = options
       const sig = this.signature
       const fields = [...sig.getInputFields(), ...sig.getOutputFields()]
 
@@ -307,13 +332,16 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
     if (!('programId' in examples)) {
       return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples)
+      child.setExamples(examples, options)
     }
   }
 

@@ -359,9 +359,9 @@ class AxAIGoogleGeminiImpl
     if (config.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
       switch (config.thinkingTokenBudget) {
-        case 'disable':
-          thinkingConfig.thinkingBudget = 0; // Explicitly set to 0
-          break;
+        case 'none':
+          thinkingConfig.thinkingBudget = 0 // Explicitly set to 0
+          break
         case 'minimal':
           thinkingConfig.thinkingBudget = 200
           break
@@ -392,7 +392,7 @@ class AxAIGoogleGeminiImpl
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
 
-      ...(thinkingConfig ? { thinkingConfig } : {}),
+      ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     }
 
     const safetySettings = this.config.safetySettings

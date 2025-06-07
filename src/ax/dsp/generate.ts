@@ -50,15 +50,18 @@ import {
 } from './functions.js'
 import {
   type AxGenDeltaOut,
+  type AxProgramExamples,
   type AxProgramForwardOptions,
   type AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
+  type AxSetExamplesOptions,
 } from './program.js'
 import { AxPromptTemplate } from './prompt.js'
 import type { AxIField, AxSignature } from './sig.js'
 import type {
   AxGenIn as AxGenInType,
   AxGenOut as AxGenOutType,
+  AxMessage,
 } from './types.js'
 import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
@@ -72,6 +75,8 @@ export interface AxGenOptions {
   stream?: boolean
   description?: string
   thoughtFieldName?: string
+  strictExamples?: boolean
+  optionalOutputFields?: string[]
 
   functions?: AxInputFunctionType
   functionCall?: AxChatRequest['functionCall']
@@ -111,7 +116,9 @@ export interface AxStreamingEvent<T> {
 }
 
 export class AxGen<
-  IN extends AxGenInType = AxGenInType,
+  IN extends AxGenInType | ReadonlyArray<AxMessage> =
+    | AxGenInType
+    | ReadonlyArray<AxMessage>,
   OUT extends AxGenerateResult<AxGenOutType> = AxGenerateResult<AxGenOutType>,
 > extends AxProgramWithSignature<IN, OUT> {
   private promptTemplate: AxPromptTemplate
@@ -134,9 +141,15 @@ export class AxGen<
 
     this.options = options
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
+    const promptTemplateOptions = {
+      functions: options?.functions,
+      thoughtFieldName: this.thoughtFieldName,
+      strictExamples: options?.strictExamples,
+      optionalOutputFields: options?.optionalOutputFields,
+    }
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
-      options?.functions
+      promptTemplateOptions
     )
     this.asserts = this.options?.asserts ?? []
     this.streamingAsserts = this.options?.streamingAsserts ?? []
@@ -263,6 +276,7 @@ export class AxGen<
         debug: false,
         thinkingTokenBudget,
         traceContext,
+        abortSignal: options?.abortSignal,
       }
     )
 
@@ -597,17 +611,39 @@ export class AxGen<
     let err: ValidationError | AxAssertionError | undefined
 
     if (options?.functions && options.functions.length > 0) {
-      const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate
-      this.promptTemplate = new promptTemplate(
+      const promptTemplateClass =
+        this.options?.promptTemplate ?? AxPromptTemplate
+      const currentPromptTemplateOptions = {
+        functions: options.functions,
+        thoughtFieldName: this.thoughtFieldName,
+        strictExamples: this.options?.strictExamples,
+        optionalOutputFields: this.options?.optionalOutputFields,
+      }
+      this.promptTemplate = new promptTemplateClass(
         this.signature,
-        options.functions
+        currentPromptTemplateOptions
       )
     }
 
-    const prompt = this.promptTemplate.render<IN>(values, {
-      examples: this.examples,
-      demos: this.demos,
-    })
+    // New logic:
+    let prompt
+    if (Array.isArray(values)) {
+      // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
+      // For now, assume render will handle the array directly.
+      // The generic type for render might need to be T (from render<T extends ...>)
+      // and T will be inferred as ReadonlyArray<AxMessage>
+      prompt = this.promptTemplate.render(values, {
+        examples: this.examples,
+        demos: this.demos,
+      })
+    } else {
+      // Ensure `values` here is correctly inferred as AxGenInType
+      prompt = this.promptTemplate.render(values as AxGenInType, {
+        // Cast if necessary
+        examples: this.examples,
+        demos: this.demos,
+      })
+    }
 
     mem.add(prompt, options?.sessionId)
 
@@ -836,6 +872,29 @@ export class AxGen<
       ...options,
       stream: true,
     })
+  }
+
+  public override setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
+    super.setExamples(examples, options)
+
+    // Update the prompt template with the new optionalOutputFields from examples options
+    if (options?.optionalOutputFields) {
+      const promptTemplateClass =
+        this.options?.promptTemplate ?? AxPromptTemplate
+      const currentPromptTemplateOptions = {
+        functions: this.functions,
+        thoughtFieldName: this.thoughtFieldName,
+        strictExamples: this.options?.strictExamples,
+        optionalOutputFields: options.optionalOutputFields,
+      }
+      this.promptTemplate = new promptTemplateClass(
+        this.signature,
+        currentPromptTemplateOptions
+      )
+    }
   }
 }
 

@@ -47,7 +47,6 @@ export interface AxBaseAIArgs<TModel, TEmbedModel> {
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
   structuredClone({
-    maxTokens: 2000,
     temperature: 0,
     topK: 40,
     topP: 0.9,
@@ -55,7 +54,6 @@ export const axBaseAIDefaultConfig = (): AxModelConfig =>
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
-    maxTokens: 2000,
     temperature: 0.4,
     topP: 0.7,
     frequencyPenalty: 0.2,
@@ -79,6 +77,7 @@ export class AxBaseAI<
   private timeout?: AxAIServiceOptions['timeout']
   private excludeContentFromTrace?: boolean
   private models?: AxAIInputModelList<TModel, TEmbedModel>
+  private abortSignal?: AbortSignal
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxModelUsage
@@ -200,6 +199,7 @@ export class AxBaseAI<
     this.timeout = options.timeout
     this.tracer = options.tracer
     this.excludeContentFromTrace = options.excludeContentFromTrace
+    this.abortSignal = options.abortSignal
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -210,6 +210,7 @@ export class AxBaseAI<
       tracer: this.tracer,
       timeout: this.timeout,
       excludeContentFromTrace: this.excludeContentFromTrace,
+      abortSignal: this.abortSignal,
     }
   }
 
@@ -369,17 +370,19 @@ export class AxBaseAI<
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_OPERATION_NAME]: 'chat',
             [axSpanAttributes.LLM_REQUEST_MODEL]: model as string,
-            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: modelConfig.maxTokens,
+            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]:
+              modelConfig.maxTokens ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: modelConfig.temperature,
-            [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP,
-            [axSpanAttributes.LLM_REQUEST_TOP_K]: modelConfig.topK,
+            [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP ?? 'Not set',
+            [axSpanAttributes.LLM_REQUEST_TOP_K]: modelConfig.topK ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]:
-              modelConfig.frequencyPenalty,
+              modelConfig.frequencyPenalty ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]:
-              modelConfig.presencePenalty,
+              modelConfig.presencePenalty ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
-              modelConfig.stopSequences?.join(', '),
-            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream,
+              modelConfig.stopSequences?.join(', ') ?? 'Not set',
+            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]:
+              modelConfig.stream ?? 'Not set',
           },
         },
         options?.traceContext ?? context.active(),
@@ -481,6 +484,7 @@ export class AxBaseAI<
           debug,
           fetch: this.fetch,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )
@@ -683,6 +687,7 @@ export class AxBaseAI<
           fetch: this.fetch,
           timeout: this.timeout,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )

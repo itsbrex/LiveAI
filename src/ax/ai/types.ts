@@ -232,7 +232,13 @@ export type AxRateLimiterFunction = <T = unknown>(
 
 export type AxAIPromptConfig = {
   stream?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest'
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none'
 }
 
 export type AxAIServiceOptions = {
@@ -242,6 +248,7 @@ export type AxAIServiceOptions = {
   tracer?: Tracer
   timeout?: number
   excludeContentFromTrace?: boolean
+  abortSignal?: AbortSignal
 }
 
 export type AxAIServiceActionOptions<
@@ -257,6 +264,7 @@ export type AxAIServiceActionOptions<
   debugHideSystemPrompt?: boolean
   hideThought?: boolean
   traceContext?: Context
+  abortSignal?: AbortSignal
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {

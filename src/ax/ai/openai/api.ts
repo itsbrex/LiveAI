@@ -195,7 +195,7 @@ class AxAIOpenAIImpl<
       tools,
       tool_choice: toolsChoice,
       max_completion_tokens:
-        req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
+        req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
@@ -257,9 +257,9 @@ class AxAIOpenAIImpl<
     // Then, override based on prompt-specific config
     if (config.thinkingTokenBudget) {
       switch (config.thinkingTokenBudget) {
-        case 'disable':
-          reqValue.reasoning_effort = undefined; // Explicitly set to undefined
-          break;
+        case 'none':
+          reqValue.reasoning_effort = undefined // Explicitly set to undefined
+          break
         case 'minimal':
           reqValue.reasoning_effort = 'low'
           break
