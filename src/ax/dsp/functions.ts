@@ -6,11 +6,8 @@ import type {
   AxFunction,
 } from '../ai/types.js'
 import type { AxMemory } from '../mem/memory.js'
-import { ColorLog } from '../util/log.js'
 
 import { validateJSONSchema } from './jsonschema.js'
-
-const colorLog = new ColorLog()
 
 export class AxFunctionError extends Error {
   constructor(
@@ -289,9 +286,10 @@ export const processFunctions = async (
           mem.addTag('error')
 
           if (ai.getOptions().debug) {
-            process.stdout.write(
-              colorLog.red(`\n❌ Function Error Correction:\n${result}\n`)
-            )
+            const logger = ai.getLogger()
+            logger(`❌ Function Error Correction:\n${result}`, {
+              tags: ['error'],
+            })
           }
         } else {
           throw e

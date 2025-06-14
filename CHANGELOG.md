@@ -1,5 +1,151 @@
 # Changelog
 
+## [11.0.64](https://github.com/ax-llm/ax/compare/11.0.62...11.0.63) (2025-06-13)
+## [11.0.63](https://github.com/ax-llm/ax/compare/11.0.62...11.0.63) (2025-06-13)
+
+## [11.0.63](https://github.com/ax-llm/ax/compare/11.0.61...11.0.62) (2025-06-13)
+## [11.0.62](https://github.com/ax-llm/ax/compare/11.0.61...11.0.62) (2025-06-12)
+
+### Features
+
+* Introduce AxAIOpenAIResponsesModel and enhance responses API integration ([0ab61f8](https://github.com/ax-llm/ax/commit/0ab61f8020afb3e402c5e178ce9a82da00e797ac))
+
+## [11.0.62](https://github.com/ax-llm/ax/compare/11.0.60...11.0.61) (2025-06-12)
+
+### Features
+
+* Introduce AxAIOpenAIResponsesModel and enhance responses API integration ([0ab61f8](https://github.com/ax-llm/ax/commit/0ab61f8020afb3e402c5e178ce9a82da00e797ac))
+## [11.0.61](https://github.com/ax-llm/ax/compare/11.0.60...11.0.61) (2025-06-12)
+
+## [11.0.61](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-12)
+## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.59...11.0.60) (2025-06-11)
+
+## [11.0.60](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-11)
+## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.58...11.0.59) (2025-06-10)
+
+### Features
+
+* Add showThoughts feature to enhance model reasoning visibility ([fabc76d](https://github.com/ax-llm/ax/commit/fabc76d5ef5b3d745b78f75615d6f43946d130af))
+
+## [11.0.59](https://github.com/ax-llm/ax/compare/11.0.57...11.0.58) (2025-06-10)
+
+### Features
+
+* Add showThoughts feature to enhance model reasoning visibility ([fabc76d](https://github.com/ax-llm/ax/commit/fabc76d5ef5b3d745b78f75615d6f43946d130af))
+## [11.0.58](https://github.com/ax-llm/ax/compare/11.0.57...11.0.58) (2025-06-10)
+
+### Features
+
+* Enhance logging capabilities with structured tags ([2bb76d3](https://github.com/ax-llm/ax/commit/2bb76d3926d08d32c1a12fc651ee3434d3876bc9))
+* Introduce custom logger functionality for AI services ([a5eaed1](https://github.com/ax-llm/ax/commit/a5eaed118a1c880cdaef32a81763a7f4d6aa4fce))
+
+## [11.0.58](https://github.com/ax-llm/ax/compare/11.0.56...11.0.57) (2025-06-10)
+
+### Features
+
+* Enhance logging capabilities with structured tags ([2bb76d3](https://github.com/ax-llm/ax/commit/2bb76d3926d08d32c1a12fc651ee3434d3876bc9))
+* Introduce custom logger functionality for AI services ([a5eaed1](https://github.com/ax-llm/ax/commit/a5eaed118a1c880cdaef32a81763a7f4d6aa4fce))
+## [11.0.57](https://github.com/ax-llm/ax/compare/11.0.56...11.0.57) (2025-06-09)
+
+### Features
+
+* Add initPackage script for creating new packages in the Ax monorepo ([08746e8](https://github.com/ax-llm/ax/commit/08746e86f33b1b8eee3f978fe5031e8e3c8206fe))
+* Add maxTokens field to AxModelInfo and update Anthropic model configurations ([f2645e6](https://github.com/ax-llm/ax/commit/f2645e684091b03d9740fa5c58641c3ef0047153))
+
+## [11.0.57](https://github.com/ax-llm/ax/compare/11.0.55...11.0.56) (2025-06-09)
+
+### Features
+
+* Add initPackage script for creating new packages in the Ax monorepo ([08746e8](https://github.com/ax-llm/ax/commit/08746e86f33b1b8eee3f978fe5031e8e3c8206fe))
+* Add maxTokens field to AxModelInfo and update Anthropic model configurations ([f2645e6](https://github.com/ax-llm/ax/commit/f2645e684091b03d9740fa5c58641c3ef0047153))
+## [11.0.56](https://github.com/ax-llm/ax/compare/11.0.55...11.0.56) (2025-06-08)
+
+### Features
+
+* Enhance JSON schema validation with flexible handling of union types ([967610d](https://github.com/ax-llm/ax/commit/967610df7cee8e9de11fd9a27835f35398d43c66))
+
+## [11.0.56](https://github.com/ax-llm/ax/compare/11.0.54...11.0.55) (2025-06-08)
+
+### Features
+
+* Enhance JSON schema validation with flexible handling of union types ([967610d](https://github.com/ax-llm/ax/commit/967610df7cee8e9de11fd9a27835f35398d43c66))
+## [11.0.55](https://github.com/ax-llm/ax/compare/11.0.54...11.0.55) (2025-06-07)
+
+### Features
+
+* Add DeepWiki links to navigation component ([48c0194](https://github.com/ax-llm/ax/commit/48c01944ec54fc2e2e5f62cc738d4ab34cdace83))
+* Allow all fields to be optional in examples and simplify prompt template validation ([18cd73b](https://github.com/ax-llm/ax/commit/18cd73b478622516c6bdaac49d8141ae0e1f530e))
+
+## [11.0.55](https://github.com/ax-llm/ax/compare/11.0.53...11.0.54) (2025-06-07)
+
+### Features
+
+* Add DeepWiki links to navigation component ([48c0194](https://github.com/ax-llm/ax/commit/48c01944ec54fc2e2e5f62cc738d4ab34cdace83))
+* Allow all fields to be optional in examples and simplify prompt template validation ([18cd73b](https://github.com/ax-llm/ax/commit/18cd73b478622516c6bdaac49d8141ae0e1f530e))
+## [11.0.54](https://github.com/ax-llm/ax/compare/11.0.53...11.0.54) (2025-06-06)
+
+### Features
+
+* Enhance abortable request functionality and documentation ([0b0495e](https://github.com/ax-llm/ax/commit/0b0495eaaf6f8fd265bd47d81424cb3f75ee15d2))
+
+### Bug Fixes
+
+* support for Gemini Flash <= 2.0 ([#233](https://github.com/ax-llm/ax/issues/233)) ([6424329](https://github.com/ax-llm/ax/commit/64243297a3bbc24aee512a1e1445a8f28fec7b58))
+
+## [11.0.54](https://github.com/ax-llm/ax/compare/11.0.52...11.0.53) (2025-06-06)
+
+### Features
+
+* Enhance abortable request functionality and documentation ([0b0495e](https://github.com/ax-llm/ax/commit/0b0495eaaf6f8fd265bd47d81424cb3f75ee15d2))
+
+### Bug Fixes
+
+* support for Gemini Flash <= 2.0 ([#233](https://github.com/ax-llm/ax/issues/233)) ([6424329](https://github.com/ax-llm/ax/commit/64243297a3bbc24aee512a1e1445a8f28fec7b58))
+## [11.0.53](https://github.com/ax-llm/ax/compare/11.0.52...11.0.53) (2025-06-06)
+
+### Features
+
+* Implement abortable AI requests with AxAbortableAI utility ([b8f5201](https://github.com/ax-llm/ax/commit/b8f5201c5d75d19549e79805a378936118ebf8f2))
+* Introduce optional output fields in examples and enhance prompt template validation ([71ac8f1](https://github.com/ax-llm/ax/commit/71ac8f1d1b30bfa9950503f52e91f7851096f6a8))
+
+## [11.0.53](https://github.com/ax-llm/ax/compare/11.0.51...11.0.52) (2025-06-06)
+
+### Features
+
+* Implement abortable AI requests with AxAbortableAI utility ([b8f5201](https://github.com/ax-llm/ax/commit/b8f5201c5d75d19549e79805a378936118ebf8f2))
+* Introduce optional output fields in examples and enhance prompt template validation ([71ac8f1](https://github.com/ax-llm/ax/commit/71ac8f1d1b30bfa9950503f52e91f7851096f6a8))
+## [11.0.52](https://github.com/ax-llm/ax/compare/11.0.51...11.0.52) (2025-06-05)
+
+## [11.0.52](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
+## [11.0.51](https://github.com/ax-llm/ax/compare/11.0.50...11.0.51) (2025-06-05)
+
+### Features
+
+* Add conversational memory weaving example to README ([b0ca31d](https://github.com/ax-llm/ax/commit/b0ca31dcbee044ed2d705890e7ce95959e3a284e))
+* Add Model Context Protocol (MCP) integration to README ([484f2e8](https://github.com/ax-llm/ax/commit/484f2e8a127ed417a697a49e11a614c96e480914))
+* Add Pull Request CI workflow ([38be189](https://github.com/ax-llm/ax/commit/38be189c492cfb1329154f6e604ae1dddd9a01c1))
+* Allow custom field name for thought in AxGen ([#227](https://github.com/ax-llm/ax/issues/227)) ([924bf1b](https://github.com/ax-llm/ax/commit/924bf1b7e17d51443d2ceac62a9e3ecfabc7cf9b))
+* Allow disabling thought token budget with override ([#229](https://github.com/ax-llm/ax/issues/229)) ([89e00e4](https://github.com/ax-llm/ax/commit/89e00e45356f9c0ac784f9398b580030a0b1fb9b))
+* Enable chat history and multi-turn inputs for AxGen and AxPromp… ([#230](https://github.com/ax-llm/ax/issues/230)) ([2bdd6ec](https://github.com/ax-llm/ax/commit/2bdd6ec1db03aee4fe0a425b4008b7b520065de3))
+* Update thinkingTokenBudget options and clean up tests ([1b0351a](https://github.com/ax-llm/ax/commit/1b0351a34d632d10d73cebf3dd241839906c5049))
+
+## [11.0.51](https://github.com/ax-llm/ax/compare/11.0.49...11.0.50) (2025-06-05)
+
+### Features
+
+* Add conversational memory weaving example to README ([b0ca31d](https://github.com/ax-llm/ax/commit/b0ca31dcbee044ed2d705890e7ce95959e3a284e))
+* Add Model Context Protocol (MCP) integration to README ([484f2e8](https://github.com/ax-llm/ax/commit/484f2e8a127ed417a697a49e11a614c96e480914))
+* Add Pull Request CI workflow ([38be189](https://github.com/ax-llm/ax/commit/38be189c492cfb1329154f6e604ae1dddd9a01c1))
+* Allow custom field name for thought in AxGen ([#227](https://github.com/ax-llm/ax/issues/227)) ([924bf1b](https://github.com/ax-llm/ax/commit/924bf1b7e17d51443d2ceac62a9e3ecfabc7cf9b))
+* Allow disabling thought token budget with override ([#229](https://github.com/ax-llm/ax/issues/229)) ([89e00e4](https://github.com/ax-llm/ax/commit/89e00e45356f9c0ac784f9398b580030a0b1fb9b))
+* Enable chat history and multi-turn inputs for AxGen and AxPromp… ([#230](https://github.com/ax-llm/ax/issues/230)) ([2bdd6ec](https://github.com/ax-llm/ax/commit/2bdd6ec1db03aee4fe0a425b4008b7b520065de3))
+* Update thinkingTokenBudget options and clean up tests ([1b0351a](https://github.com/ax-llm/ax/commit/1b0351a34d632d10d73cebf3dd241839906c5049))
+## [11.0.50](https://github.com/ax-llm/ax/compare/11.0.49...11.0.50) (2025-06-03)
+
+### Features
+
+* integrate new transport classes and enhance OpenAI response handling ([5b3ea86](https://github.com/ax-llm/ax/commit/5b3ea860fc4aa640307a441e1d5785f0176b7219))
+
 ## [11.0.50](https://github.com/ax-llm/ax/compare/11.0.48...11.0.49) (2025-06-03)
 
 ### Features

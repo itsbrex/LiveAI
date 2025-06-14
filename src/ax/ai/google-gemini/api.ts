@@ -359,9 +359,10 @@ class AxAIGoogleGeminiImpl
     if (config.thinkingTokenBudget) {
       //The thinkingBudget must be an integer in the range 0 to 24576
       switch (config.thinkingTokenBudget) {
-        case 'disable':
-          thinkingConfig.thinkingBudget = 0; // Explicitly set to 0
-          break;
+        case 'none':
+          thinkingConfig.thinkingBudget = 0 // Explicitly set to 0
+          thinkingConfig.includeThoughts = false // When thinkingTokenBudget is 'none', disable showThoughts
+          break
         case 'minimal':
           thinkingConfig.thinkingBudget = 200
           break
@@ -380,6 +381,13 @@ class AxAIGoogleGeminiImpl
       }
     }
 
+    if (config.showThoughts !== undefined) {
+      // Only override includeThoughts if thinkingTokenBudget is not 'none'
+      if (config.thinkingTokenBudget !== 'none') {
+        thinkingConfig.includeThoughts = config.showThoughts
+      }
+    }
+
     const generationConfig: AxAIGoogleGeminiGenerationConfig = {
       maxOutputTokens: req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
@@ -392,7 +400,7 @@ class AxAIGoogleGeminiImpl
         req.modelConfig?.stopSequences ?? this.config.stopSequences,
       responseMimeType: 'text/plain',
 
-      ...(thinkingConfig ? { thinkingConfig } : {}),
+      ...(Object.keys(thinkingConfig).length > 0 ? { thinkingConfig } : {}),
     }
 
     const safetySettings = this.config.safetySettings

@@ -1,11 +1,8 @@
 import type { AxAIService } from '../ai/types.js'
 import type { AxAIMemory } from '../mem/types.js'
-import { ColorLog } from '../util/log.js'
 
 import { AxPromptTemplate, toFieldType } from './prompt.js'
 import type { AxField, AxIField } from './sig.js'
-
-const colorLog = new ColorLog()
 
 export class ValidationError extends Error {
   private fields: AxField[]
@@ -72,6 +69,9 @@ export function handleValidationError(
       .map((field) => `- ${field.title}: ${field.description}`)
       .join('\n')
 
-    process.stdout.write(colorLog.red(`\n❌ Error Correction:\n${errors}\n`))
+    const logger = ai.getLogger()
+    logger(`❌ Error Correction:\n${errors}`, {
+      tags: ['error'],
+    })
   }
 }

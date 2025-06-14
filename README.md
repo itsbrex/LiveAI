@@ -1,13 +1,16 @@
-# Ax - Build LLM-Powered Agents (Typescript)
+# Ax, DSPy for Typescript
 
-Use Ax and get an end-to-end streaming, multi-modal DSPy framework with agents
-and typed signatures. Works with all LLMs. Ax is always streaming and handles
-parsing, validating, error-correcting and function calling all while streaming.
-Ax is easy, fast and lowers your token usage.
+Working with LLMs is complex they don't always do what you want. DSPy makes it easier to build amazing things with LLMs. Just define your inputs and outputs (signature) and an efficient prompt is auto-generated and used. Connect together various signatures to build complex systems and workflows using LLMs
+
+And to help you really use this in production we have everything else you need like observability, streaming, support for other modalities (images,audio, etc), error-correction, multi-step function calling, MCP, RAG, etc
+
 
 [![NPM Package](https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green)](https://www.npmjs.com/package/@ax-llm/ax)
-[![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
 [![Twitter](https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red)](https://twitter.com/dosco)
+[![Discord Chat](https://dcbadge.vercel.app/api/server/DSHg3dU7dW?style=for-the-badge)](https://discord.gg/DSHg3dU7dW)
+
+
+<!-- header -->
 
 ## Why use Ax?
 
@@ -269,6 +272,40 @@ const res = await gen.forward(ai, {
 })
 ```
 
+## DSPy Chat API
+
+Inspired by DSPy's demonstration weaving, Ax provides `AxMessage` for seamless conversation history management. This allows you to build chatbots and conversational agents that maintain context across multiple turns while leveraging the full power of prompt signatures. See the example for more details.
+
+```shell
+GOOGLE_APIKEY=api-key npm run tsx ./src/examples/chat.ts
+```
+
+```typescript
+const chatBot = new AxGen<
+  { message: string } | ReadonlyArray<ChatMessage>,
+  { reply: string }
+>(
+  `message:string "A casual message from the user" -> reply:string "A friendly, casual response"`
+)
+
+await chatBot.forward(ai, [
+  {
+    role: 'user',
+    values: { message: 'Hi! How are you doing today?' },
+  },
+  {
+    role: 'assistant',
+    values: { message: 'I am doing great! How about you?' },
+  },
+  {
+    role: 'user',
+    values: { message: 'Thats great!' },
+  },
+])
+```
+
+The conversation history is automatically woven into the prompt, allowing the model to maintain context and provide coherent responses. This works seamlessly with all Ax features including streaming, function calling, and chain-of-thought reasoning.
+
 ## Streaming
 
 ### Assertions
@@ -364,6 +401,104 @@ const processor = new AxFieldProcessor(
 
 const res = await gen.forward({ startNumber: 1 })
 ```
+
+## Model Context Protocol (MCP)
+
+Ax provides seamless integration with the Model Context Protocol (MCP), allowing
+your agents to access external tools, and resources through a standardized
+interface.
+
+### Using AxMCPClient
+
+The `AxMCPClient` allows you to connect to any MCP-compatible server and use its
+capabilities within your Ax agents:
+
+```typescript
+import { AxMCPClient, AxMCPStdioTransport } from '@ax-llm/ax'
+
+// Initialize an MCP client with a transport
+const transport = new AxMCPStdioTransport({
+  command: 'npx',
+  args: ['-y', '@modelcontextprotocol/server-memory'],
+})
+
+// Create the client with optional debug mode
+const client = new AxMCPClient(transport, { debug: true })
+
+// Initialize the connection
+await client.init()
+
+// Use the client's functions in an agent
+const memoryAgent = new AxAgent({
+  name: 'MemoryAssistant',
+  description: 'An assistant with persistent memory',
+  signature: 'input, userId -> response',
+  functions: [client], // Pass the client as a function provider
+})
+
+// Or use the client with AxGen
+const memoryGen = new AxGen('input, userId -> response', {
+  functions: [client],
+})
+```
+
+### Using AxMCPClient with a Remote Server
+
+Calling a remote MCP server with Ax is straightforward. For example, here's how you can use the DeepWiki MCP server to ask questions about nearly any public GitHub repository. The DeepWiki MCP server is available at `https://mcp.deepwiki.com/mcp`.
+
+```typescript
+import {
+  AxAgent,
+  AxAI,
+  AxAIOpenAIModel,
+  AxMCPClient,
+  AxMCPStreambleHTTPTransport,
+} from '@ax-llm/ax'
+
+// 1. Initialize the MCP transport to the DeepWiki server
+const transport = new AxMCPStreambleHTTPTransport(
+  'https://mcp.deepwiki.com/mcp'
+)
+
+// 2. Create the MCP client
+const mcpClient = new AxMCPClient(transport, { debug: false })
+await mcpClient.init() // Initialize the connection
+
+// 3. Initialize your AI model (e.g., OpenAI)
+// Ensure your OPENAI_APIKEY environment variable is set
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY as string,
+})
+
+// 4. Create an AxAgent that uses the MCP client
+const deepwikiAgent = new AxAgent<
+  {
+    // Define input types for clarity, matching a potential DeepWiki function
+    questionAboutRepo: string
+    githubRepositoryUrl: string
+  },
+  {
+    answer: string
+  }
+>({
+  name: 'DeepWikiQueryAgent',
+  description: 'Agent to query public GitHub repositories via DeepWiki MCP.',
+  signature: 'questionAboutRepo, githubRepositoryUrl -> answer',
+  functions: [mcpClient], // Provide the MCP client to the agent
+})
+
+// 5. Formulate a question and call the agent
+const result = await deepwikiAgent.forward(ai, {
+  questionAboutRepo: 'What is the main purpose of this library?',
+  githubRepositoryUrl: 'https://github.com/dosco/ax', // Example: Ax library itself
+})
+console.log('DeepWiki Answer:', result.answer)
+```
+
+This example shows how to connect to a public MCP server and use it within an Ax agent. The agent's signature (`questionAboutRepo, githubRepositoryUrl -> answer`) is an assumption of how one might interact with the DeepWiki service; you would typically discover the available functions and their signatures from the MCP server itself (e.g., via an `mcp.getFunctions` call if supported, or documentation).
+
+For a more complex example involving authentication and custom headers with a remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts` file in this repository.
 
 ## AI Routing and Load Balancing
 
@@ -490,104 +625,6 @@ You can also use the balancer and the router together either the multiple
 balancers can be used with the router or the router can be used with the
 balancer.
 
-## Model Context Protocol (MCP)
-
-Ax provides seamless integration with the Model Context Protocol (MCP), allowing
-your agents to access external tools, and resources through a standardized
-interface.
-
-### Using AxMCPClient
-
-The `AxMCPClient` allows you to connect to any MCP-compatible server and use its
-capabilities within your Ax agents:
-
-```typescript
-import { AxMCPClient, AxMCPStdioTransport } from '@ax-llm/ax'
-
-// Initialize an MCP client with a transport
-const transport = new AxMCPStdioTransport({
-  command: 'npx',
-  args: ['-y', '@modelcontextprotocol/server-memory'],
-})
-
-// Create the client with optional debug mode
-const client = new AxMCPClient(transport, { debug: true })
-
-// Initialize the connection
-await client.init()
-
-// Use the client's functions in an agent
-const memoryAgent = new AxAgent({
-  name: 'MemoryAssistant',
-  description: 'An assistant with persistent memory',
-  signature: 'input, userId -> response',
-  functions: [client], // Pass the client as a function provider
-})
-
-// Or use the client with AxGen
-const memoryGen = new AxGen('input, userId -> response', {
-  functions: [client],
-})
-```
-
-### Using AxMCPClient with a Remote Server
-
-Calling a remote MCP server with Ax is straightforward. For example, here's how you can use the DeepWiki MCP server to ask questions about nearly any public GitHub repository. The DeepWiki MCP server is available at `https://mcp.deepwiki.com/mcp`.
-
-```typescript
-import {
-  AxAgent,
-  AxAI,
-  AxAIOpenAIModel,
-  AxMCPClient,
-  AxMCPStreambleHTTPTransport,
-} from '@ax-llm/ax'
-
-// 1. Initialize the MCP transport to the DeepWiki server
-const transport = new AxMCPStreambleHTTPTransport(
-  'https://mcp.deepwiki.com/mcp'
-)
-
-// 2. Create the MCP client
-const mcpClient = new AxMCPClient(transport, { debug: false })
-await mcpClient.init() // Initialize the connection
-
-// 3. Initialize your AI model (e.g., OpenAI)
-// Ensure your OPENAI_APIKEY environment variable is set
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-})
-
-// 4. Create an AxAgent that uses the MCP client
-const deepwikiAgent = new AxAgent<
-  {
-    // Define input types for clarity, matching a potential DeepWiki function
-    questionAboutRepo: string
-    githubRepositoryUrl: string
-  },
-  {
-    answer: string
-  }
->({
-  name: 'DeepWikiQueryAgent',
-  description: 'Agent to query public GitHub repositories via DeepWiki MCP.',
-  signature: 'questionAboutRepo, githubRepositoryUrl -> answer',
-  functions: [mcpClient], // Provide the MCP client to the agent
-})
-
-// 5. Formulate a question and call the agent
-const result = await deepwikiAgent.forward(ai, {
-  questionAboutRepo: 'What is the main purpose of this library?',
-  githubRepositoryUrl: 'https://github.com/dosco/ax', // Example: Ax library itself
-})
-console.log('DeepWiki Answer:', result.answer)
-```
-
-This example shows how to connect to a public MCP server and use it within an Ax agent. The agent's signature (`questionAboutRepo, githubRepositoryUrl -> answer`) is an assumption of how one might interact with the DeepWiki service; you would typically discover the available functions and their signatures from the MCP server itself (e.g., via an `mcp.getFunctions` call if supported, or documentation).
-
-For a more complex example involving authentication and custom headers with a remote MCP server, please refer to the `src/examples/mcp-client-pipedream.ts` file in this repository.
-
 ## OpenTelemetry support
 
 The ability to trace and observe your llm workflow is critical to building
@@ -701,33 +738,6 @@ console.log('Demos saved to bootstrap-demos.json');
 ```
 
 <img width="853" alt="tune-prompt" src="https://github.com/dosco/llm-client/assets/832235/f924baa7-8922-424c-9c2c-f8b2018d8d74">
-
-And to use the generated demos with the above `ChainOfThought` program
-
-```typescript
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-})
-
-// Setup the program to use the tuned data
-const program = new AxChainOfThought<{ question: string }, { answer: string }>(
-  ai,
-  `question -> answer "in short 2 or 3 words"`
-)
-
-// Load tuning data from the saved file
-// import fs from 'fs'; // Ensure fs is imported
-const loadedDemosText = fs.readFileSync('bootstrap-demos.json', 'utf8');
-const loadedDemos = JSON.parse(loadedDemosText);
-program.setDemos(loadedDemos);
-console.log('Demos loaded into program.');
-
-const res = await program.forward({
-  question: 'What castle did David Gregory inherit?',
-})
-
-console.log(res)
 ```
 
 ## Tuning the prompts (Advanced, Mipro v2)
@@ -735,7 +745,7 @@ console.log(res)
 MiPRO v2 is an advanced prompt optimization framework that uses Bayesian
 optimization to automatically find the best instructions, demonstrations, and
 examples for your LLM programs. By systematically exploring different prompt
-configurations, MiPRO v2 helps maximize model performance without manual tuning.
+configurations, MiPRO v2 helps maximize model performance without manual tuning. 
 
 ### Key Features
 
@@ -748,6 +758,14 @@ configurations, MiPRO v2 helps maximize model performance without manual tuning.
   compute
 - **Program and data-aware**: Considers program structure and dataset
   characteristics
+
+### How It Works
+
+1. Generates various instruction candidates
+2. Bootstraps few-shot examples from your data
+3. Selects labeled examples directly from your dataset
+4. Uses Bayesian optimization to find the optimal combination
+5. Applies the best configuration to your program
 
 ### Basic Usage
 
@@ -805,6 +823,7 @@ MiPRO v2 provides extensive configuration options:
 | `programAwareProposer`    | Use program structure for better proposals    | true    |
 | `dataAwareProposer`       | Consider dataset characteristics              | true    |
 | `verbose`                 | Show detailed optimization progress           | false   |
+| abort-patterns.ts | Example on how to abort requests |
 
 ### Optimization Levels
 
@@ -856,62 +875,82 @@ const optimizedProgram = await optimizer.compile(metricFn, {
 const programConfig = JSON.stringify(optimizedProgram, null, 2);
 await fs.promises.writeFile("./optimized-config.json", programConfig);
 console.log('> Done. Optimized program config saved to optimized-config.json');
-
-// --- Loading and Using the Optimized Program Configuration ---
-// import fs from 'node:fs'; // Or 'fs' depending on your setup
-// import { AxChainOfThought } from '@ax-llm/ax'; // Assuming AxChainOfThought was used
-
-// Later, in a different session or file:
-/*
-const loadedProgramConfigText = fs.readFileSync('./optimized-config.json', 'utf8');
-const loadedConfig = JSON.parse(loadedProgramConfigText);
-
-// Re-instantiate your program (ensure the signature matches the one optimized)
-// For AxChainOfThought, the signature string itself is key.
-// If MiPRO optimized the instruction within the signature, loadedConfig.signature.toString() might be ideal.
-// Otherwise, use the original signature string you started with.
-const newProgram = new AxChainOfThought(loadedConfig.signature ? loadedConfig.signature.toString() : 'original -> signature');
-
-// Apply loaded demos
-if (loadedConfig.demos && Array.isArray(loadedConfig.demos)) {
-  newProgram.setDemos(loadedConfig.demos);
-  console.log('Demos loaded from optimized config.');
-}
-
-// Apply loaded instruction (if MiPRO modified it and it's stored in signature.instruction)
-// AxProgramWithSignature's setInstruction method updates `this.signature.instruction`.
-// If this field was serialized, it represents the specific instruction string MiPRO found effective.
-if (loadedConfig.signature && loadedConfig.signature.instruction) {
-    newProgram.setInstruction(loadedConfig.signature.instruction);
-    console.log('Instruction applied from loadedConfig.signature.instruction.');
-} else {
-    // If the primary instruction is embedded within the signature string itself
-    // and that whole string was part of loadedConfig.signature,
-    // then re-instantiating with loadedConfig.signature.toString() (as shown above)
-    // might be sufficient.
-    console.log('Custom instruction from optimization not found or already applied via signature string.');
-}
-
-// Now newProgram is ready to be used with the AI service
-// const ai = new AxAI({ ... }); // Your AI setup
-// const result = await newProgram.forward(ai, { input: "some new input" });
-// console.log(result);
-*/
 ```
 
-### How It Works
+## Using the Tuned Prompts
 
-MiPRO v2 works through these steps:
+Both the basic Bootstrap Few Shot optimizer and the advanced MiPRO v2 optimizer generate **demos** (demonstrations) that significantly improve your program's performance. These demos are examples that show the LLM how to properly handle similar tasks.
 
-1. Generates various instruction candidates
-2. Bootstraps few-shot examples from your data
-3. Selects labeled examples directly from your dataset
-4. Uses Bayesian optimization to find the optimal combination
-5. Applies the best configuration to your program
+### What are Demos?
 
-By exploring the space of possible prompt configurations and systematically
-measuring performance, MiPRO v2 delivers optimized prompts that maximize your
-model's effectiveness.
+Demos are input-output examples that get automatically included in your prompts to guide the LLM. They act as few-shot learning examples, showing the model the expected behavior for your specific task.
+
+### Loading and Using Demos
+
+Whether you used Bootstrap Few Shot or MiPRO v2, the process of using the generated demos is the same:
+
+```typescript
+import fs from 'fs'
+import { AxAI, AxGen, AxChainOfThought } from '@ax-llm/ax'
+
+// 1. Setup your AI service
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY,
+})
+
+// 2. Create your program (same signature as used during tuning)
+const program = new AxChainOfThought(`question -> answer "in short 2 or 3 words"`)
+
+// 3. Load the demos from the saved file
+const demos = JSON.parse(fs.readFileSync('bootstrap-demos.json', 'utf8'))
+
+// 4. Apply the demos to your program
+program.setDemos(demos)
+
+// 5. Use your enhanced program
+const result = await program.forward(ai, {
+  question: 'What castle did David Gregory inherit?'
+})
+
+console.log(result) // Now performs better with the learned examples
+```
+
+### Simple Example: Text Classification
+
+Here's a complete example showing how demos improve a classification task:
+
+```typescript
+// Create a classification program
+const classifier = new AxGen(`text -> category:class "positive, negative, neutral"`)
+
+// Load demos generated from either Bootstrap or MiPRO tuning
+const savedDemos = JSON.parse(fs.readFileSync('classification-demos.json', 'utf8'))
+classifier.setDemos(savedDemos)
+
+// Now the classifier has learned from examples and performs better
+const result = await classifier.forward(ai, {
+  text: "This product exceeded my expectations!"
+})
+
+console.log(result.category) // More accurate classification
+```
+
+### Key Benefits of Using Demos
+
+- **Improved Accuracy**: Programs perform significantly better with relevant examples
+- **Consistent Output**: Demos help maintain consistent response formats
+- **Reduced Hallucination**: Examples guide the model toward expected behaviors
+- **Cost Effective**: Better results without needing larger/more expensive models
+
+### Best Practices
+
+1. **Save Your Demos**: Always save generated demos to files for reuse
+2. **Match Signatures**: Use the exact same signature when loading demos
+3. **Version Control**: Keep demo files in version control for reproducibility
+4. **Regular Updates**: Re-tune periodically with new data to improve demos
+
+Both Bootstrap Few Shot and MiPRO v2 generate demos in the same format, so you can use this same loading pattern regardless of which optimizer you used for tuning.
 
 ## Built-in Functions
 
@@ -928,40 +967,43 @@ code. It also supports using an `.env` file to pass the AI API Keys instead of
 putting them in the command line.
 
 ```shell
-OPENAI_APIKEY=openai_key npm run tsx ./src/examples/marketing.ts
+OPENAI_APIKEY=api-key npm run tsx ./src/examples/marketing.ts
 ```
 
 | Example                 | Description                                             |
 | ----------------------- | ------------------------------------------------------- |
-| customer-support.ts     | Extract valuable details from customer communications   |
-| function.ts             | Simple single function calling example                  |
-| food-search.ts          | Multi-step, multi-function calling example              |
-| marketing.ts            | Generate short effective marketing sms messages         |
-| vectordb.ts             | Chunk, embed and search text                            |
-| fibonacci.ts            | Use the JS code interpreter to compute fibonacci        |
-| summarize.ts            | Generate a short summary of a large block of text       |
-| chain-of-thought.ts     | Use chain-of-thought prompting to answer questions      |
-| rag.ts                  | Use multi-hop retrieval to answer questions             |
-| rag-docs.ts             | Convert PDF to text and embed for rag search            |
-| react.ts                | Use function calling and reasoning to answer questions  |
-| agent.ts                | Agent framework, agents can use other agents, tools etc |
-| streaming1.ts           | Output fields validation while streaming                |
-| streaming2.ts           | Per output field validation while streaming             |
-| streaming3.ts           | End-to-end streaming example `streamingForward()`       |
-| smart-hone.ts           | Agent looks for dog in smart home                       |
-| multi-modal.ts          | Use an image input along with other text inputs         |
-| balancer.ts             | Balance between various llm's based on cost, etc        |
-| docker.ts               | Use the docker sandbox to find files by description     |
-| prime.ts                | Using field processors to process fields in a prompt    |
-| simple-classify.ts      | Use a simple classifier to classify stuff               |
-| mcp-client-memory.ts    | Example of using an MCP server for memory with Ax       |
-| mcp-client-blender.ts   | Example of using an MCP server for Blender with Ax      |
-| mcp-client-pipedream.ts | Example of integrating with a remote MCP                |
-| tune-bootstrap.ts       | Use bootstrap optimizer to improve prompt efficiency    |
-| tune-mipro.ts           | Use mipro v2 optimizer to improve prompt efficiency     |
-| tune-usage.ts           | Use the optimized tuned prompts                         |
-| telemetry.ts            | Trace and push traces to a Jaeger service               |
-| openai-responses.ts     | Example using the new OpenAI Responses API              |
+| [customer-support.ts](https://github.com/ax-llm/ax/blob/main/src/examples/customer-support.ts)     | Extract valuable details from customer communications   |
+| [debug-logging.ts](https://github.com/ax-llm/ax/blob/main/src/examples/debug-logging.ts)        | Debug and custom logging examples with different loggers |
+| [function.ts](https://github.com/ax-llm/ax/blob/main/src/examples/function.ts)             | Simple single function calling example                  |
+| [food-search.ts](https://github.com/ax-llm/ax/blob/main/src/examples/food-search.ts)          | Multi-step, multi-function calling example              |
+| [marketing.ts](https://github.com/ax-llm/ax/blob/main/src/examples/marketing.ts)            | Generate short effective marketing sms messages         |
+| [vectordb.ts](https://github.com/ax-llm/ax/blob/main/src/examples/vectordb.ts)             | Chunk, embed and search text                            |
+| [fibonacci.ts](https://github.com/ax-llm/ax/blob/main/src/examples/fibonacci.ts)            | Use the JS code interpreter to compute fibonacci        |
+| [summarize.ts](https://github.com/ax-llm/ax/blob/main/src/examples/summarize.ts)            | Generate a short summary of a large block of text       |
+| [chain-of-thought.ts](https://github.com/ax-llm/ax/blob/main/src/examples/chain-of-thought.ts)     | Use chain-of-thought prompting to answer questions      |
+| [rag.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag.ts)                  | Use multi-hop retrieval to answer questions             |
+| [rag-docs.ts](https://github.com/ax-llm/ax/blob/main/src/examples/rag-docs.ts)             | Convert PDF to text and embed for rag search            |
+| [react.ts](https://github.com/ax-llm/ax/blob/main/src/examples/react.ts)                | Use function calling and reasoning to answer questions  |
+| [agent.ts](https://github.com/ax-llm/ax/blob/main/src/examples/agent.ts)                | Agent framework, agents can use other agents, tools etc |
+| [streaming1.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming1.ts)           | Output fields validation while streaming                |
+| [streaming2.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming2.ts)           | Per output field validation while streaming             |
+| [streaming3.ts](https://github.com/ax-llm/ax/blob/main/src/examples/streaming3.ts)           | End-to-end streaming example `streamingForward()`       |
+| [smart-hone.ts](https://github.com/ax-llm/ax/blob/main/src/examples/smart-hone.ts)           | Agent looks for dog in smart home                       |
+| [multi-modal.ts](https://github.com/ax-llm/ax/blob/main/src/examples/multi-modal.ts)          | Use an image input along with other text inputs         |
+| [balancer.ts](https://github.com/ax-llm/ax/blob/main/src/examples/balancer.ts)             | Balance between various llm's based on cost, etc        |
+| [docker.ts](https://github.com/ax-llm/ax/blob/main/src/examples/docker.ts)               | Use the docker sandbox to find files by description     |
+| [prime.ts](https://github.com/ax-llm/ax/blob/main/src/examples/prime.ts)                | Using field processors to process fields in a prompt    |
+| [simple-classify.ts](https://github.com/ax-llm/ax/blob/main/src/examples/simple-classify.ts)      | Use a simple classifier to classify stuff               |
+| [mcp-client-memory.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-memory.ts)    | Example of using an MCP server for memory with Ax       |
+| [mcp-client-blender.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-blender.ts)   | Example of using an MCP server for Blender with Ax      |
+| [mcp-client-pipedream.ts](https://github.com/ax-llm/ax/blob/main/src/examples/mcp-client-pipedream.ts) | Example of integrating with a remote MCP                |
+| [tune-bootstrap.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-bootstrap.ts)       | Use bootstrap optimizer to improve prompt efficiency    |
+| [tune-mipro.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-mipro.ts)           | Use mipro v2 optimizer to improve prompt efficiency     |
+| [tune-usage.ts](https://github.com/ax-llm/ax/blob/main/src/examples/tune-usage.ts)           | Use the optimized tuned prompts                         |
+| [telemetry.ts](https://github.com/ax-llm/ax/blob/main/src/examples/telemetry.ts)            | Trace and push traces to a Jaeger service               |
+| [openai-responses.ts](https://github.com/ax-llm/ax/blob/main/src/examples/openai-responses.ts)     | Example using the new OpenAI Responses API              |
+| [show-thoughts.ts](https://github.com/ax-llm/ax/blob/main/src/examples/show-thoughts.ts)       | Control and display model reasoning thoughts             |
+| [use-examples.ts](https://github.com/ax-llm/ax/blob/main/src/examples/use-examples.ts) | Example of using 'examples' to direct the llm |
 
 ## Our Goal
 
@@ -1054,6 +1096,41 @@ const ai = new AxAI({
 ai.setOptions({ debug: true })
 ```
 
+## Custom Logger
+
+You can provide a custom logger function to control how debug information and other messages are output. This is useful for integrating with logging frameworks or customizing the output format.
+
+```ts
+// Custom logger that prefixes messages with timestamp
+const customLogger = (message: string) => {
+  const timestamp = new Date().toISOString()
+  process.stdout.write(`[${timestamp}] ${message}`)
+}
+
+// Set logger on AI service
+const ai = new AxAI({
+  name: 'openai',
+  apiKey: process.env.OPENAI_APIKEY,
+  options: {
+    debug: true,
+    logger: customLogger
+  }
+})
+
+// Or set logger on generation programs
+const gen = new AxGen(
+  'question -> answer:string',
+  { logger: customLogger }
+)
+
+// Logger can also be passed through options
+const result = await gen.forward(ai, { question: 'Hello' }, {
+  logger: customLogger
+})
+```
+
+The logger function receives a string message and is responsible for outputting it. If no logger is provided, messages are written to `process.stdout.write` by default.
+
 ## Reach out
 
 We're happy to help reach out if you have questions or join the Discord
@@ -1097,6 +1174,8 @@ conf.model = OpenAIModel.GPT4Turbo
 It is essential to remember that we should only run `npm install` from the root
 directory. This prevents the creation of nested `package-lock.json` files and
 avoids non-deduplicated `node_modules`.
+
+[![Ask DeepWiki](https://deepwiki.com/badge.svg?style=for-the-badge)](https://deepwiki.com/ax-llm/ax)
 
 Adding new dependencies in packages should be done with e.g.
 `npm install lodash --workspace=ax` (or just modify the appropriate

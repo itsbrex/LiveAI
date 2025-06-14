@@ -6,7 +6,7 @@ import type {
   AxFunctionJSONSchema,
 } from '../ai/types.js'
 import type { AxInputFunctionType } from '../dsp/functions.js'
-import { AxGen, type AxGenOptions } from '../dsp/generate.js'
+import { AxGen } from '../dsp/generate.js'
 import type {
   AxGenStreamingOut,
   AxProgramDemos,
@@ -14,11 +14,12 @@ import type {
   AxProgramForwardOptions,
   AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
+  AxSetExamplesOptions,
   AxTunable,
   AxUsable,
 } from '../dsp/program.js'
 import type { AxSignature } from '../dsp/sig.js'
-import type { AxGenIn, AxGenOut } from '../dsp/types.js'
+import type { AxGenIn, AxGenOut, AxMessage } from '../dsp/types.js'
 
 /**
  * Interface for agents that can be used as child agents.
@@ -29,7 +30,7 @@ export interface AxAgentic extends AxTunable, AxUsable {
   getFeatures(): AxAgentFeatures
 }
 
-export type AxAgentOptions = Omit<AxGenOptions, 'functions'> & {
+export type AxAgentOptions = Omit<AxProgramForwardOptions, 'functions'> & {
   disableSmartModelRouting?: boolean
   /** List of field names that should not be automatically passed from parent to child agents */
   excludeFieldsFromPassthrough?: string[]
@@ -49,7 +50,7 @@ export interface AxAgentFeatures {
  */
 function processChildAgentFunction<IN extends AxGenIn>(
   childFunction: Readonly<AxFunction>,
-  parentValues: IN,
+  parentValues: IN | AxMessage<IN>[],
   parentInputKeys: string[],
   modelList: AxAIModelList | undefined,
   options: Readonly<{
@@ -86,15 +87,38 @@ function processChildAgentFunction<IN extends AxGenIn>(
       const originalFunc = processedFunction.func
       // add debug logging if enabled
       processedFunction.func = async (childArgs, funcOptions) => {
+        // Extract values from parentValues - handle both IN and AxMessage<IN>[] cases
+        let valuesToInject: Partial<IN> = {}
+        if (Array.isArray(parentValues)) {
+          // If parentValues is an array of messages, find the most recent user message
+          const lastUserMessage = parentValues
+            .filter((msg) => msg.role === 'user')
+            .pop()
+          if (lastUserMessage) {
+            valuesToInject = pick(
+              lastUserMessage.values,
+              injectionKeys as (keyof IN)[]
+            )
+          }
+        } else {
+          // If parentValues is a single IN object
+          valuesToInject = pick(parentValues, injectionKeys as (keyof IN)[])
+        }
+
         const updatedChildArgs = {
           ...childArgs,
-          ...pick(parentValues, injectionKeys as (keyof IN)[]),
+          ...valuesToInject,
         }
 
         if (options.debug && injectionKeys.length > 0) {
-          process.stdout.write(
-            `\nFunction Params: ${JSON.stringify(updatedChildArgs, null, 2)}`
-          )
+          const ai = funcOptions?.ai
+          if (ai) {
+            const logger = ai.getLogger()
+            logger(
+              `Function Params: ${JSON.stringify(updatedChildArgs, null, 2)}`,
+              { tags: ['functionArg'] }
+            )
+          }
         }
 
         return await originalFunc(updatedChildArgs, funcOptions)
@@ -216,8 +240,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
-    this.program.setExamples(examples)
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
+    this.program.setExamples(examples, options)
   }
 
   public setId(id: string) {
@@ -261,7 +288,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       const debug = this.getDebug(ai, options)
 
       if (debug) {
-        process.stdout.write(`\n--- Agent Engaged: ${this.name} ---\n`)
+        const logger = ai.getLogger()
+        logger(`🤖 Agent ${this.name} starting...`, {
+          tags: ['assistantStart'],
+        })
       }
 
       const ret = await boundFunc(ai, values as unknown as IN, {
@@ -270,7 +300,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
       })
 
       if (debug) {
-        process.stdout.write(`\n--- Agent Done: ${this.name} ---\n`)
+        const logger = ai.getLogger()
+        logger(`🤖 Agent ${this.name} completed.`, { tags: ['assistantEnd'] })
       }
 
       const sig = this.program.getSignature()
@@ -306,7 +337,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
    */
   private init(
     parentAi: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions> | undefined
   ) {
     const ai = this.ai ?? parentAi
@@ -348,7 +379,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
   public async forward(
     parentAi: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     const { ai, functions, debug } = this.init(parentAi, values, options)
@@ -361,7 +392,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut = AxGenOut>
 
   public async *streamingForward(
     parentAi: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
     const { ai, functions, debug } = this.init(parentAi, values, options)

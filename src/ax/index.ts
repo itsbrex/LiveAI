@@ -172,6 +172,86 @@ import {
   type AxAIOpenAIResponsesArgs
 } from './ai/openai/responses_api_base.js';
 import {
+  AxAIOpenAIResponsesModel,
+  type AxAIOpenAIResponsesCodeInterpreterToolCall,
+  type AxAIOpenAIResponsesComputerToolCall,
+  type AxAIOpenAIResponsesConfig,
+  type AxAIOpenAIResponsesContentPartAddedEvent,
+  type AxAIOpenAIResponsesContentPartDoneEvent,
+  type AxAIOpenAIResponsesDefineFunctionTool,
+  type AxAIOpenAIResponsesErrorEvent,
+  type AxAIOpenAIResponsesFileSearchCallCompletedEvent,
+  type AxAIOpenAIResponsesFileSearchCallInProgressEvent,
+  type AxAIOpenAIResponsesFileSearchCallSearchingEvent,
+  type AxAIOpenAIResponsesFileSearchToolCall,
+  type AxAIOpenAIResponsesFunctionCallArgumentsDeltaEvent,
+  type AxAIOpenAIResponsesFunctionCallArgumentsDoneEvent,
+  type AxAIOpenAIResponsesFunctionCallItem,
+  type AxAIOpenAIResponsesImageGenerationCallCompletedEvent,
+  type AxAIOpenAIResponsesImageGenerationCallGeneratingEvent,
+  type AxAIOpenAIResponsesImageGenerationCallInProgressEvent,
+  type AxAIOpenAIResponsesImageGenerationCallPartialImageEvent,
+  type AxAIOpenAIResponsesImageGenerationToolCall,
+  type AxAIOpenAIResponsesInputAudioContentPart,
+  type AxAIOpenAIResponsesInputContentPart,
+  type AxAIOpenAIResponsesInputFunctionCallItem,
+  type AxAIOpenAIResponsesInputFunctionCallOutputItem,
+  type AxAIOpenAIResponsesInputImageUrlContentPart,
+  type AxAIOpenAIResponsesInputItem,
+  type AxAIOpenAIResponsesInputMessageItem,
+  type AxAIOpenAIResponsesInputTextContentPart,
+  type AxAIOpenAIResponsesLocalShellToolCall,
+  type AxAIOpenAIResponsesMCPCallArgumentsDeltaEvent,
+  type AxAIOpenAIResponsesMCPCallArgumentsDoneEvent,
+  type AxAIOpenAIResponsesMCPCallCompletedEvent,
+  type AxAIOpenAIResponsesMCPCallFailedEvent,
+  type AxAIOpenAIResponsesMCPCallInProgressEvent,
+  type AxAIOpenAIResponsesMCPListToolsCompletedEvent,
+  type AxAIOpenAIResponsesMCPListToolsFailedEvent,
+  type AxAIOpenAIResponsesMCPListToolsInProgressEvent,
+  type AxAIOpenAIResponsesMCPToolCall,
+  type AxAIOpenAIResponsesOutputItem,
+  type AxAIOpenAIResponsesOutputItemAddedEvent,
+  type AxAIOpenAIResponsesOutputItemDoneEvent,
+  type AxAIOpenAIResponsesOutputMessageItem,
+  type AxAIOpenAIResponsesOutputRefusalContentPart,
+  type AxAIOpenAIResponsesOutputTextAnnotationAddedEvent,
+  type AxAIOpenAIResponsesOutputTextContentPart,
+  type AxAIOpenAIResponsesOutputTextDeltaEvent,
+  type AxAIOpenAIResponsesOutputTextDoneEvent,
+  type AxAIOpenAIResponsesReasoningDeltaEvent,
+  type AxAIOpenAIResponsesReasoningDoneEvent,
+  type AxAIOpenAIResponsesReasoningItem,
+  type AxAIOpenAIResponsesReasoningSummaryDeltaEvent,
+  type AxAIOpenAIResponsesReasoningSummaryDoneEvent,
+  type AxAIOpenAIResponsesReasoningSummaryPart,
+  type AxAIOpenAIResponsesReasoningSummaryPartAddedEvent,
+  type AxAIOpenAIResponsesReasoningSummaryPartDoneEvent,
+  type AxAIOpenAIResponsesReasoningSummaryTextDeltaEvent,
+  type AxAIOpenAIResponsesReasoningSummaryTextDoneEvent,
+  type AxAIOpenAIResponsesRefusalDeltaEvent,
+  type AxAIOpenAIResponsesRefusalDoneEvent,
+  type AxAIOpenAIResponsesRequest,
+  type AxAIOpenAIResponsesResponse,
+  type AxAIOpenAIResponsesResponseCompletedEvent,
+  type AxAIOpenAIResponsesResponseCreatedEvent,
+  type AxAIOpenAIResponsesResponseDelta,
+  type AxAIOpenAIResponsesResponseFailedEvent,
+  type AxAIOpenAIResponsesResponseInProgressEvent,
+  type AxAIOpenAIResponsesResponseIncompleteEvent,
+  type AxAIOpenAIResponsesResponseQueuedEvent,
+  type AxAIOpenAIResponsesStreamEvent,
+  type AxAIOpenAIResponsesStreamEventBase,
+  type AxAIOpenAIResponsesToolCall,
+  type AxAIOpenAIResponsesToolCallBase,
+  type AxAIOpenAIResponsesToolChoice,
+  type AxAIOpenAIResponsesToolDefinition,
+  type AxAIOpenAIResponsesWebSearchCallCompletedEvent,
+  type AxAIOpenAIResponsesWebSearchCallInProgressEvent,
+  type AxAIOpenAIResponsesWebSearchCallSearchingEvent,
+  type AxAIOpenAIResponsesWebSearchToolCall
+} from './ai/openai/responses_types.js';
+import {
   AxAIReka,
   axAIRekaBestConfig,
   axAIRekaCreativeConfig,
@@ -188,6 +268,7 @@ import {
   type AxAIRekaUsage
 } from './ai/reka/types.js';
 import {
+  AxAIServiceAbortedError,
   AxAIServiceAuthenticationError,
   AxAIServiceError,
   AxAIServiceNetworkError,
@@ -279,6 +360,10 @@ import {
   type AxDBWeaviateOpOptions
 } from './db/weaviate.js';
 import {
+  AxDefaultQueryRewriter,
+  AxRewriter
+} from './docs/rewriter.js';
+import {
   AxDockerSession,
   type AxDockerContainer
 } from './funcs/docker.js';
@@ -291,7 +376,6 @@ import {
 import {
   AxGen,
   AxGenerateError,
-  type AxGenOptions,
   type AxGenerateErrorDetails,
   type AxGenerateResult,
   type AxResponseHandlerArgs,
@@ -336,12 +420,14 @@ import {
   type AxProgramTrace,
   type AxProgramUsage,
   type AxProgramWithSignatureOptions,
+  type AxSetExamplesOptions,
   type AxTunable,
   type AxUsable
 } from './dsp/program.js';
 import {
   AxPromptTemplate,
-  type AxFieldTemplateFn
+  type AxFieldTemplateFn,
+  type AxPromptTemplateOptions
 } from './dsp/prompt.js';
 import {
   AxRateLimiterTokenUsage,
@@ -381,6 +467,8 @@ import {
   type AxFunctionJSONSchema,
   type AxInternalChatRequest,
   type AxInternalEmbedRequest,
+  type AxLoggerFunction,
+  type AxLoggerTag,
   type AxModelConfig,
   type AxModelInfo,
   type AxModelInfoWithProvider,
@@ -388,85 +476,6 @@ import {
   type AxRateLimiterFunction,
   type AxTokenUsage
 } from './ai/types.js';
-import {
-  type AxAIOpenAIResponsesCodeInterpreterToolCall,
-  type AxAIOpenAIResponsesComputerToolCall,
-  type AxAIOpenAIResponsesConfig,
-  type AxAIOpenAIResponsesContentPartAddedEvent,
-  type AxAIOpenAIResponsesContentPartDoneEvent,
-  type AxAIOpenAIResponsesDefineFunctionTool,
-  type AxAIOpenAIResponsesErrorEvent,
-  type AxAIOpenAIResponsesFileSearchCallCompletedEvent,
-  type AxAIOpenAIResponsesFileSearchCallInProgressEvent,
-  type AxAIOpenAIResponsesFileSearchCallSearchingEvent,
-  type AxAIOpenAIResponsesFileSearchToolCall,
-  type AxAIOpenAIResponsesFunctionCallArgumentsDeltaEvent,
-  type AxAIOpenAIResponsesFunctionCallArgumentsDoneEvent,
-  type AxAIOpenAIResponsesFunctionCallItem,
-  type AxAIOpenAIResponsesImageGenerationCallCompletedEvent,
-  type AxAIOpenAIResponsesImageGenerationCallGeneratingEvent,
-  type AxAIOpenAIResponsesImageGenerationCallInProgressEvent,
-  type AxAIOpenAIResponsesImageGenerationCallPartialImageEvent,
-  type AxAIOpenAIResponsesImageGenerationToolCall,
-  type AxAIOpenAIResponsesInputAudioContentPart,
-  type AxAIOpenAIResponsesInputContentPart,
-  type AxAIOpenAIResponsesInputFunctionCallItem,
-  type AxAIOpenAIResponsesInputFunctionCallOutputItem,
-  type AxAIOpenAIResponsesInputImageUrlContentPart,
-  type AxAIOpenAIResponsesInputItem,
-  type AxAIOpenAIResponsesInputMessageItem,
-  type AxAIOpenAIResponsesInputTextContentPart,
-  type AxAIOpenAIResponsesLocalShellToolCall,
-  type AxAIOpenAIResponsesMCPCallArgumentsDeltaEvent,
-  type AxAIOpenAIResponsesMCPCallArgumentsDoneEvent,
-  type AxAIOpenAIResponsesMCPCallCompletedEvent,
-  type AxAIOpenAIResponsesMCPCallFailedEvent,
-  type AxAIOpenAIResponsesMCPCallInProgressEvent,
-  type AxAIOpenAIResponsesMCPListToolsCompletedEvent,
-  type AxAIOpenAIResponsesMCPListToolsFailedEvent,
-  type AxAIOpenAIResponsesMCPListToolsInProgressEvent,
-  type AxAIOpenAIResponsesMCPToolCall,
-  type AxAIOpenAIResponsesOutputItem,
-  type AxAIOpenAIResponsesOutputItemAddedEvent,
-  type AxAIOpenAIResponsesOutputItemDoneEvent,
-  type AxAIOpenAIResponsesOutputMessageItem,
-  type AxAIOpenAIResponsesOutputRefusalContentPart,
-  type AxAIOpenAIResponsesOutputTextAnnotationAddedEvent,
-  type AxAIOpenAIResponsesOutputTextContentPart,
-  type AxAIOpenAIResponsesOutputTextDeltaEvent,
-  type AxAIOpenAIResponsesOutputTextDoneEvent,
-  type AxAIOpenAIResponsesReasoningDeltaEvent,
-  type AxAIOpenAIResponsesReasoningDoneEvent,
-  type AxAIOpenAIResponsesReasoningItem,
-  type AxAIOpenAIResponsesReasoningSummaryDeltaEvent,
-  type AxAIOpenAIResponsesReasoningSummaryDoneEvent,
-  type AxAIOpenAIResponsesReasoningSummaryPart,
-  type AxAIOpenAIResponsesReasoningSummaryPartAddedEvent,
-  type AxAIOpenAIResponsesReasoningSummaryPartDoneEvent,
-  type AxAIOpenAIResponsesReasoningSummaryTextDeltaEvent,
-  type AxAIOpenAIResponsesReasoningSummaryTextDoneEvent,
-  type AxAIOpenAIResponsesRefusalDeltaEvent,
-  type AxAIOpenAIResponsesRefusalDoneEvent,
-  type AxAIOpenAIResponsesRequest,
-  type AxAIOpenAIResponsesResponse,
-  type AxAIOpenAIResponsesResponseCompletedEvent,
-  type AxAIOpenAIResponsesResponseCreatedEvent,
-  type AxAIOpenAIResponsesResponseDelta,
-  type AxAIOpenAIResponsesResponseFailedEvent,
-  type AxAIOpenAIResponsesResponseInProgressEvent,
-  type AxAIOpenAIResponsesResponseIncompleteEvent,
-  type AxAIOpenAIResponsesResponseQueuedEvent,
-  type AxAIOpenAIResponsesStreamEvent,
-  type AxAIOpenAIResponsesStreamEventBase,
-  type AxAIOpenAIResponsesToolCall,
-  type AxAIOpenAIResponsesToolCallBase,
-  type AxAIOpenAIResponsesToolChoice,
-  type AxAIOpenAIResponsesToolDefinition,
-  type AxAIOpenAIResponsesWebSearchCallCompletedEvent,
-  type AxAIOpenAIResponsesWebSearchCallInProgressEvent,
-  type AxAIOpenAIResponsesWebSearchCallSearchingEvent,
-  type AxAIOpenAIResponsesWebSearchToolCall
-} from './ai/openai/responses_types.js';
 import {
   type AxDBQueryRequest,
   type AxDBQueryResponse,
@@ -483,13 +492,13 @@ import {
 import {
   type AxFieldValue,
   type AxGenIn,
-  type AxGenOut
+  type AxGenOut,
+  type AxMessage
 } from './dsp/types.js';
 import {AxAIDeepSeekModel} from './ai/deepseek/types.js';
 import {AxAIGroqModel} from './ai/groq/types.js';
 import {AxAIOpenAIResponsesImpl} from './ai/openai/responses_api.js';
 import {AxChainOfThought} from './prompts/cot.js';
-import {AxDefaultQueryRewriter} from './docs/rewriter.js';
 import {AxDefaultResultReranker} from './docs/reranker.js';
 import {AxEmbeddingAdapter} from './funcs/embed.js';
 import {AxEvalUtil} from './dsp/eval.js';
@@ -549,8 +558,10 @@ export { AxAIOpenAIModel };
 export { AxAIOpenAIResponses };
 export { AxAIOpenAIResponsesBase };
 export { AxAIOpenAIResponsesImpl };
+export { AxAIOpenAIResponsesModel };
 export { AxAIReka };
 export { AxAIRekaModel };
+export { AxAIServiceAbortedError };
 export { AxAIServiceAuthenticationError };
 export { AxAIServiceError };
 export { AxAIServiceNetworkError };
@@ -600,6 +611,7 @@ export { AxProgramWithSignature };
 export { AxPromptTemplate };
 export { AxRAG };
 export { AxRateLimiterTokenUsage };
+export { AxRewriter };
 export { AxSignature };
 export { AxSimpleClassifier };
 export { AxSimpleClassifierClass };
@@ -873,7 +885,6 @@ export type { AxFunctionHandler };
 export type { AxFunctionJSONSchema };
 export type { AxGenDeltaOut };
 export type { AxGenIn };
-export type { AxGenOptions };
 export type { AxGenOut };
 export type { AxGenStreamingOut };
 export type { AxGenerateErrorDetails };
@@ -882,8 +893,11 @@ export type { AxIField };
 export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
+export type { AxLoggerFunction };
+export type { AxLoggerTag };
 export type { AxMCPStreamableHTTPTransportOptions };
 export type { AxMCPTransport };
+export type { AxMessage };
 export type { AxMetricFn };
 export type { AxMetricFnArgs };
 export type { AxMiPROOptions };
@@ -901,6 +915,7 @@ export type { AxProgramStreamingForwardOptions };
 export type { AxProgramTrace };
 export type { AxProgramUsage };
 export type { AxProgramWithSignatureOptions };
+export type { AxPromptTemplateOptions };
 export type { AxRateLimiterFunction };
 export type { AxRateLimiterTokenUsageOptions };
 export type { AxRerankerIn };
@@ -908,6 +923,7 @@ export type { AxRerankerOut };
 export type { AxResponseHandlerArgs };
 export type { AxRewriteIn };
 export type { AxRewriteOut };
+export type { AxSetExamplesOptions };
 export type { AxSimpleClassifierForwardOptions };
 export type { AxStreamingAssertion };
 export type { AxStreamingEvent };

@@ -27,6 +27,7 @@ export type AxModelInfo = {
   aliases?: string[]
   hasThinkingBudget?: boolean
   hasShowThoughts?: boolean
+  maxTokens?: number
 }
 
 export type AxTokenUsage = {
@@ -230,9 +231,45 @@ export type AxRateLimiterFunction = <T = unknown>(
   info: Readonly<{ modelUsage?: AxModelUsage }>
 ) => Promise<T | ReadableStream<T>>
 
+export type AxLoggerTag =
+  | 'error'
+  | 'warning'
+  | 'success'
+  | 'functionName'
+  | 'functionArg'
+  | 'functionEnd'
+  | 'responseStart'
+  | 'responseContent'
+  | 'responseEnd'
+  | 'requestStart'
+  | 'requestContent'
+  | 'requestEnd'
+  | 'systemStart'
+  | 'systemContent'
+  | 'systemEnd'
+  | 'userStart'
+  | 'userContent'
+  | 'userEnd'
+  | 'assistantStart'
+  | 'assistantContent'
+  | 'assistantEnd'
+  | 'discovery'
+
+export type AxLoggerFunction = (
+  message: string,
+  options?: { tags?: AxLoggerTag[] }
+) => void
+
 export type AxAIPromptConfig = {
   stream?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest'
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none'
+  showThoughts?: boolean
 }
 
 export type AxAIServiceOptions = {
@@ -242,6 +279,8 @@ export type AxAIServiceOptions = {
   tracer?: Tracer
   timeout?: number
   excludeContentFromTrace?: boolean
+  abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
 }
 
 export type AxAIServiceActionOptions<
@@ -255,8 +294,9 @@ export type AxAIServiceActionOptions<
   rateLimiter?: AxRateLimiterFunction
   debug?: boolean
   debugHideSystemPrompt?: boolean
-  hideThought?: boolean
   traceContext?: Context
+  abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
 }
 
 export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
@@ -265,6 +305,7 @@ export interface AxAIService<TModel = unknown, TEmbedModel = unknown> {
   getFeatures(model?: TModel): AxAIFeatures
   getModelList(): AxAIModelList | undefined
   getMetrics(): AxAIServiceMetrics
+  getLogger(): AxLoggerFunction
 
   getLastUsedChatModel(): TModel | undefined
   getLastUsedEmbedModel(): TEmbedModel | undefined

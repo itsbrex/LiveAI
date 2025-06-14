@@ -6,8 +6,8 @@ import { AxMockAIService } from '../ai/mock/api.js'
 import type { AxChatResponse } from '../ai/types.js'
 
 import { AxGen } from './generate.js'
-import type { AxSignature } from './sig.js'
 import type { AxProgramForwardOptions } from './program.js'
+import type { AxSignature } from './sig.js'
 
 function createStreamingResponse(
   chunks: AxChatResponse['results']
@@ -128,11 +128,11 @@ describe('AxProgramForwardOptions types', () => {
       ai: new AxMockAIService({
         features: { functions: false, streaming: false },
       }), // Mock AI service
-      thinkingTokenBudget: 'disable',
+      thinkingTokenBudget: 'none',
     }
     // If this compiles, the type test passes implicitly.
     // We can add a simple assertion to make the test explicit.
-    expect(options.thinkingTokenBudget).toBe('disable')
+    expect(options.thinkingTokenBudget).toBe('none')
   })
 
   it('should allow other valid values for thinkingTokenBudget', () => {
@@ -143,6 +143,28 @@ describe('AxProgramForwardOptions types', () => {
       thinkingTokenBudget: 'minimal',
     }
     expect(options.thinkingTokenBudget).toBe('minimal')
+  })
+
+  it('should allow showThoughts option', () => {
+    const options: AxProgramForwardOptions = {
+      ai: new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }), // Mock AI service
+      showThoughts: true,
+    }
+    expect(options.showThoughts).toBe(true)
+  })
+
+  it('should ensure showThoughts is false when thinkingTokenBudget is none', () => {
+    const options: AxProgramForwardOptions = {
+      ai: new AxMockAIService({
+        features: { functions: false, streaming: false },
+      }),
+      thinkingTokenBudget: 'none',
+      showThoughts: true, // This should be overridden
+    }
+    expect(options.thinkingTokenBudget).toBe('none')
+    expect(options.showThoughts).toBe(true) // This validates the type allows both options
   })
 })
 

@@ -4,15 +4,18 @@ import type {
   AxAIService,
   AxChatRequest,
   AxChatResponse,
+  AxLoggerFunction,
   AxModelConfig,
   AxRateLimiterFunction,
 } from '../ai/types.js'
 import type { AxAIMemory } from '../mem/types.js'
 
+import type { AxAssertion, AxStreamingAssertion } from './asserts.js'
 import type { AxInputFunctionType } from './functions.js'
+import { AxPromptTemplate } from './prompt.js'
 import { AxInstanceRegistry } from './registry.js'
 import { AxSignature } from './sig.js'
-import type { AxFieldValue, AxGenIn, AxGenOut } from './types.js'
+import type { AxFieldValue, AxGenIn, AxGenOut, AxMessage } from './types.js'
 import { mergeProgramUsage, validateValue } from './util.js'
 
 export type AxProgramTrace = {
@@ -30,25 +33,57 @@ export type AxProgramDemos = {
 export type AxProgramExamples = AxProgramDemos | AxProgramDemos['traces']
 
 export type AxProgramForwardOptions = {
+  // Execution control
   maxRetries?: number
   maxSteps?: number
   mem?: AxAIMemory
+
+  // AI service and model configuration
   ai?: AxAIService
   modelConfig?: AxModelConfig
   model?: string
+
+  // Session and tracing
   sessionId?: string
   traceId?: string | undefined
   tracer?: Tracer
   rateLimiter?: AxRateLimiterFunction
+
+  // Streaming and output
   stream?: boolean
+
+  // Functions and calls
   functions?: AxInputFunctionType
   functionCall?: AxChatRequest['functionCall']
   stopFunction?: string
+
+  // Behavior control
   fastFail?: boolean
   debug?: boolean
   debugHideSystemPrompt?: boolean
-  thinkingTokenBudget?: 'minimal' | 'low' | 'medium' | 'high' | 'highest' | 'disable'
+
+  // Thinking model controls
+  thinkingTokenBudget?:
+    | 'minimal'
+    | 'low'
+    | 'medium'
+    | 'high'
+    | 'highest'
+    | 'none'
+  showThoughts?: boolean
+
+  // Tracing and logging
   traceLabel?: string
+  abortSignal?: AbortSignal
+  logger?: AxLoggerFunction
+
+  // AxGen-specific options (previously in AxGenOptions)
+  description?: string
+  thoughtFieldName?: string
+  promptTemplate?: typeof AxPromptTemplate
+  asserts?: AxAssertion[]
+  streamingAsserts?: AxStreamingAssertion[]
+  excludeContentFromTrace?: boolean
 }
 
 export type AxProgramStreamingForwardOptions = Omit<
@@ -68,8 +103,16 @@ export type AxGenStreamingOut<OUT extends AxGenOut> = AsyncGenerator<
   unknown
 >
 
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type
+export type AxSetExamplesOptions = {
+  // No options needed - all fields can be missing in examples
+}
+
 export interface AxTunable {
-  setExamples: (examples: Readonly<AxProgramExamples>) => void
+  setExamples: (
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) => void
   setId: (id: string) => void
   setParentId: (parentId: string) => void
   getTraces: () => AxProgramTrace[]
@@ -97,6 +140,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
   protected sigHash: string
 
   protected examples?: Record<string, AxFieldValue>[]
+  protected examplesOptions?: AxSetExamplesOptions
   protected demos?: Record<string, AxFieldValue>[]
   protected trace?: Record<string, AxFieldValue>
   protected usage: AxProgramUsage[] = []
@@ -133,7 +177,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
@@ -145,7 +189,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
@@ -165,19 +209,25 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
-    this._setExamples(examples)
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
+    this._setExamples(examples, options)
 
     if (!('programId' in examples)) {
       return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples)
+      child.setExamples(examples, options)
     }
   }
 
-  private _setExamples(examples: Readonly<AxProgramExamples>) {
+  private _setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
     let traces: Record<string, AxFieldValue>[] = []
 
     if ('programId' in examples && examples.programId === this.key.id) {
@@ -189,6 +239,7 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     if (traces) {
+      this.examplesOptions = options
       const sig = this.signature
       const fields = [...sig.getInputFields(), ...sig.getOutputFields()]
 
@@ -196,7 +247,9 @@ export class AxProgramWithSignature<IN extends AxGenIn, OUT extends AxGenOut>
         const res: Record<string, AxFieldValue> = {}
         for (const f of fields) {
           const value = e[f.name]
-          if (value) {
+          if (value !== undefined) {
+            // Only validate the type of fields that are actually set
+            // Allow any field to be missing regardless of whether it's required
             validateValue(f, value)
             res[f.name] = value
           }
@@ -275,7 +328,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
@@ -287,7 +340,7 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _ai: Readonly<AxAIService>,
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
-    _values: IN,
+    _values: IN | AxMessage<IN>[],
     // eslint-disable-next-line @typescript-eslint/no-unused-vars
     _options?: Readonly<AxProgramStreamingForwardOptions>
   ): AxGenStreamingOut<OUT> {
@@ -307,13 +360,16 @@ export class AxProgram<IN extends AxGenIn, OUT extends AxGenOut>
     }
   }
 
-  public setExamples(examples: Readonly<AxProgramExamples>) {
+  public setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
     if (!('programId' in examples)) {
       return
     }
 
     for (const child of this.children) {
-      child.setExamples(examples)
+      child.setExamples(examples, options)
     }
   }
 
