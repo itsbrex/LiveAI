@@ -1,8 +1,5 @@
 import { getModelInfo } from '@ax-llm/ax/dsp/modelinfo.js'
-import {
-  type AxAIOpenAIResponsesConfig,
-  axModelInfoOpenAI,
-} from '@ax-llm/ax/index.js'
+import { type AxAIOpenAIResponsesConfig } from '@ax-llm/ax/index.js'
 
 import { AxBaseAI } from '../base.js'
 import type { AxAIFeatures } from '../base.js'
@@ -16,43 +13,44 @@ import type {
   AxAIOpenAIEmbedRequest,
   AxAIOpenAIEmbedResponse,
 } from './chat_types.js'
-import { AxAIOpenAIEmbedModel, AxAIOpenAIModel } from './chat_types.js'
+import { AxAIOpenAIEmbedModel } from './chat_types.js'
+import { axModelInfoOpenAI } from './info.js'
 import { AxAIOpenAIResponsesImpl } from './responses_api.js'
 import type {
   AxAIOpenAIResponsesRequest,
   AxAIOpenAIResponsesResponse,
   AxAIOpenAIResponsesResponseDelta,
 } from './responses_types.js'
+import { AxAIOpenAIResponsesModel } from './responses_types.js'
 
 // Helper functions to create default configurations
 export const axAIOpenAIResponsesDefaultConfig = (): AxAIOpenAIResponsesConfig<
-  AxAIOpenAIModel,
+  AxAIOpenAIResponsesModel,
   AxAIOpenAIEmbedModel
 > => ({
-  model: AxAIOpenAIModel.GPT4O,
+  model: AxAIOpenAIResponsesModel.GPT4O,
   embedModel: AxAIOpenAIEmbedModel.TextEmbeddingAda002,
   temperature: 0.7,
-  maxTokens: 2048,
   topP: 1,
   stream: true,
   //   reasoningEffort: 'medium',
 })
 
 export const axAIOpenAIResponsesBestConfig = (): AxAIOpenAIResponsesConfig<
-  AxAIOpenAIModel,
+  AxAIOpenAIResponsesModel,
   AxAIOpenAIEmbedModel
 > => ({
   ...axAIOpenAIResponsesDefaultConfig(),
-  model: AxAIOpenAIModel.GPT4O,
+  model: AxAIOpenAIResponsesModel.GPT4O,
   temperature: 0.5,
 })
 
 export const axAIOpenAIResponsesCreativeConfig = (): AxAIOpenAIResponsesConfig<
-  AxAIOpenAIModel,
+  AxAIOpenAIResponsesModel,
   AxAIOpenAIEmbedModel
 > => ({
   ...axAIOpenAIResponsesDefaultConfig(),
-  model: AxAIOpenAIModel.GPT4O,
+  model: AxAIOpenAIResponsesModel.GPT4O,
   temperature: 0.9,
 })
 
@@ -142,7 +140,7 @@ export class AxAIOpenAIResponsesBase<
 
 export interface AxAIOpenAIResponsesArgs<
   TName = 'openai-responses',
-  TModel = AxAIOpenAIModel,
+  TModel = AxAIOpenAIResponsesModel,
   TEmbedModel = AxAIOpenAIEmbedModel,
   TChatReq extends
     AxAIOpenAIResponsesRequest<TModel> = AxAIOpenAIResponsesRequest<TModel>,
@@ -158,9 +156,9 @@ export interface AxAIOpenAIResponsesArgs<
 }
 
 export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
-  AxAIOpenAIModel,
+  AxAIOpenAIResponsesModel,
   AxAIOpenAIEmbedModel,
-  AxAIOpenAIResponsesRequest<AxAIOpenAIModel>
+  AxAIOpenAIResponsesRequest<AxAIOpenAIResponsesModel>
 > {
   constructor({
     apiKey,
@@ -173,10 +171,11 @@ export class AxAIOpenAIResponses extends AxAIOpenAIResponsesBase<
       throw new Error('OpenAI API key not set')
     }
 
+    // Use the original OpenAI model info since it contains both chat and embed models
     modelInfo = [...axModelInfoOpenAI, ...(modelInfo ?? [])]
 
-    const supportFor = (model: AxAIOpenAIModel) => {
-      const mi = getModelInfo<AxAIOpenAIModel, AxAIOpenAIEmbedModel>({
+    const supportFor = (model: AxAIOpenAIResponsesModel) => {
+      const mi = getModelInfo<AxAIOpenAIResponsesModel, AxAIOpenAIEmbedModel>({
         model,
         modelInfo,
         models,

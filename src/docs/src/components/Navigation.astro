@@ -1,13 +1,9 @@
 ---
 const sections = [
-  {
-    name: 'start',
-    slug: '/',
-  },
-  {
-    name: 'guides',
-    slug: '/#02-guides/01-dsp',
-  },
+  //   {
+  //     name: 'guides',
+  //     slug: '/guides',
+  //   },
   {
     name: 'apidocs',
     slug: '/api',
@@ -16,76 +12,230 @@ const sections = [
 ---
 
 <nav
-  class="sticky top-0 z-50 backdrop-blur-md bg-warmGray-100/80 border-b border-gray-200 mb-8"
+  style="background: #ffffff; border-bottom: 1px solid #f1f3f4; position: sticky; top: 0; z-index: 100; backdrop-filter: blur(8px); background: rgba(255, 255, 255, 0.95); overflow-x: hidden;"
 >
-  <div class="max-w-6xl mx-auto">
-    <div class="flex items-center justify-between p-4">
-      <!-- Left Section: Logo/Title and GitHub -->
-      <div class="flex items-center space-x-3 md:space-x-6">
+  <div style="max-width: 1200px; margin: 0 auto; padding: 0 24px; width: 100%;">
+    <div
+      style="display: flex; align-items: center; justify-content: space-between; height: 72px; min-width: 0;"
+    >
+      <!-- Left Section: Logo & Badges -->
+      <div style="display: flex; align-items: left; gap: 16px;">
         <div
+          style="display: flex; align-items: center; gap: 8px; cursor: pointer;"
           id="logo-area"
-          class="flex items-center space-x-4 cursor-pointer hover:opacity-80 transition-opacity"
         >
-          <div class="w-2 h-8 bg-blue-400 animate-pulse"></div>
-          <div class="text-sm font-bold text-gray-700">AX</div>
+          <div
+            style="font-size: 24px; font-weight: 700; color: #000000; letter-spacing: -0.02em;"
+          >
+            <a href="/">ax.</a>
+          </div>
         </div>
+
+        <!-- Badges next to logo - Desktop -->
+        <div
+          style="display: flex; align-items: center; gap: 8px; flex-shrink: 0;"
+          class="desktop-badges"
+        >
+          <a
+            href="https://www.npmjs.com/package/@ax-llm/ax"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="display: flex; align-items: center; flex-shrink: 0;"
+          >
+            <img
+              src="https://img.shields.io/npm/v/@ax-llm/ax?style=for-the-badge&color=green"
+              alt="NPM Package"
+              style="height: 28px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+            />
+          </a>
+          <a
+            href="https://twitter.com/dosco"
+            target="_blank"
+            rel="noopener noreferrer"
+            style="display: flex; align-items: center; flex-shrink: 0;"
+          >
+            <img
+              src="https://img.shields.io/twitter/follow/dosco?style=for-the-badge&color=red"
+              alt="Twitter"
+              style="height: 28px; border-radius: 4px; max-width: 100%; object-fit: contain;"
+            />
+          </a>
+        </div>
+      </div>
+
+      <!-- Right Section: API Docs & GitHub Buttons -->
+      <div style="display: flex; align-items: center; gap: 12px;">
+        <a
+          href="https://deepwiki.com/ax-llm/ax"
+          target="_blank"
+          rel="noopener noreferrer"
+          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
+          onmouseover="this.style.background='#e9ecef';"
+          onmouseout="this.style.background='#f8f9fa';"
+          class="desktop-api-docs"
+        >
+          <span>DeepWiki</span>
+        </a>
+        <a
+          href="/api"
+          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #f8f9fa; color: #1a1a1a; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; border: 1px solid #e9ecef; transition: all 0.2s ease;"
+          onmouseover="this.style.background='#e9ecef';"
+          onmouseout="this.style.background='#f8f9fa';"
+          class="desktop-api-docs"
+        >
+          <span>API Docs</span>
+        </a>
 
         <a
           href="https://github.com/ax-llm/ax"
           target="_blank"
           rel="noopener noreferrer"
-          class="flex items-center space-x-2 px-3 py-1 rounded-full bg-lime-500 text-white hover:bg-lime-600 transition-colors"
+          style="display: flex; align-items: center; gap: 8px; padding: 10px 20px; background: #000000; color: #ffffff; text-decoration: none; font-size: 14px; font-weight: 500; border-radius: 8px; transition: all 0.2s ease;"
+          onmouseover="this.style.background='#333333';"
+          onmouseout="this.style.background='#000000';"
+          class="desktop-github"
         >
-          <svg
-            xmlns="http://www.w3.org/2000/svg"
-            width="24"
-            height="24"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-            class="inline-block"
-          >
-            <path
-              d="M9 19c-5 1.5-5-2.5-7-3m14 6v-3.87a3.37 3.37 0 0 0-.94-2.61c3.14-.35 6.44-1.54 6.44-7A5.44 5.44 0 0 0 20 4.77 5.07 5.07 0 0 0 19.91 1S18.73.65 16 2.48a13.38 13.38 0 0 0-7 0C6.27.65 5.09 1 5.09 1A5.07 5.07 0 0 0 5 4.77a5.44 5.44 0 0 0-1.5 3.78c0 5.42 3.3 6.61 6.44 7A3.37 3.37 0 0 0 9 18.13V22"
-            ></path>
-          </svg>
-          <span class="text-xs font-medium">GitHub</span>
+          <span>GitHub</span>
         </a>
-      </div>
 
-      <!-- Navigation Links -->
-      <div class="flex-1 px-4 md:px-8">
-        <div class="flex items-center space-x-6">
-          {
-            sections.map((section) => (
-              <div class="group relative">
-                <button class="nav-section-button text-xs text-gray-600 hover:text-blue-500 transition-colors py-2 flex items-center space-x-2">
-                  <span class="w-1 h-1 bg-gray-400 rounded-full group-hover:bg-blue-400" />
-                  <a href={section.slug}>
-                    <span>{section.name}</span>
-                  </a>
-                </button>
-              </div>
-            ))
-          }
-        </div>
+        <!-- Mobile Menu Button -->
+        <button
+          id="mobile-menu-btn"
+          style="display: none; flex-direction: column; gap: 4px; background: none; border: none; cursor: pointer; padding: 8px;"
+          class="mobile-menu-btn"
+        >
+          <div
+            style="width: 20px; height: 2px; background: #000000; transition: all 0.3s ease;"
+            class="line1"
+          >
+          </div>
+          <div
+            style="width: 20px; height: 2px; background: #000000; transition: all 0.3s ease;"
+            class="line2"
+          >
+          </div>
+          <div
+            style="width: 20px; height: 2px; background: #000000; transition: all 0.3s ease;"
+            class="line3"
+          >
+          </div>
+        </button>
       </div>
     </div>
-  </div>
 
-  <!-- Decorative Elements -->
-  <div
-    class="absolute bottom-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-400/20 to-transparent"
-  >
-  </div>
-  <div
-    class="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-blue-400/10 to-transparent"
-  >
+    <!-- Mobile Navigation Menu -->
+    <div
+      id="mobile-menu"
+      style="display: none; flex-direction: column; gap: 0; padding: 16px 0; border-top: 1px solid #f1f3f4; background: #ffffff;"
+      class="mobile-menu"
+    >
+      <a
+        href="https://deepwiki.com/ax-llm/ax"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
+      >
+        DeepWiki
+      </a>
+      <a
+        href="/api"
+        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0; border-bottom: 1px solid #f8f9fa;"
+      >
+        API Docs
+      </a>
+
+      <a
+        href="https://github.com/ax-llm/ax"
+        target="_blank"
+        rel="noopener noreferrer"
+        style="font-size: 16px; color: #4a4a4a; text-decoration: none; font-weight: 500; padding: 16px 0;"
+      >
+        GitHub
+      </a>
+    </div>
   </div>
 </nav>
+
+<style>
+  /* Ensure proper mobile viewport handling */
+  html,
+  body {
+    overflow-x: hidden;
+    max-width: 100vw;
+  }
+
+  /* Navigation container styles */
+  nav {
+    width: 100%;
+    box-sizing: border-box;
+  }
+
+  nav > div {
+    width: 100%;
+    max-width: 100%;
+    box-sizing: border-box;
+  }
+
+  /* Prevent badge overflow */
+  .desktop-badges img {
+    max-width: none;
+    height: 28px;
+  }
+
+  @media (max-width: 768px) {
+    .desktop-github,
+    .desktop-badges,
+    .desktop-api-docs {
+      display: none !important;
+    }
+
+    .mobile-menu-btn {
+      display: flex !important;
+    }
+
+    nav div:first-child {
+      padding: 0 16px !important;
+    }
+
+    /* Ensure mobile menu doesn't overflow */
+    .mobile-menu {
+      width: 100%;
+      box-sizing: border-box;
+      overflow-x: hidden;
+    }
+
+    .mobile-menu img {
+      max-width: calc(100vw - 64px);
+      height: auto;
+      max-height: 32px;
+    }
+  }
+
+  @media (max-width: 1024px) {
+    .desktop-badges {
+      display: none !important;
+    }
+  }
+
+  @media (min-width: 769px) {
+    .mobile-menu {
+      display: none !important;
+    }
+  }
+
+  /* Mobile menu animation */
+  .mobile-menu-open .line1 {
+    transform: rotate(-45deg) translate(-5px, 6px);
+  }
+
+  .mobile-menu-open .line2 {
+    opacity: 0;
+  }
+
+  .mobile-menu-open .line3 {
+    transform: rotate(45deg) translate(-5px, -6px);
+  }
+</style>
 
 <script>
   // Logo click to scroll to top
@@ -96,6 +246,24 @@ const sections = [
         top: 0,
         behavior: 'smooth',
       })
+    })
+  }
+
+  // Mobile menu toggle
+  const mobileMenuBtn = document.getElementById('mobile-menu-btn')
+  const mobileMenu = document.getElementById('mobile-menu')
+
+  if (mobileMenuBtn && mobileMenu) {
+    mobileMenuBtn.addEventListener('click', () => {
+      const isOpen = mobileMenu.style.display === 'flex'
+
+      if (isOpen) {
+        mobileMenu.style.display = 'none'
+        mobileMenuBtn.classList.remove('mobile-menu-open')
+      } else {
+        mobileMenu.style.display = 'flex'
+        mobileMenuBtn.classList.add('mobile-menu-open')
+      }
     })
   }
 </script>

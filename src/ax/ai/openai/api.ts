@@ -195,7 +195,7 @@ class AxAIOpenAIImpl<
       tools,
       tool_choice: toolsChoice,
       max_completion_tokens:
-        req.modelConfig?.maxTokens ?? this.config.maxTokens ?? 500,
+        req.modelConfig?.maxTokens ?? this.config.maxTokens,
       temperature: req.modelConfig?.temperature ?? this.config.temperature,
       top_p: req.modelConfig?.topP ?? this.config.topP ?? 1,
       n: req.modelConfig?.n ?? this.config.n,
@@ -255,11 +255,11 @@ class AxAIOpenAIImpl<
     }
 
     // Then, override based on prompt-specific config
-    if (config.thinkingTokenBudget) {
+    if (config?.thinkingTokenBudget) {
       switch (config.thinkingTokenBudget) {
-        case 'disable':
-          reqValue.reasoning_effort = undefined; // Explicitly set to undefined
-          break;
+        case 'none':
+          reqValue.reasoning_effort = undefined // Explicitly set to undefined
+          break
         case 'minimal':
           reqValue.reasoning_effort = 'low'
           break
@@ -456,16 +456,19 @@ const mapFinishReason = (
 function createMessages<TModel>(
   req: Readonly<AxInternalChatRequest<TModel>>
 ): AxAIOpenAIChatRequest<TModel>['messages'] {
+  type UserContent = Extract<
+    AxAIOpenAIChatRequest<TModel>['messages'][number],
+    { role: 'user' }
+  >['content']
+
   return req.chatPrompt.map((msg) => {
     switch (msg.role) {
       case 'system':
         return { role: 'system' as const, content: msg.content }
+
       case 'user':
-        if (Array.isArray(msg.content)) {
-          return {
-            role: 'user' as const,
-            name: msg.name,
-            content: msg.content.map((c) => {
+        const content: UserContent = Array.isArray(msg.content)
+          ? msg.content.map((c) => {
               switch (c.type) {
                 case 'text':
                   return { type: 'text' as const, text: c.text }
@@ -486,27 +489,48 @@ function createMessages<TModel>(
                 default:
                   throw new Error('Invalid content type')
               }
-            }),
+            })
+          : msg.content
+        return {
+          role: 'user' as const,
+          ...(msg.name ? { name: msg.name } : {}),
+          content,
+        }
+
+      case 'assistant':
+        const toolCalls = msg.functionCalls?.map((v) => ({
+          id: v.id,
+          type: 'function' as const,
+          function: {
+            name: v.function.name,
+            arguments:
+              typeof v.function.params === 'object'
+                ? JSON.stringify(v.function.params)
+                : v.function.params,
+          },
+        }))
+
+        if (toolCalls && toolCalls.length > 0) {
+          return {
+            role: 'assistant' as const,
+            ...(msg.content ? { content: msg.content } : {}),
+            name: msg.name,
+            tool_calls: toolCalls,
           }
         }
-        return { role: 'user' as const, content: msg.content, name: msg.name }
-      case 'assistant':
+
+        if (!msg.content) {
+          throw new Error(
+            'Assistant content is required when no tool calls are provided'
+          )
+        }
+
         return {
           role: 'assistant' as const,
-          content: msg.content as string,
-          name: msg.name,
-          tool_calls: msg.functionCalls?.map((v) => ({
-            id: v.id,
-            type: 'function' as const,
-            function: {
-              name: v.function.name,
-              arguments:
-                typeof v.function.params === 'object'
-                  ? JSON.stringify(v.function.params)
-                  : v.function.params,
-            },
-          })),
+          content: msg.content,
+          ...(msg.name ? { name: msg.name } : {}),
         }
+
       case 'function':
         return {
           role: 'tool' as const,

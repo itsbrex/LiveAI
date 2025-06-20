@@ -171,7 +171,7 @@ describe('MemoryImpl', () => {
 
     memory.addResult(emptyResult)
 
-    expect(memory.history().length).toBe(0)
+    expect(memory.history().length).toBe(1)
   })
 
   it('updateResult should modify last assistant message', () => {
@@ -211,17 +211,10 @@ describe('MemoryImpl', () => {
     }
 
     memory.add(userMessage)
-    memory.updateResult(update)
 
-    const history = memory.history()
-    expect(history.length).toBe(2)
-    expect(history[0]).toEqual(userMessage)
-
-    const lastMessage = history[1]
-    if (!lastMessage || lastMessage.role !== 'assistant') {
-      throw new Error('Last message is not a valid assistant message')
-    }
-    expect(lastMessage.content).toBe(update.content)
+    expect(() => memory.updateResult(update)).toThrow(
+      'No assistant message to update'
+    )
   })
 
   it('addTag should add tag to last message', () => {
@@ -322,5 +315,84 @@ describe('MemoryImpl', () => {
 
     const last = memory.getLast()
     expect(last?.chat).toEqual(messages[1])
+  })
+
+  it('updateResult should not duplicate logging for streaming function calls', () => {
+    const loggedMessages: string[] = []
+    const mockLogger = (message: string) => {
+      loggedMessages.push(message)
+    }
+
+    const memory = new MemoryImpl(10, { debug: true })
+    // Override the default logger for testing
+    const originalWrite = process.stdout.write
+    process.stdout.write = mockLogger as typeof process.stdout.write
+
+    try {
+      // Add initial assistant message
+      memory.addResult({
+        content: '',
+        functionCalls: [],
+      })
+
+      // Clear logged messages from addResult
+      loggedMessages.length = 0
+
+      // Simulate streaming function call with delta
+      memory.updateResult({
+        content: '',
+        functionCalls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: {
+              name: 'getCurrentWeather',
+              params: '{"location":"San Francisco","units":"imperial"}',
+            },
+          },
+        ],
+        delta: '{"location":"San Francisco","units":"imperial"}',
+      })
+
+      // Should only log the delta, not the complete function call
+      expect(loggedMessages).toHaveLength(1)
+      expect(loggedMessages[0]).toContain(
+        '{"location":"San Francisco","units":"imperial"}'
+      )
+      // Should be green (responseContent color) since it's a delta
+      expect(loggedMessages[0]).toContain('\x1B[92m')
+
+      // Reset logged messages
+      loggedMessages.length = 0
+
+      // Simulate final update without delta (function call complete)
+      memory.updateResult({
+        content: '',
+        functionCalls: [
+          {
+            id: 'call_1',
+            type: 'function',
+            function: {
+              name: 'getCurrentWeather',
+              params: '{"location":"San Francisco","units":"imperial"}',
+            },
+          },
+        ],
+      })
+
+      // Should log the complete function call (function name + parameters + end marker = 3 messages)
+      expect(loggedMessages).toHaveLength(3)
+      expect(loggedMessages[0]).toContain('[1] getCurrentWeather') // Function name with index
+      expect(loggedMessages[1]).toContain(
+        '{"location":"San Francisco","units":"imperial"}'
+      )
+      expect(loggedMessages[2]).toBe('\n') // functionEnd marker with newline
+      // Function name should be white bright, args should be blue
+      expect(loggedMessages[0]).toContain('\x1B[97m') // whiteBright
+      expect(loggedMessages[1]).toContain('\x1B[94m') // blueBright
+    } finally {
+      // Restore original stdout.write
+      process.stdout.write = originalWrite
+    }
   })
 })

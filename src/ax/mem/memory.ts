@@ -62,10 +62,13 @@ export class MemoryImpl {
     name,
     functionCalls,
   }: Readonly<AxChatResponseResult>): void {
-    if (!content && (!functionCalls || functionCalls.length === 0)) {
-      return
+    const isContentEmpty = typeof content === 'string' && content.trim() === ''
+
+    if (isContentEmpty) {
+      this.addMemory({ name, role: 'assistant', functionCalls })
+    } else {
+      this.addMemory({ content, name, role: 'assistant', functionCalls })
     }
-    this.addMemory({ content, name, role: 'assistant', functionCalls })
   }
 
   addResult({
@@ -89,23 +92,25 @@ export class MemoryImpl {
     const lastItem = this.data.at(-1)
 
     if (!lastItem || lastItem.chat.role !== 'assistant') {
-      this.addResultMessage({ content, name, functionCalls })
-    } else {
-      if ('content' in lastItem.chat && content) {
-        lastItem.chat.content = content
-      }
-      if ('name' in lastItem.chat && name) {
-        lastItem.chat.name = name
-      }
-      if ('functionCalls' in lastItem.chat && functionCalls) {
-        lastItem.chat.functionCalls = functionCalls
-      }
+      throw new Error('No assistant message to update')
+    }
+
+    if (typeof content === 'string' && content.trim() !== '') {
+      lastItem.chat.content = content
+    }
+
+    if (name && name.trim() !== '') {
+      lastItem.chat.name = name
+    }
+
+    if (functionCalls && functionCalls.length > 0) {
+      lastItem.chat.functionCalls = functionCalls
     }
 
     if (this.options?.debug) {
       if (delta && typeof delta === 'string') {
         debugResponseDelta(delta)
-      } else if (lastItem) {
+      } else if (!delta && (content || functionCalls)) {
         debugResponse({ content, name, functionCalls })
       }
     }

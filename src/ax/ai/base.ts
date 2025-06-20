@@ -21,6 +21,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
   AxModelInfo,
   AxModelUsage,
@@ -47,7 +48,6 @@ export interface AxBaseAIArgs<TModel, TEmbedModel> {
 
 export const axBaseAIDefaultConfig = (): AxModelConfig =>
   structuredClone({
-    maxTokens: 2000,
     temperature: 0,
     topK: 40,
     topP: 0.9,
@@ -55,11 +55,19 @@ export const axBaseAIDefaultConfig = (): AxModelConfig =>
 
 export const axBaseAIDefaultCreativeConfig = (): AxModelConfig =>
   structuredClone({
-    maxTokens: 2000,
     temperature: 0.4,
     topP: 0.7,
     frequencyPenalty: 0.2,
   })
+
+// Default logger function that uses process.stdout.write
+const defaultLogger: AxLoggerFunction = (
+  message: string,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _options?: { tags?: string[] }
+) => {
+  process.stdout.write(message)
+}
 
 export class AxBaseAI<
   TModel,
@@ -79,6 +87,8 @@ export class AxBaseAI<
   private timeout?: AxAIServiceOptions['timeout']
   private excludeContentFromTrace?: boolean
   private models?: AxAIInputModelList<TModel, TEmbedModel>
+  private abortSignal?: AbortSignal
+  private logger: AxLoggerFunction = defaultLogger
 
   private modelInfo: readonly AxModelInfo[]
   private modelUsage?: AxModelUsage
@@ -200,6 +210,8 @@ export class AxBaseAI<
     this.timeout = options.timeout
     this.tracer = options.tracer
     this.excludeContentFromTrace = options.excludeContentFromTrace
+    this.abortSignal = options.abortSignal
+    this.logger = options.logger ?? defaultLogger
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -210,7 +222,13 @@ export class AxBaseAI<
       tracer: this.tracer,
       timeout: this.timeout,
       excludeContentFromTrace: this.excludeContentFromTrace,
+      abortSignal: this.abortSignal,
+      logger: this.logger,
     }
+  }
+
+  getLogger(): AxLoggerFunction {
+    return this.logger
   }
 
   getModelList(): AxAIModelList | undefined {
@@ -350,6 +368,11 @@ export class AxBaseAI<
       )
     }
 
+    // Check for showThoughts support
+    if (options?.showThoughts && !this.getFeatures(model).hasShowThoughts) {
+      throw new Error(`Model ${model as string} does not support showThoughts.`)
+    }
+
     // stream is true by default unless explicitly set to false
     modelConfig.stream =
       (options?.stream !== undefined ? options.stream : modelConfig.stream) ??
@@ -369,17 +392,19 @@ export class AxBaseAI<
             [axSpanAttributes.LLM_SYSTEM]: this.name,
             [axSpanAttributes.LLM_OPERATION_NAME]: 'chat',
             [axSpanAttributes.LLM_REQUEST_MODEL]: model as string,
-            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]: modelConfig.maxTokens,
+            [axSpanAttributes.LLM_REQUEST_MAX_TOKENS]:
+              modelConfig.maxTokens ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_TEMPERATURE]: modelConfig.temperature,
-            [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP,
-            [axSpanAttributes.LLM_REQUEST_TOP_K]: modelConfig.topK,
+            [axSpanAttributes.LLM_REQUEST_TOP_P]: modelConfig.topP ?? 'Not set',
+            [axSpanAttributes.LLM_REQUEST_TOP_K]: modelConfig.topK ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_FREQUENCY_PENALTY]:
-              modelConfig.frequencyPenalty,
+              modelConfig.frequencyPenalty ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_PRESENCE_PENALTY]:
-              modelConfig.presencePenalty,
+              modelConfig.presencePenalty ?? 'Not set',
             [axSpanAttributes.LLM_REQUEST_STOP_SEQUENCES]:
-              modelConfig.stopSequences?.join(', '),
-            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]: modelConfig.stream,
+              modelConfig.stopSequences?.join(', ') ?? 'Not set',
+            [axSpanAttributes.LLM_REQUEST_LLM_IS_STREAMING]:
+              modelConfig.stream ?? 'Not set',
           },
         },
         options?.traceContext ?? context.active(),
@@ -450,6 +475,9 @@ export class AxBaseAI<
       functions = chatReq.functions.map((fn) => this.cleanupFunctionSchema(fn))
     }
 
+    // Validate chat prompt for empty content
+    validateChatPrompt(chatReq.chatPrompt)
+
     const req = {
       ...chatReq,
       model,
@@ -481,6 +509,7 @@ export class AxBaseAI<
           debug,
           fetch: this.fetch,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )
@@ -488,7 +517,11 @@ export class AxBaseAI<
     }
 
     if (debug) {
-      logChatRequest(req.chatPrompt, options?.debugHideSystemPrompt)
+      logChatRequest(
+        req.chatPrompt,
+        options?.debugHideSystemPrompt,
+        options?.logger ?? this.logger
+      )
     }
 
     const rt = options?.rateLimiter ?? this.rt
@@ -505,14 +538,6 @@ export class AxBaseAI<
           const res = respFn(resp, state)
           res.sessionId = options?.sessionId
 
-          if (options?.hideThought) {
-            res.results.forEach((result) => {
-              if (result.thought) {
-                result.thought = undefined
-              }
-            })
-          }
-
           if (!res.modelUsage) {
             res.modelUsage = {
               ai: this.name,
@@ -527,7 +552,7 @@ export class AxBaseAI<
           }
 
           if (debug) {
-            logResponse(res)
+            logResponse(res, options?.logger ?? this.logger)
           }
           return res
         }
@@ -535,7 +560,8 @@ export class AxBaseAI<
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const doneCb = async (_values: readonly AxChatResponse[]) => {
         if (debug) {
-          process.stdout.write('\n')
+          const logger = options?.logger ?? this.logger
+          logger('', { tags: ['responseEnd'] })
         }
         if (span?.isRecording()) {
           span.end()
@@ -556,14 +582,6 @@ export class AxBaseAI<
     }
     const res = this.aiImpl.createChatResp(rv as TChatResponse)
     res.sessionId = options?.sessionId
-
-    if (options?.hideThought) {
-      res.results.forEach((result) => {
-        if (result.thought) {
-          result.thought = undefined
-        }
-      })
-    }
 
     if (!res.modelUsage) {
       const tokenUsage = this.aiImpl.getTokenUsage()
@@ -586,7 +604,11 @@ export class AxBaseAI<
     }
 
     if (debug) {
-      logResponse(res)
+      logResponse(res, options?.logger ?? this.logger)
+    }
+
+    if (debug) {
+      this.logger('', { tags: ['responseEnd'] })
     }
 
     return res
@@ -683,6 +705,7 @@ export class AxBaseAI<
           fetch: this.fetch,
           timeout: this.timeout,
           span,
+          abortSignal: options?.abortSignal ?? this.abortSignal,
         },
         reqValue
       )
@@ -856,7 +879,22 @@ export function setChatResponseEvents(
     return
   }
 
-  for (const [index, result] of res.results.entries()) {
+  for (let index = 0; index < res.results.length; index++) {
+    const result = res.results[index]
+    if (!result) {
+      continue
+    }
+
+    // Skip empty results that have no meaningful content to avoid empty GEN_AI_CHOICE events
+    if (
+      !result.content &&
+      !result.thought &&
+      !result.functionCalls?.length &&
+      !result.finishReason
+    ) {
+      continue
+    }
+
     const toolCalls = result.functionCalls?.map((call) => {
       return {
         id: call.id,
@@ -884,6 +922,46 @@ export function setChatResponseEvents(
       index,
       message: JSON.stringify(message, null, 2),
     })
+  }
+}
+
+export function validateAxMessageArray<T>(values: T[]): void {
+  // Validate AxMessage array items
+  for (let i = 0; i < values.length; i++) {
+    const message = values[i]
+    if (!message || typeof message !== 'object') {
+      throw new Error(
+        `AxMessage array validation failed: Item at index ${i} is not a valid message object`
+      )
+    }
+    if (
+      'content' in message &&
+      typeof message.content === 'string' &&
+      message.content.trim() === ''
+    ) {
+      throw new Error(
+        `AxMessage array validation failed: Item at index ${i} has empty content`
+      )
+    }
+  }
+}
+
+function validateChatPrompt(
+  chatPrompt: Readonly<AxChatRequest['chatPrompt']>
+): void {
+  // Validate chat prompt for empty content
+  for (let i = 0; i < chatPrompt.length; i++) {
+    const message = chatPrompt[i]
+    if (
+      message &&
+      'content' in message &&
+      typeof message.content === 'string' &&
+      message.content.trim() === ''
+    ) {
+      throw new Error(
+        `Chat prompt validation failed: Message at index ${i} has empty content`
+      )
+    }
   }
 }
 

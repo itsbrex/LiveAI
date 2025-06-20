@@ -6,16 +6,14 @@ import {
   type Span,
   SpanKind,
   trace,
-  type Tracer,
 } from '@opentelemetry/api'
 
+import { validateAxMessageArray } from '../ai/base.js'
 import type {
   AxAIService,
-  AxChatRequest,
   AxChatResponse,
   AxChatResponseResult,
   AxFunction,
-  AxRateLimiterFunction,
 } from '../ai/types.js'
 import { mergeFunctionCalls } from '../ai/util.js'
 import { AxMemory } from '../mem/memory.js'
@@ -43,46 +41,27 @@ import {
 } from './fieldProcessor.js'
 import {
   type AxChatResponseFunctionCall,
-  type AxInputFunctionType,
   parseFunctionCalls,
   parseFunctions,
   processFunctions,
 } from './functions.js'
 import {
   type AxGenDeltaOut,
+  type AxProgramExamples,
   type AxProgramForwardOptions,
   type AxProgramStreamingForwardOptions,
   AxProgramWithSignature,
+  type AxSetExamplesOptions,
 } from './program.js'
 import { AxPromptTemplate } from './prompt.js'
 import type { AxIField, AxSignature } from './sig.js'
 import type {
   AxGenIn as AxGenInType,
   AxGenOut as AxGenOutType,
+  AxMessage,
 } from './types.js'
 import { mergeDeltas } from './util.js'
 import { handleValidationError, ValidationError } from './validate.js'
-
-export interface AxGenOptions {
-  maxRetries?: number
-  maxSteps?: number
-  mem?: AxAIMemory
-  tracer?: Tracer
-  rateLimiter?: AxRateLimiterFunction
-  stream?: boolean
-  description?: string
-  thoughtFieldName?: string
-
-  functions?: AxInputFunctionType
-  functionCall?: AxChatRequest['functionCall']
-  stopFunction?: string
-  promptTemplate?: typeof AxPromptTemplate
-  asserts?: AxAssertion[]
-  streamingAsserts?: AxStreamingAssertion[]
-  fastFail?: boolean
-  excludeContentFromTrace?: boolean
-  traceLabel?: string
-}
 
 export type AxGenerateResult<OUT extends AxGenOutType> = OUT & {
   thought?: string
@@ -111,13 +90,13 @@ export interface AxStreamingEvent<T> {
 }
 
 export class AxGen<
-  IN extends AxGenInType = AxGenInType,
+  IN extends AxGenInType,
   OUT extends AxGenerateResult<AxGenOutType> = AxGenerateResult<AxGenOutType>,
 > extends AxProgramWithSignature<IN, OUT> {
   private promptTemplate: AxPromptTemplate
   private asserts: AxAssertion[]
   private streamingAsserts: AxStreamingAssertion[]
-  private options?: Omit<AxGenOptions, 'functions'>
+  private options?: Omit<AxProgramForwardOptions, 'functions'>
   private functions?: AxFunction[]
   private functionsExecuted: Set<string> = new Set<string>()
   private fieldProcessors: AxFieldProcessor[] = []
@@ -127,16 +106,20 @@ export class AxGen<
   private thoughtFieldName: string
 
   constructor(
-    signature: Readonly<AxSignature | string>,
-    options?: Readonly<AxGenOptions>
+    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>,
+    options?: Readonly<AxProgramForwardOptions>
   ) {
     super(signature, { description: options?.description })
 
     this.options = options
     this.thoughtFieldName = options?.thoughtFieldName ?? 'thought'
+    const promptTemplateOptions = {
+      functions: options?.functions,
+      thoughtFieldName: this.thoughtFieldName,
+    }
     this.promptTemplate = new (options?.promptTemplate ?? AxPromptTemplate)(
       this.signature,
-      options?.functions
+      promptTemplateOptions
     )
     this.asserts = this.options?.asserts ?? []
     this.streamingAsserts = this.options?.streamingAsserts ?? []
@@ -225,6 +208,7 @@ export class AxGen<
       functions: _functions,
       functionCall: _functionCall,
       thinkingTokenBudget,
+      showThoughts,
     } = options ?? {}
 
     const chatPrompt = mem?.history(sessionId) ?? []
@@ -260,9 +244,11 @@ export class AxGen<
         traceId,
         rateLimiter,
         stream,
-        debug: false,
+        debug: false, // we do our own debug logging
         thinkingTokenBudget,
+        showThoughts,
         traceContext,
+        abortSignal: options?.abortSignal,
       }
     )
 
@@ -286,7 +272,6 @@ export class AxGen<
   }>) {
     const { sessionId, traceId, functions: _functions } = options ?? {}
     const fastFail = options?.fastFail ?? this.options?.fastFail
-
     const model = options.model
 
     // biome-ignore lint/complexity/useFlatMap: you cannot use flatMap here
@@ -314,6 +299,8 @@ export class AxGen<
         fastFail,
         span,
       })
+
+      this.getLogger(ai, options)?.('', { tags: ['responseEnd'] })
     } else {
       yield await this.processResponse({
         ai,
@@ -351,6 +338,14 @@ export class AxGen<
 
     let content = ''
 
+    mem.addResult(
+      {
+        content: '',
+        functionCalls: [],
+      },
+      sessionId
+    )
+
     for await (const v of res) {
       const result = v.results[0]
       if (!result) {
@@ -380,7 +375,6 @@ export class AxGen<
         }
 
         content += result.content
-
         mem.updateResult(
           { name: result.name, content, delta: result.content },
           sessionId
@@ -576,7 +570,7 @@ export class AxGen<
 
   private async *_forward2(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions>,
     span?: Span,
     traceContext?: Context
@@ -587,9 +581,11 @@ export class AxGen<
 
     const maxRetries = options.maxRetries ?? this.options?.maxRetries ?? 10
     const maxSteps = options.maxSteps ?? this.options?.maxSteps ?? 10
-    const debug = options.debug ?? ai.getOptions().debug
     const debugHideSystemPrompt = options.debugHideSystemPrompt
-    const memOptions = { debug, debugHideSystemPrompt }
+    const memOptions = {
+      debug: this.isDebug(ai, options),
+      debugHideSystemPrompt,
+    }
 
     const mem =
       options.mem ?? this.options?.mem ?? new AxMemory(10000, memOptions)
@@ -597,17 +593,40 @@ export class AxGen<
     let err: ValidationError | AxAssertionError | undefined
 
     if (options?.functions && options.functions.length > 0) {
-      const promptTemplate = this.options?.promptTemplate ?? AxPromptTemplate
-      this.promptTemplate = new promptTemplate(
+      const promptTemplateClass =
+        this.options?.promptTemplate ?? AxPromptTemplate
+      const currentPromptTemplateOptions = {
+        functions: options.functions,
+        thoughtFieldName: this.thoughtFieldName,
+      }
+      this.promptTemplate = new promptTemplateClass(
         this.signature,
-        options.functions
+        currentPromptTemplateOptions
       )
     }
 
-    const prompt = this.promptTemplate.render<IN>(values, {
-      examples: this.examples,
-      demos: this.demos,
-    })
+    // New logic:
+    let prompt
+    if (Array.isArray(values)) {
+      // Validate AxMessage array items
+      validateAxMessageArray(values)
+
+      // We'll need to decide how to get the 'individual' IN for demos/examples if needed by render.
+      // For now, assume render will handle the array directly.
+      // The generic type for render might need to be T (from render<T extends ...>)
+      // and T will be inferred as ReadonlyArray<AxMessage>
+      prompt = this.promptTemplate.render(values, {
+        examples: this.examples,
+        demos: this.demos,
+      })
+    } else {
+      // Ensure `values` here is correctly inferred as AxGenInType
+      prompt = this.promptTemplate.render(values as AxGenInType, {
+        // Cast if necessary
+        examples: this.examples,
+        demos: this.demos,
+      })
+    }
 
     mem.add(prompt, options?.sessionId)
 
@@ -639,10 +658,7 @@ export class AxGen<
             continue multiStepLoop
           }
 
-          if (debug) {
-            process.stdout.write('\n')
-          }
-
+          this.getLogger(ai, options)?.('', { tags: ['responseEnd'] })
           return
         } catch (e) {
           let errorFields: AxIField[] | undefined
@@ -731,7 +747,7 @@ export class AxGen<
 
   public async *_forward1(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options: Readonly<AxProgramForwardOptions>
   ) {
     const tracer =
@@ -763,6 +779,7 @@ export class AxGen<
       ...(options?.thinkingTokenBudget
         ? { thinking_token_budget: options.thinkingTokenBudget }
         : {}),
+      ...(options?.showThoughts ? { show_thoughts: options.showThoughts } : {}),
       ...(options?.maxSteps ? { max_steps: options.maxSteps } : {}),
       ...(options?.maxRetries ? { max_retries: options.maxRetries } : {}),
       ...(options?.fastFail ? { fast_fail: options.fastFail } : {}),
@@ -807,7 +824,7 @@ export class AxGen<
 
   public override async forward(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramForwardOptions>
   ): Promise<OUT> {
     const generator = this._forward1(ai, values, options ?? {})
@@ -829,13 +846,37 @@ export class AxGen<
 
   override async *streamingForward(
     ai: Readonly<AxAIService>,
-    values: IN,
+    values: IN | AxMessage<IN>[],
     options?: Readonly<AxProgramStreamingForwardOptions>
   ) {
     yield* this._forward1(ai, values, {
       ...options,
       stream: true,
     })
+  }
+
+  public override setExamples(
+    examples: Readonly<AxProgramExamples>,
+    options?: Readonly<AxSetExamplesOptions>
+  ) {
+    super.setExamples(examples, options)
+    // No need to update prompt template - all fields can be missing in examples
+  }
+
+  private isDebug(
+    ai: Readonly<AxAIService>,
+    options?: Readonly<AxProgramForwardOptions>
+  ) {
+    return (
+      options?.debug ?? this.options?.debug ?? ai.getOptions().debug ?? false
+    )
+  }
+
+  private getLogger(
+    ai: Readonly<AxAIService>,
+    options?: Readonly<AxProgramForwardOptions>
+  ) {
+    return options?.logger ?? this.options?.logger ?? ai.getLogger()
   }
 }
 

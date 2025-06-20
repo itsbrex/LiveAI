@@ -12,6 +12,7 @@ import type {
   AxChatResponse,
   AxEmbedRequest,
   AxEmbedResponse,
+  AxLoggerFunction,
   AxModelConfig,
   AxModelInfoWithProvider,
 } from '../types.js'
@@ -61,13 +62,19 @@ export class AxMockAIService implements AxAIService {
     this.config.id = this.config.id ?? crypto.randomUUID()
   }
   getLastUsedChatModel(): unknown {
-    throw new Error('Method not implemented.')
+    return this.config.modelInfo?.name ?? 'mock-model'
   }
   getLastUsedEmbedModel(): unknown {
-    throw new Error('Method not implemented.')
+    return this.config.embedModelInfo?.name ?? 'mock-embed-model'
   }
   getLastUsedModelConfig(): AxModelConfig | undefined {
-    throw new Error('Method not implemented.')
+    return this.config.modelInfo
+      ? {
+          maxTokens: this.config.modelInfo.maxTokens,
+          temperature: 0.7, // Default temperature
+          stream: this.config.features?.streaming ?? false,
+        }
+      : undefined
   }
 
   getName(): string {
@@ -177,6 +184,15 @@ export class AxMockAIService implements AxAIService {
 
   getOptions(): Readonly<AxAIServiceOptions> {
     return this.config.options ?? {}
+  }
+
+  getLogger(): AxLoggerFunction {
+    return (
+      this.config.options?.logger ??
+      ((message: string) => {
+        process.stdout.write(message)
+      })
+    )
   }
 
   private updateMetrics(type: 'chat' | 'embed'): void {

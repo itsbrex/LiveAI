@@ -2,10 +2,7 @@ import type { AxModelConfig } from '../types.js'
 
 export enum AxAIOpenAIModel {
   O1 = 'o1',
-  O3 = 'o3',
   O1Mini = 'o1-mini',
-  O3Mini = 'o3-mini',
-  O4Mini = 'o4-mini',
   GPT4 = 'gpt-4',
   GPT41 = 'gpt-4.1',
   GPT41Mini = 'gpt-4.1-mini',
@@ -97,7 +94,7 @@ export type AxAIOpenAIChatRequest<TModel> = {
           | string
           | (
               | {
-                  type: 'text'
+                  type: string
                   text: string
                 }
               | {
@@ -108,14 +105,36 @@ export type AxAIOpenAIChatRequest<TModel> = {
                   type: 'input_audio'
                   input_audio: { data: string; format?: 'wav' }
                 }
+              | {
+                  type: 'file'
+                  file: {
+                    file_data: string
+                    filename: string
+                  }
+                }
             )[]
         name?: string
       }
     | {
         role: 'assistant'
-        content: string
+        content:
+          | string
+          | {
+              type: string
+              text: string
+            }
         name?: string
-        tool_calls?: {
+      }
+    | {
+        role: 'assistant'
+        content?:
+          | string
+          | {
+              type: string
+              text: string
+            }
+        name?: string
+        tool_calls: {
           type: 'function'
           function: {
             name: string
@@ -140,7 +159,7 @@ export type AxAIOpenAIChatRequest<TModel> = {
     | 'required'
     | { type: 'function'; function: { name: string } }
   response_format?: { type: string }
-  max_completion_tokens: number
+  max_completion_tokens?: number
   temperature?: number
   top_p?: number
   n?: number
