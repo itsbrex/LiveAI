@@ -5281,6 +5281,7 @@ describe('final()/askClarification() as runtime globals', () => {
 
   it('should round-trip runtime state with getState()/setState() and show restored prompt context', async () => {
     const actorActionLogs: string[] = [];
+    const actorRuntimeStates: (string | undefined)[] = [];
     let actorCallCount = 0;
 
     const ai = new AxMockAIService({
@@ -5296,9 +5297,10 @@ describe('final()/askClarification() as runtime globals', () => {
     const anyAgent = testAgent as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
-      values: { actionLog: string }
+      values: { actionLog: string; liveRuntimeState?: string }
     ) => {
       actorActionLogs.push(values.actionLog);
+      actorRuntimeStates.push(values.liveRuntimeState);
       actorCallCount++;
 
       if (actorCallCount === 1) {
@@ -5355,9 +5357,10 @@ describe('final()/askClarification() as runtime globals', () => {
 
     expect(resumed.reply).toBe('Trip to Lisbon on June 1-5 under $1200');
     expect(actorActionLogs[1]).toContain('Runtime Restore:');
-    expect(actorActionLogs[1]).toContain('Live Runtime State:');
-    expect(actorActionLogs[1]).toContain('budget: number = 1200');
-    expect(actorActionLogs[1]).toContain('draftReply');
+    expect(actorActionLogs[1]).not.toContain('Live Runtime State:');
+    expect(actorRuntimeStates[1]).toBeDefined();
+    expect(actorRuntimeStates[1]).toContain('budget: number = 1200');
+    expect(actorRuntimeStates[1]).toContain('draftReply');
     expect(actorActionLogs[1]).toContain(
       'askClarification("What dates should I use?")'
     );
@@ -5664,9 +5667,7 @@ describe('final()/askClarification() as runtime globals', () => {
     expect(resumed.reply).toBe('Trip to Lisbon on June 1-5 under $1200');
     expect(actorActionLogs[1]).toContain('Runtime Restore:');
     expect(actorActionLogs[1]).not.toContain('Live Runtime State:');
-    expect(actorActionLogs[1]).toContain(
-      'Live Runtime State rendering is disabled for this run'
-    );
+    expect(actorActionLogs[1]).not.toContain('liveRuntimeState');
   });
 
   it('should fail getState() clearly when the runtime cannot export snapshots', async () => {

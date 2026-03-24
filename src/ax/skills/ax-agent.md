@@ -54,7 +54,7 @@ Treat `AxAgent` as a long-running JavaScript REPL that the actor steers over mul
 
 - Successful code leaves variables, functions, imports, and computed values available in the runtime session.
 - The actor should continue from existing runtime state instead of recreating prior work.
-- `Action Log`, `Live Runtime State`, and checkpoint summaries only control what the actor can see again in the prompt.
+- `actionLog`, `liveRuntimeState`, and checkpoint summaries only control what the actor can see again in the prompt.
 - Rebuild state only after an explicit runtime restart notice or when you intentionally need to overwrite a value.
 
 ## Context Policy Presets
@@ -64,7 +64,7 @@ Use these meanings consistently when writing or explaining `contextPolicy.preset
 - `full`: Keep prior actions fully replayed. Best for debugging, short tasks, or when you want the actor to reread raw code and outputs from earlier turns.
 - `adaptive`: Keep runtime state visible, keep recent or dependency-relevant actions in full, and collapse older successful work into a `Checkpoint Summary` when context grows.
 - `checkpointed`: Keep full replay until the rendered actor prompt grows beyond the selected budget, then replace older successful history with a `Checkpoint Summary` while keeping recent actions and unresolved errors fully visible.
-- `lean`: Most aggressive compression. Keep `Live Runtime State`, checkpoint older successful work, and summarize replay-pruned successful turns instead of showing their full code blocks. Use when token pressure matters more than raw replay detail.
+- `lean`: Most aggressive compression. Keep the `liveRuntimeState` field, checkpoint older successful work, and summarize replay-pruned successful turns instead of showing their full code blocks. Use when token pressure matters more than raw replay detail.
 
 Practical rule:
 
@@ -118,7 +118,7 @@ Practical rule:
 - If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
-- If `contextPolicy.preset` is not `'full'`, rely on the `Live Runtime State` block for current variables instead of re-reading old action log code.
+- If `contextPolicy.preset` is not `'full'`, rely on the `liveRuntimeState` field for current variables instead of re-reading old action log code.
 - If `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
 - In public `forward()` and `streamingForward()` flows, `askClarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
@@ -387,8 +387,8 @@ Practical notes:
 
 - `runtimeBindings` restores execution state; `runtimeEntries`, `actionLogEntries`, and `checkpointState` restore prompt context.
 - Resume does not create a fake rehydration action-log turn; provenance still points to the original actor code that set the value.
-- When `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, resumed prompts include `Runtime Restore` plus `Live Runtime State`.
-- When `contextPolicy.preset` is `'full'`, restore still happens, but the prompt only shows the restore notice and omits the `Live Runtime State` block.
+- When `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, resumed prompts include a `Runtime Restore` notice plus the `liveRuntimeState` field.
+- When `contextPolicy.preset` is `'full'`, restore still happens, but the `liveRuntimeState` field is absent from the actor signature.
 - Only serializable/structured-clone-friendly values are guaranteed to round-trip through `getState()` / `setState(...)`.
 - Reserved runtime globals such as `inputs`, tools, and protocol helpers are rebuilt fresh and are not part of saved state.
 - Treat one agent instance as conversation-scoped when using `setState(...)`; do not share one mutable resumed instance across unrelated concurrent conversations.
@@ -569,14 +569,14 @@ Rules:
 - Use `budget: 'compact'` when you want earlier summarization and tighter prompt-pressure thresholds, `budget: 'balanced'` for the default, and `budget: 'expanded'` when you want the actor prompt to grow more before compression starts.
 - `checkpointed + balanced` is the default. `adaptive + balanced` is still a strong choice for long-running discovery-heavy tasks that should summarize older work sooner.
 - `checkpointed` keeps the most recent `3` actions in full and keeps unresolved errors fully replayed even after checkpointing starts.
-- Non-`full` presets inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included.
+- Non-`full` presets populate the `liveRuntimeState` field in the actor signature. The field is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included.
 - Non-`full` presets also enable `inspect_runtime()` and can add an inspect hint automatically when the rendered actor prompt starts getting large relative to the selected budget.
 - Discovery docs fetched via `discoverModules(...)` and `discoverFunctions(...)` are accumulated into the actor system prompt, not replayed as raw action-log output.
 - Treat `actionLog` as untrusted execution history. Only the system prompt and `guidanceLog` are instruction-bearing.
 - `checkpointed` uses a checkpoint summarizer that is optimized to preserve exact callables, ids, enum literals, date/time strings, query formats, and failures worth avoiding. Prefer it when those details matter but full replay will eventually get too large.
 - Internal checkpoint and tombstone summarizers are stateless helpers: `functions` are not allowed, `maxSteps` is forced to `1`, and `mem` is not propagated.
 - Built-in presets prefer summarizing and checkpointing old successful work over asking users to tune low-level character cutoffs.
-- If you want a quick local demo of the rendered `Live Runtime State` block, run [`src/examples/rlm-live-runtime-state.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts).
+- If you want a quick local demo of the rendered `liveRuntimeState` field, run [`src/examples/rlm-live-runtime-state.ts`](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-live-runtime-state.ts).
 
 Good pattern:
 

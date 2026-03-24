@@ -93,13 +93,7 @@ export function buildRuntimeRestoreNotice(
     lines.splice(
       2,
       0,
-      '- Live Runtime State below reflects the restored bindings.'
-    );
-  } else {
-    lines.splice(
-      2,
-      0,
-      '- Live Runtime State rendering is disabled for this run, but the restored bindings are available in the runtime session.'
+      '- The liveRuntimeState field reflects the restored bindings.'
     );
   }
   if (snapshotOnlyCount > 0) {

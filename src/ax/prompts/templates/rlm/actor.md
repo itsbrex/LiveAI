@@ -152,7 +152,7 @@ Match field names to **{{ responderOutputFieldTitles }}** so the responder can m
 - Use `inspect_runtime()` to see what's currently defined.
 {{ /if }}
 {{ if hasLiveRuntimeState }}
-- `Live Runtime State` block is the source of truth for current session state.
+- The `liveRuntimeState` field is the source of truth for current session state.
 {{ /if }}
 {{ if hasCompressedActionReplay }}
 - Prior actions may be summarized — only rely on code still shown in full.

@@ -805,17 +805,15 @@ describe('buildActionLog', () => {
     expect(log).toContain('TypeError: bad query');
   });
 
-  it('should include a live runtime state block in minimal mode', () => {
+  it('should not include live runtime state in action log (now a separate field)', () => {
     const entries = [makeSuccessEntry(1, 'const total = 5', '5')];
     const log = buildActionLogWithPolicy(entries, {
       actionReplay: 'minimal',
       recentFullActions: 0,
-      stateSummary: 'total: number = 5',
       checkpointSummary: 'Objective: inspect totals\nDurable state: total',
       checkpointTurns: [1],
     });
-    expect(log).toContain('Live Runtime State:');
-    expect(log).toContain('total: number = 5');
+    expect(log).not.toContain('Live Runtime State:');
     expect(log).toContain('Checkpoint Summary:');
   });
 
@@ -830,7 +828,6 @@ describe('buildActionLog', () => {
     const log = buildActionLogWithPolicy(entries, {
       actionReplay: 'minimal',
       recentFullActions: 0,
-      stateSummary: '(no user variables)',
     });
 
     expect(log).toContain('[SUMMARY]: Explore step.');
@@ -854,7 +851,7 @@ describe('buildActionLog', () => {
     expect(log).not.toContain('```javascript');
   });
 
-  it('should report replay-history chars without counting live runtime state', () => {
+  it('should report replay-history chars matching rendered log (state is now separate)', () => {
     const entries = [
       makeSuccessEntry(1, 'const total = 5', '5'),
       makeSuccessEntry(2, 'console.log(total)', '5'),
@@ -866,12 +863,11 @@ describe('buildActionLog', () => {
     const renderedLog = buildActionLogWithPolicy(entries, {
       actionReplay: 'adaptive',
       recentFullActions: 1,
-      stateSummary:
-        'total: number = 5\nlongState: string = "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"',
     });
 
     expect(replayPlan.historyChars).toBe(replayPlan.historyText.length);
-    expect(renderedLog.length).toBeGreaterThan(replayPlan.historyChars);
+    // With stateSummary removed from actionLog, rendered log should match history chars
+    expect(renderedLog).toBe(replayPlan.historyText);
   });
 });
 

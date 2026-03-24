@@ -164,7 +164,7 @@ describe('template integration', () => {
       'If a `Delegated Context` block appears, data is injected as named globals'
     );
     expect(actorDefinition).toContain(
-      '`Live Runtime State` block is the source of truth'
+      '`liveRuntimeState` field is the source of truth'
     );
     expect(actorDefinition).toContain('Prior actions may be summarized');
   });
