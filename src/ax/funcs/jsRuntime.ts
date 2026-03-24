@@ -1029,7 +1029,20 @@ export class AxJSRuntime implements AxCodeRuntime {
         Promise.resolve()
           .then(() => fn(...(typedMsg.args ?? [])))
           .then((value) => {
-            worker?.postMessage({ type: 'fn-result', id: typedMsg.id, value });
+            try {
+              worker?.postMessage({
+                type: 'fn-result',
+                id: typedMsg.id,
+                value,
+              });
+            } catch {
+              // Non-cloneable value (e.g. contains a Promise); fall back to string.
+              worker?.postMessage({
+                type: 'fn-result',
+                id: typedMsg.id,
+                value: String(value),
+              });
+            }
           })
           .catch((err: Error) => {
             if (shouldBubbleError?.(err)) {

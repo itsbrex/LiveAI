@@ -1380,7 +1380,13 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       let observed = false;
       const basePromise = new Promise((resolve, reject) => {
         _fnPending.set(id, { resolve, reject });
-        _send({ type: 'fn-call', id, name, args: normalizedArgs });
+        try {
+          _send({ type: 'fn-call', id, name, args: normalizedArgs });
+        } catch (err) {
+          // Args contain a non-cloneable value (e.g. a Promise). Reject immediately.
+          _fnPending.delete(id);
+          reject(err);
+        }
       });
 
       const originalThen = basePromise.then.bind(basePromise);
