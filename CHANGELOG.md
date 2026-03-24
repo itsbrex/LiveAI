@@ -1,5 +1,20 @@
 # Changelog
 
+## [19.0.33](///compare/19.0.31...19.0.32) (2026-03-24)
+
+### Bug Fixes
+
+* handle DataCloneError in JS runtime worker message passing 8f54922
+## [19.0.32](///compare/19.0.31...19.0.32) (2026-03-24)
+
+### Features
+
+* improvements to the live runtime state system 0ed618d
+
+### Bug Fixes
+
+* various rlm runtime fixes 929939e
+
 ## [19.0.32](///compare/19.0.30...19.0.31) (2026-03-24)
 
 ### Features
