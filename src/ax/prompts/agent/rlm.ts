@@ -241,8 +241,10 @@ export interface AxRLMConfig {
   sharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
-  /** Cap on recursive sub-agent calls (default: 50). */
+  /** Global cap on recursive sub-agent calls across all descendants (default: 100). */
   maxSubAgentCalls?: number;
+  /** Per-child cap on recursive sub-agent calls (default: 50). */
+  maxSubAgentCallsPerChild?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */

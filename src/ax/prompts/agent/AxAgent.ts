@@ -95,6 +95,7 @@ import {
   computeEffectiveChatBudget,
   DEFAULT_RLM_BATCH_CONCURRENCY,
   DEFAULT_RLM_MAX_LLM_CALLS,
+  DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD,
   DEFAULT_RLM_MAX_RECURSION_DEPTH,
   DEFAULT_RLM_MAX_TURNS,
   getActorModelConsecutiveErrorTurns,
@@ -579,8 +580,10 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   runtime?: AxCodeRuntime;
   /** Actor prompt verbosity and scaffolding level (default: 'default'). */
   promptLevel?: 'default' | 'detailed';
-  /** Cap on recursive sub-agent calls (default: 50). */
+  /** Global cap on recursive sub-agent calls across all descendants (default: 100). */
   maxSubAgentCalls?: number;
+  /** Per-child cap on recursive sub-agent calls (default: 50). */
+  maxSubAgentCallsPerChild?: number;
   /** Maximum parallel llmQuery calls in batched mode (default: 8). */
   maxBatchedLlmQueryConcurrency?: number;
   /** Maximum Actor turns before forcing Responder (default: 10). */
@@ -670,6 +673,24 @@ export type AxAgentRecursionOptions = Partial<
 > & {
   /** Maximum nested recursion depth for llmQuery sub-agent calls. */
   maxDepth?: number;
+  /** When true (default), child agents inherit discovered tool docs from parent. */
+  inheritDiscovery?: boolean;
+};
+
+/**
+ * Budget state for llmQuery calls. Uses a shared global object for cross-tree
+ * tracking plus per-agent local counters to prevent any single child from
+ * starving siblings.
+ */
+type AxLlmQueryBudgetState = {
+  /** Global usage counter shared across all descendants (by reference). */
+  global: { used: number };
+  /** Global maximum across the entire agent tree. */
+  globalMax: number;
+  /** Local usage counter for this specific agent. */
+  localUsed: number;
+  /** Per-agent maximum. */
+  localMax: number;
 };
 
 type AxLlmQueryPromptMode =
@@ -721,7 +742,7 @@ type AxAgentRuntimeInputState = {
   recomputeTurnInputs: (validateRequiredContext: boolean) => void;
   getNonContextValues: () => Record<string, unknown>;
   getActorInlineContextValues: () => Record<string, unknown>;
-  getContextMetadata: () => string;
+  getContextMetadata: () => string | undefined;
 };
 
 type AxAgentRuntimeCompletionState = {
@@ -810,9 +831,9 @@ type AxAgentRecursiveEvalContext = {
 
 function renderGuidanceLog(
   entries: readonly AxAgentGuidanceLogEntry[]
-): string {
+): string | undefined {
   if (entries.length === 0) {
-    return '(no guidance yet)';
+    return undefined;
   }
 
   return entries
@@ -1141,7 +1162,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private state: AxAgentState | undefined;
   private stateError: string | undefined;
   private runtimeBootstrapContext: unknown = undefined;
-  private llmQueryBudgetState: { used: number } | undefined;
+  private llmQueryBudgetState: AxLlmQueryBudgetState | undefined;
   private recursiveInstructionSlots: Record<string, string> =
     createRecursiveSlotSeedInstructions();
   private baseActorDefinition = '';
@@ -1413,6 +1434,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       contextFields = [],
       runtime,
       maxSubAgentCalls,
+      maxSubAgentCallsPerChild,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
       maxRuntimeChars,
@@ -1512,6 +1534,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       sharedFields: options.fields?.shared,
       runtime: this.runtime,
       maxSubAgentCalls,
+      maxSubAgentCallsPerChild,
       maxBatchedLlmQueryConcurrency,
       maxTurns,
       maxRuntimeChars,
@@ -1746,13 +1769,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .addInputFields(actorInlineContextInputs)
       .input(
         'contextMetadata',
-        f.string('Metadata about pre-loaded context variables (type and size)')
+        f
+          .string('Metadata about pre-loaded context variables (type and size)')
+          .optional()
       )
       .input(
         'guidanceLog',
-        f.string(
-          'Trusted runtime guidance for the actor loop. Chronological, newest entry last. Follow the latest relevant guidance while continuing from the current runtime state.'
-        )
+        f
+          .string(
+            'Trusted runtime guidance for the actor loop. Chronological, newest entry last. Follow the latest relevant guidance while continuing from the current runtime state.'
+          )
+          .optional()
       )
       .input(
         'actionLog',
@@ -2898,7 +2925,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     let contextValues: Record<string, unknown> = {};
     let nonContextValues: Record<string, unknown> = {};
     let actorInlineContextValues: Record<string, unknown> = {};
-    let contextMetadata = '(none)';
+    let contextMetadata: string | undefined;
 
     const optionalContextFields = new Set(
       this.program
@@ -2975,7 +3002,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         buildRLMVariablesInfo(contextValues, {
           promptConfigByField: this.contextPromptConfigByField,
           inlinedFields: new Set(Object.keys(actorInlineContextValues)),
-        }) || '(none)';
+        }) || undefined;
     };
 
     return {
@@ -2994,7 +3021,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return false;
     }
 
-    this.llmQueryBudgetState = { used: 0 };
+    const globalMax =
+      this.rlmConfig.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    // Root agent uses globalMax as its local limit (only children are capped)
+    this.llmQueryBudgetState = {
+      global: { used: 0 },
+      globalMax,
+      localUsed: 0,
+      localMax: globalMax,
+    };
     return true;
   }
 
@@ -3026,6 +3061,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const rlm = this.rlmConfig;
     const runtime = this.runtime;
     const maxSubAgentCalls = rlm.maxSubAgentCalls ?? DEFAULT_RLM_MAX_LLM_CALLS;
+    const maxSubAgentCallsPerChild =
+      rlm.maxSubAgentCallsPerChild ?? DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD;
     const maxBatchedLlmQueryConcurrency = Math.max(
       1,
       rlm.maxBatchedLlmQueryConcurrency ?? DEFAULT_RLM_BATCH_CONCURRENCY
@@ -3045,12 +3082,18 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         effectiveContextConfig.targetPromptChars,
         baseMaxRuntimeChars
       );
-    const llmQueryBudgetState = this.llmQueryBudgetState ?? { used: 0 };
+    const llmQueryBudgetState: AxLlmQueryBudgetState = this
+      .llmQueryBudgetState ?? {
+      global: { used: 0 },
+      globalMax: maxSubAgentCalls,
+      localUsed: 0,
+      localMax: maxSubAgentCalls, // fallback uses globalMax (root behavior)
+    };
     const activeRecursiveSubAgents = new Set<
       AxAgent<any, { answer: AxFieldValue }>
     >();
 
-    const llmCallWarnThreshold = Math.floor(maxSubAgentCalls * 0.8);
+    const llmCallWarnThreshold = Math.floor(llmQueryBudgetState.localMax * 0.8);
 
     const { maxDepth: _, ...recursionForwardOptions } =
       this.recursionForwardOptions ?? {};
@@ -3070,7 +3113,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       .build();
     const simpleChildSignature = f()
       .input('task', f.string('Task for recursive analysis'))
-      .input('context', f.json('Optional context for the recursive task'))
+      .input(
+        'context',
+        f.json('Optional context for the recursive task').optional()
+      )
       .output('answer', f.string('Answer from recursive analysis'))
       .build();
 
@@ -3113,7 +3159,24 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const wireRecursiveSubAgent = (
       recursiveSubAgent: AxAgent<any, { answer: AxFieldValue }>
     ) => {
-      recursiveSubAgent.llmQueryBudgetState = llmQueryBudgetState;
+      // Child gets a fresh local budget but shares the parent's global counter
+      recursiveSubAgent.llmQueryBudgetState = {
+        global: llmQueryBudgetState.global,
+        globalMax: llmQueryBudgetState.globalMax,
+        localUsed: 0,
+        localMax: maxSubAgentCallsPerChild,
+      };
+      // Inherit discovered tool docs from parent so children skip redundant
+      // discovery turns (controlled by recursionOptions.inheritDiscovery).
+      if (childRecursionOptions.inheritDiscovery !== false) {
+        const serialized = serializeDiscoveryPromptState(
+          this.currentDiscoveryPromptState
+        );
+        if (serialized) {
+          recursiveSubAgent.currentDiscoveryPromptState =
+            restoreDiscoveryPromptState(serialized);
+        }
+      }
       if (this.recursiveEvalContext) {
         recursiveSubAgent.recursiveEvalContext = {
           collector: this.recursiveEvalContext.collector,
@@ -3193,17 +3256,30 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           );
         }
 
+        // Track whether context was explicitly provided but empty (e.g. `{}`, `""`)
+        // vs. not provided at all (undefined). Only explicitly-empty context forces simple mode.
+        const ctxExplicitlyEmpty =
+          singleCtx !== undefined &&
+          (singleCtx === null ||
+            (typeof singleCtx === 'string' && !singleCtx.trim()) ||
+            (typeof singleCtx === 'object' &&
+              Object.keys(singleCtx as object).length === 0));
+
         const normalizedCtx =
-          singleCtx === undefined
+          singleCtx === undefined || ctxExplicitlyEmpty
             ? undefined
             : typeof singleCtx === 'string'
               ? truncateText(singleCtx, getMaxRuntimeChars())
               : singleCtx;
 
-        if (llmQueryBudgetState.used >= maxSubAgentCalls) {
-          return `[ERROR] Sub-query budget exhausted (${maxSubAgentCalls}/${maxSubAgentCalls}). Complete the task using data already gathered or handle remaining work directly in JS.`;
+        if (llmQueryBudgetState.global.used >= llmQueryBudgetState.globalMax) {
+          return `[ERROR] Global sub-query budget exhausted (${llmQueryBudgetState.globalMax}/${llmQueryBudgetState.globalMax}). Complete the task using data already gathered or handle remaining work directly in JS.`;
         }
-        llmQueryBudgetState.used++;
+        if (llmQueryBudgetState.localUsed >= llmQueryBudgetState.localMax) {
+          return `[ERROR] Per-agent sub-query budget exhausted (${llmQueryBudgetState.localMax}/${llmQueryBudgetState.localMax}). Complete the task using data already gathered or handle remaining work directly in JS.`;
+        }
+        llmQueryBudgetState.global.used++;
+        llmQueryBudgetState.localUsed++;
 
         const maxAttempts = 3;
         let lastError: unknown;
@@ -3212,7 +3288,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
         for (let attempt = 0; attempt < maxAttempts; attempt++) {
           try {
-            if (!useAdvancedLlmQuery) {
+            if (!useAdvancedLlmQuery || ctxExplicitlyEmpty) {
               const simpleSubAgent = createSimpleSubAgent();
               const simpleResult = await simpleSubAgent.forward(
                 ai,
@@ -3395,8 +3471,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
 
       const result = await runSingleLlmQuery(query, ctx);
-      if (llmQueryBudgetState.used === llmCallWarnThreshold) {
-        return `${result}\n[WARNING] ${llmQueryBudgetState.used}/${maxSubAgentCalls} sub-queries used (${maxSubAgentCalls - llmQueryBudgetState.used} remaining). Consolidate remaining work.`;
+      if (llmQueryBudgetState.localUsed === llmCallWarnThreshold) {
+        const remaining =
+          llmQueryBudgetState.localMax - llmQueryBudgetState.localUsed;
+        return `${result}\n[WARNING] ${llmQueryBudgetState.localUsed}/${llmQueryBudgetState.localMax} sub-queries used (${remaining} remaining). Consolidate remaining work.`;
       }
       return result;
     };
@@ -3661,9 +3739,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             ...getBootstrapContextSummaryOptions(),
             budgetRemaining: Math.max(
               0,
-              maxSubAgentCalls - llmQueryBudgetState.used
+              llmQueryBudgetState.localMax - llmQueryBudgetState.localUsed
             ),
-            budgetTotal: maxSubAgentCalls,
+            budgetTotal: llmQueryBudgetState.localMax,
           })
         : undefined;
 
@@ -4279,8 +4357,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     actorTurnRecords?: AxAgentRecursiveTurn[]
   ): Promise<{
     nonContextValues: Record<string, unknown>;
-    contextMetadata: string;
-    guidanceLog: string;
+    contextMetadata: string | undefined;
+    guidanceLog: string | undefined;
     actionLog: string;
     actorResult: AxAgentActorResultPayload;
     actorFieldValues: Record<string, unknown>;
@@ -4405,18 +4483,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const buildActorPromptValues = (
       actionLog: string,
-      guidanceLog: string
-    ) => ({
-      ...inputState.getNonContextValues(),
-      ...inputState.getActorInlineContextValues(),
-      contextMetadata: inputState.getContextMetadata(),
-      guidanceLog,
-      actionLog,
-    });
+      guidanceLog: string | undefined
+    ) => {
+      const values: Record<string, unknown> = {
+        ...inputState.getNonContextValues(),
+        ...inputState.getActorInlineContextValues(),
+        actionLog,
+      };
+      const contextMetadata = inputState.getContextMetadata();
+      if (contextMetadata) {
+        values.contextMetadata = contextMetadata;
+      }
+      if (guidanceLog) {
+        values.guidanceLog = guidanceLog;
+      }
+      return values;
+    };
 
     const measureActorPromptChars = (
       actionLog: string,
-      guidanceLog: string
+      guidanceLog?: string
     ) => {
       refreshActorInstruction();
       return this.actorProgram._measurePromptCharsForInternalUse(
@@ -4719,8 +4805,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         completionState.payload = undefined;
 
         if (this.enforceIncrementalConsoleTurns) {
-          const policyViolation = validateActorTurnCodePolicy(code);
-          if (policyViolation) {
+          const policyResult = validateActorTurnCodePolicy(code);
+
+          // Auto-split: discovery mixed with other code — run discovery first,
+          // then proceed to execute the full code block (discovery calls are
+          // idempotent so re-running is safe).
+          if (policyResult?.autoSplitDiscoveryCode) {
+            await runtimeContext.executeActorCode(
+              policyResult.autoSplitDiscoveryCode
+            );
+          }
+
+          if (policyResult?.violation) {
+            const policyViolation = policyResult.violation;
             const entryTurn = actionLogEntries.length + 1;
             actionLogEntries.push({
               turn: entryTurn,

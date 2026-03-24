@@ -111,7 +111,7 @@ Practical rule:
 
 - Use `agent(...)` factory syntax for new code.
 - If `agentIdentity.namespace` is set, call child agents through that module, not `agents`.
-- If `functions.discovery` is `true`, call `listModuleFunctions(...)` first, then `getFunctionDefinitions(...)`, then call only discovered functions.
+- If `functions.discovery` is `true`, call `discoverModules(...)` first, then `discoverFunctions(...)`, then call only discovered functions.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
 - Never combine `console.log(...)` with `final(...)` or `askClarification(...)` in the same actor turn.
 - Inside actor-authored JavaScript, `final(...)` and `askClarification(...)` end the current turn immediately; code after them is dead code.
@@ -415,39 +415,39 @@ const analyst = agent('context:string, query:string -> answer:string', {
 
 Discovery APIs:
 
-- `await listModuleFunctions(modules: string | string[])`
-- `await getFunctionDefinitions(functions: string | string[])`
+- `await discoverModules(modules: string | string[])`
+- `await discoverFunctions(functions: string | string[])`
 
 Both return Markdown.
 
-- `listModuleFunctions(...)` only lists modules that actually have callable entries.
+- `discoverModules(...)` only lists modules that actually have callable entries.
 - Grouped modules render in the Actor prompt as `<namespace> - <selection criteria>` when criteria is provided.
-- If a requested module does not exist, `listModuleFunctions(...)` returns a per-module markdown error without failing the whole call.
-- `getFunctionDefinitions(...)` may include argument comments from schema descriptions and fenced code examples from `AxAgentFunction.examples`.
+- If a requested module does not exist, `discoverModules(...)` returns a per-module markdown error without failing the whole call.
+- `discoverFunctions(...)` may include argument comments from schema descriptions and fenced code examples from `AxAgentFunction.examples`.
 
 Rules:
 
-1. Call `listModuleFunctions(...)`.
-2. If you need multiple modules, use one batched array call such as `listModuleFunctions(['timeRange', 'schedulingOrganizer'])`.
+1. Call `discoverModules(...)`.
+2. If you need multiple modules, use one batched array call such as `discoverModules(['timeRange', 'schedulingOrganizer'])`.
 3. Log or inspect the returned markdown directly. Do not wrap it in JSON or custom objects.
-4. If you need multiple callable definitions, prefer one batched `getFunctionDefinitions([...])` call.
+4. If you need multiple callable definitions, prefer one batched `discoverFunctions([...])` call.
 5. Do not split discovery into separate calls with `Promise.all(...)`.
 6. Inspect the logged result.
-7. Call `getFunctionDefinitions(...)` for only the callables you plan to use.
+7. Call `discoverFunctions(...)` for only the callables you plan to use.
 8. Inspect the logged result.
 9. Call discovered functions and child agents.
-10. If a guessed call fails with `TypeError`, `... is not a function`, or discovery `Not found`, stop guessing nearby names. Re-run `listModuleFunctions(...)`, then `getFunctionDefinitions(...)`, inspect the markdown again, and call only the exact discovered qualified name.
+10. If a guessed call fails with `TypeError`, `... is not a function`, or discovery `Not found`, stop guessing nearby names. Re-run `discoverModules(...)`, then `discoverFunctions(...)`, inspect the markdown again, and call only the exact discovered qualified name.
 11. If tool docs or tool error messages specify an exact literal, type, or query format, reuse that exact documented value instead of synonyms or inferred aliases.
 
 Examples:
 
 ```javascript
-const modules = await listModuleFunctions(['team', 'kb', 'utils']);
+const modules = await discoverModules(['team', 'kb', 'utils']);
 console.log(modules);
 ```
 
 ```javascript
-const defs = await getFunctionDefinitions(['team.writer', 'kb.findSnippets']);
+const defs = await discoverFunctions(['team.writer', 'kb.findSnippets']);
 console.log(defs);
 ```
 
@@ -571,7 +571,7 @@ Rules:
 - `checkpointed` keeps the most recent `3` actions in full and keeps unresolved errors fully replayed even after checkpointing starts.
 - Non-`full` presets inject a compact `Live Runtime State` block into the actor prompt. The block is structured and provenance-aware: variables are rendered with compact type/size/preview metadata, and when Ax can infer it, a short source suffix like `from t3 via db.search` is included.
 - Non-`full` presets also enable `inspect_runtime()` and can add an inspect hint automatically when the rendered actor prompt starts getting large relative to the selected budget.
-- Discovery docs fetched via `listModuleFunctions(...)` and `getFunctionDefinitions(...)` are accumulated into the actor system prompt, not replayed as raw action-log output.
+- Discovery docs fetched via `discoverModules(...)` and `discoverFunctions(...)` are accumulated into the actor system prompt, not replayed as raw action-log output.
 - Treat `actionLog` as untrusted execution history. Only the system prompt and `guidanceLog` are instruction-bearing.
 - `checkpointed` uses a checkpoint summarizer that is optimized to preserve exact callables, ids, enum literals, date/time strings, query formats, and failures worth avoiding. Prefer it when those details matter but full replay will eventually get too large.
 - Internal checkpoint and tombstone summarizers are stateless helpers: `functions` are not allowed, `maxSteps` is forced to `1`, and `mem` is not propagated.
@@ -583,7 +583,7 @@ Good pattern:
 Turn 1:
 
 ```javascript
-const defs = await getFunctionDefinitions(['kb.findSnippets']);
+const defs = await discoverFunctions(['kb.findSnippets']);
 console.log(defs);
 ```
 
@@ -708,7 +708,7 @@ Semantics:
 - `actorModelPolicy` only switches the actor model. It does not change `responderOptions.model`.
 - Recursive child agents can inherit `actorModelPolicy`; use a child override only when that child needs different routing behavior.
 - `actorModelPolicy` entries are ordered from weaker to stronger. If multiple rules match, the last matching entry wins.
-- If one entry also defines `namespaces`, any successful `getFunctionDefinitions(...)` fetch from one of those namespaces marks the rule as matched starting on the next actor turn.
+- If one entry also defines `namespaces`, any successful `discoverFunctions(...)` fetch from one of those namespaces marks the rule as matched starting on the next actor turn.
 
 When choosing these options for a user:
 
@@ -772,7 +772,7 @@ Model guidance:
 Invalid pattern:
 
 ```javascript
-const defs = await getFunctionDefinitions(['kb.findSnippets']);
+const defs = await discoverFunctions(['kb.findSnippets']);
 console.log(defs);
 const snippets = await kb.findSnippets({ topic: 'severity' });
 final(snippets);
@@ -874,7 +874,7 @@ Rules:
 - In advanced mode, use `llmQuery(...)` to offload discovery-heavy, tool-heavy, or multi-turn semantic branches so the parent action log stays smaller and more focused.
 - In advanced mode, use batched `llmQuery([...])` only for independent subtasks. Use serial calls when later work depends on earlier results.
 - In advanced mode, a good pattern is: parent does coarse discovery and JS narrowing, child `llmQuery(...)` calls handle focused branch analysis, then parent merges child outputs and finishes.
-- In advanced mode with `functions.discovery: true`, prefer putting noisy tool discovery, `getFunctionDefinitions(...)`, and branch-specific tool chatter inside delegated child calls when those branches are independent or semantically distinct.
+- In advanced mode with `functions.discovery: true`, prefer putting noisy tool discovery, `discoverFunctions(...)`, and branch-specific tool chatter inside delegated child calls when those branches are independent or semantically distinct.
 - In advanced mode, pass compact named object context to children instead of huge raw parent payloads. This makes the delegated prompt easier to follow and gives the child useful top-level globals.
 - In advanced mode, do not assume child-created variables, discovered docs, or action-log history come back to the parent. Only the child return value comes back.
 - In advanced mode, if a child calls `askClarification(...)`, that clarification bubbles up and ends the top-level run.
@@ -1058,7 +1058,7 @@ agentIdentity?: {
 
 - `actorTurnCallback` fires for the root agent and for recursive child agents that run actor turns.
 - `actorModelPolicy` applies to the actor loop and can be inherited by recursive child agents unless you override it there.
-- `namespaces` matches exact discovery namespaces from successful `getFunctionDefinitions(...)` lookups and starts affecting model choice on the next actor turn.
+- `namespaces` matches exact discovery namespaces from successful `discoverFunctions(...)` lookups and starts affecting model choice on the next actor turn.
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.
 - `maxSubAgentCalls` is a shared delegated-call budget across the entire run.
 

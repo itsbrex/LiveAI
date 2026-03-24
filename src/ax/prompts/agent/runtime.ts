@@ -126,8 +126,8 @@ const UNSAFE_BOOTSTRAP_GLOBAL_NAMES = new Set([
   'protected',
   'public',
 ]);
-export const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'listModuleFunctions';
-export const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'getFunctionDefinitions';
+export const DISCOVERY_LIST_MODULE_FUNCTIONS_NAME = 'discoverModules';
+export const DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME = 'discoverFunctions';
 export const TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR =
   'AI service is required to use llmQuery(...) in AxAgent.test(). Pass options.ai or configure ai on the agent.';
 export const RUNTIME_RESTART_NOTICE =
@@ -1010,7 +1010,15 @@ export function shouldEnforceIncrementalConsoleTurns(
   return runtimeUsageInstructions.includes('console.log');
 }
 
-export function validateActorTurnCodePolicy(code: string): string | undefined {
+export type ActorTurnCodePolicyResult = {
+  violation?: string;
+  /** Discovery code to run first when auto-splitting a mixed discovery+code turn. */
+  autoSplitDiscoveryCode?: string;
+};
+
+export function validateActorTurnCodePolicy(
+  code: string
+): ActorTurnCodePolicyResult | undefined {
   const sanitized = stripJsStringsAndComments(code);
   const statements = splitTopLevelStatements(sanitized);
   const completionStatementIndex = statements.findIndex((statement) =>
@@ -1021,52 +1029,49 @@ export function validateActorTurnCodePolicy(code: string): string | undefined {
       ? statements.slice(0, completionStatementIndex + 1)
       : statements;
   const reachableCode = reachableStatements.join(';\n');
-  const consoleLogCalls = findConsoleLogCalls(reachableCode);
+  const hasConsoleLog = /\bconsole\s*\.\s*log\s*\(/.test(reachableCode);
+  const originalStatements = splitTopLevelStatements(code);
   const discoveryCode =
     completionStatementIndex >= 0
       ? statements.slice(0, completionStatementIndex).join(';\n')
       : sanitized;
-  const discoveryAnalysis = analyzeDiscoveryTurnPolicy(discoveryCode);
+  const originalDiscoveryCode =
+    completionStatementIndex >= 0
+      ? originalStatements.slice(0, completionStatementIndex).join(';\n')
+      : code;
+  const discoveryAnalysis = analyzeDiscoveryTurnPolicy(
+    discoveryCode,
+    originalDiscoveryCode
+  );
 
   if (discoveryAnalysis.violation) {
-    return discoveryAnalysis.violation;
+    return { violation: discoveryAnalysis.violation };
   }
+
+  // Auto-split: discovery mixed with other code — run discovery first,
+  // but still validate the remaining code against turn discipline policies.
+  const autoSplitDiscoveryCode =
+    discoveryAnalysis.autoSplitDiscoveryCode ?? undefined;
 
   if (completionStatementIndex >= 0) {
-    if (consoleLogCalls.length > 0) {
-      return '[POLICY] Do not combine console.log(...) with final(...)/askClarification(...) in the same turn. Inspect in one turn, then complete in the next turn.';
-    }
+    // Completion turn with auto-split: run discovery, then execute the code
+    return autoSplitDiscoveryCode ? { autoSplitDiscoveryCode } : undefined;
+  }
+
+  if (discoveryAnalysis.isDiscoveryOnly && !hasConsoleLog) {
     return undefined;
   }
 
-  if (discoveryAnalysis.isDiscoveryOnly && consoleLogCalls.length === 0) {
-    return undefined;
+  if (!hasConsoleLog) {
+    return {
+      autoSplitDiscoveryCode,
+      violation:
+        '[POLICY] Non-final turns must include at least one console.log(...) so the next turn can reason from its output.',
+    };
   }
 
-  if (consoleLogCalls.length === 0) {
-    return '[POLICY] Non-final turns must include exactly one console.log(...) so the next turn can reason from its output.';
-  }
-
-  if (consoleLogCalls.length > 1) {
-    return '[POLICY] Use exactly one console.log(...) per non-final turn, then stop.';
-  }
-
-  const onlyLog = consoleLogCalls[0];
-  if (onlyLog === undefined) {
-    return '[POLICY] Unable to verify console.log(...) usage. Emit exactly one console.log(...) per non-final turn.';
-  }
-  if (onlyLog.closeParenIndex === undefined) {
-    return '[POLICY] Could not parse console.log(...). Keep a single valid console.log(...) call as the last statement in non-final turns.';
-  }
-
-  const trailing = sanitized
-    .slice(onlyLog.closeParenIndex + 1)
-    .replace(/^[\s;]+/, '');
-  if (trailing.length > 0) {
-    return '[POLICY] End non-final turns immediately after console.log(...). Do not execute additional statements after logging.';
-  }
-
-  return undefined;
+  // Auto-split with valid console.log: run discovery first, then the full code
+  return autoSplitDiscoveryCode ? { autoSplitDiscoveryCode } : undefined;
 }
 
 type NamedCallMatch = {
@@ -1079,10 +1084,13 @@ type NamedCallMatch = {
 type DiscoveryTurnPolicyAnalysis = {
   isDiscoveryOnly: boolean;
   violation?: string;
+  /** When discovery is mixed with other code, the discovery-only portion. */
+  autoSplitDiscoveryCode?: string;
 };
 
 function analyzeDiscoveryTurnPolicy(
-  sanitizedCode: string
+  sanitizedCode: string,
+  originalCode?: string
 ): DiscoveryTurnPolicyAnalysis {
   const listCalls = findNamedCalls(sanitizedCode, [
     DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
@@ -1111,14 +1119,14 @@ function analyzeDiscoveryTurnPolicy(
       return {
         isDiscoveryOnly: false,
         violation:
-          "[POLICY] Batch module discovery into one array call: use `await listModuleFunctions(['tasks', 'contact'])`, not repeated `listModuleFunctions(...)` calls or `Promise.all(...)`.",
+          "[POLICY] Batch module discovery into one array call: use `await discoverModules(['tasks', 'contact'])`, not repeated `discoverModules(...)` calls or `Promise.all(...)`.",
       };
     }
     if (promiseAllBody.includes(DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME)) {
       return {
         isDiscoveryOnly: false,
         violation:
-          "[POLICY] Batch function-definition discovery into one array call: use `await getFunctionDefinitions(['mod.funcA', 'mod.funcB'])`, not repeated `getFunctionDefinitions(...)` calls or `Promise.all(...)`.",
+          "[POLICY] Batch function-definition discovery into one array call: use `await discoverFunctions(['mod.funcA', 'mod.funcB'])`, not repeated `discoverFunctions(...)` calls or `Promise.all(...)`.",
       };
     }
   }
@@ -1127,7 +1135,7 @@ function analyzeDiscoveryTurnPolicy(
     return {
       isDiscoveryOnly: false,
       violation:
-        "[POLICY] Batch module discovery into one array call: use `await listModuleFunctions(['tasks', 'contact'])`, not repeated `listModuleFunctions(...)` calls or `Promise.all(...)`.",
+        "[POLICY] Batch module discovery into one array call: use `await discoverModules(['tasks', 'contact'])`, not repeated `discoverModules(...)` calls or `Promise.all(...)`.",
     };
   }
 
@@ -1135,7 +1143,7 @@ function analyzeDiscoveryTurnPolicy(
     return {
       isDiscoveryOnly: false,
       violation:
-        "[POLICY] Batch function-definition discovery into one array call: use `await getFunctionDefinitions(['mod.funcA', 'mod.funcB'])`, not repeated `getFunctionDefinitions(...)` calls or `Promise.all(...)`.",
+        "[POLICY] Batch function-definition discovery into one array call: use `await discoverFunctions(['mod.funcA', 'mod.funcB'])`, not repeated `discoverFunctions(...)` calls or `Promise.all(...)`.",
     };
   }
 
@@ -1144,7 +1152,34 @@ function analyzeDiscoveryTurnPolicy(
     statements.length === 0 ||
     !statements.every((statement) => isAllowedDiscoveryOnlyStatement(statement))
   ) {
-    return { isDiscoveryOnly: false };
+    // Auto-split: extract discovery statements so the caller can run them
+    // first, then execute the full code block. Use the original (unsanitized)
+    // code so that string arguments (e.g. module names) are preserved.
+    const originalStatements = originalCode
+      ? splitTopLevelStatements(originalCode)
+      : statements;
+    const discoveryIndices: number[] = [];
+    for (let i = 0; i < statements.length; i++) {
+      if (isAllowedDiscoveryOnlyStatement(statements[i]!)) {
+        discoveryIndices.push(i);
+      }
+    }
+    if (discoveryIndices.length > 0) {
+      const originalDiscoveryStatements = discoveryIndices
+        .map((idx) => originalStatements[idx])
+        .filter((s): s is string => s !== undefined);
+      if (originalDiscoveryStatements.length > 0) {
+        return {
+          isDiscoveryOnly: false,
+          autoSplitDiscoveryCode: originalDiscoveryStatements.join(';\n'),
+        };
+      }
+    }
+    return {
+      isDiscoveryOnly: false,
+      violation:
+        '[POLICY] Discovery calls (discoverModules/discoverFunctions) must be in their own turn — do not combine them with other code. Run discovery first, then use the results in the next turn.',
+    };
   }
 
   return { isDiscoveryOnly: true };
@@ -1239,16 +1274,16 @@ function splitTopLevelStatements(code: string): string[] {
 
 function isAllowedDiscoveryOnlyStatement(statement: string): boolean {
   return (
-    /^(?:await\s+)?(?:listModuleFunctions|getFunctionDefinitions)\s*\([\s\S]*\)$/.test(
+    /^(?:await\s+)?(?:discoverModules|discoverFunctions)\s*\([\s\S]*\)$/.test(
       statement
     ) ||
-    /^(?:const|let|var)\s+[\s\S]+?=\s*(?:await\s+)?(?:listModuleFunctions|getFunctionDefinitions)\s*\([\s\S]*\)$/.test(
+    /^(?:const|let|var)\s+[\s\S]+?=\s*(?:await\s+)?(?:discoverModules|discoverFunctions)\s*\([\s\S]*\)$/.test(
       statement
     )
   );
 }
 
-function findConsoleLogCalls(
+function _findConsoleLogCalls(
   sanitizedCode: string
 ): Array<{ closeParenIndex?: number }> {
   const matches = sanitizedCode.matchAll(/\bconsole\s*\.\s*log\s*\(/g);

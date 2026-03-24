@@ -11,7 +11,8 @@ import type {
   AxResolvedContextPolicy,
 } from './AxAgent.js';
 
-export const DEFAULT_RLM_MAX_LLM_CALLS = 8;
+export const DEFAULT_RLM_MAX_LLM_CALLS = 100;
+export const DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD = 50;
 export const DEFAULT_RLM_MAX_RUNTIME_CHARS = 3_000;
 export const DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS = 1_200;
 export const DEFAULT_RLM_BATCH_CONCURRENCY = 8;

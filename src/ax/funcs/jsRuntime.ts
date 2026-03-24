@@ -867,7 +867,7 @@ export class AxJSRuntime implements AxCodeRuntime {
       debugNodeWorkerPool?: boolean;
     }>
   ) {
-    this.timeout = options?.timeout ?? 30_000;
+    this.timeout = options?.timeout ?? 900_000;
     this.permissions = options?.permissions ?? [];
     this.allowUnsafeNodeHostAccess =
       options?.allowUnsafeNodeHostAccess ?? false;

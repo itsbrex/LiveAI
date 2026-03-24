@@ -244,11 +244,7 @@ function hasCompletionSignal(code: string): boolean {
 function inferStepKind(entry: Readonly<ActionLogEntry>): ActionLogStepKind {
   if (entry.tags.includes('error')) return 'error';
   if (hasCompletionSignal(entry.code)) return 'finalize';
-  if (
-    /\b(llmQuery|listModuleFunctions|getFunctionDefinitions)\s*\(/.test(
-      entry.code
-    )
-  ) {
+  if (/\b(llmQuery|discoverModules|discoverFunctions)\s*\(/.test(entry.code)) {
     return 'query';
   }
   if ((entry.producedVars?.length ?? 0) > 0) return 'transform';
@@ -906,9 +902,7 @@ function buildFallbackTrajectorySummary(
       exactCallablesAndFormats.push(
         `Turn ${entry.turn}: ${directCallables.join(', ')} via ${truncateInline(entry.code || '(no code)', 140)}`
       );
-    } else if (
-      /\b(listModuleFunctions|getFunctionDefinitions)\s*\(/.test(entry.code)
-    ) {
+    } else if (/\b(discoverModules|discoverFunctions)\s*\(/.test(entry.code)) {
       exactCallablesAndFormats.push(
         `Turn ${entry.turn}: ${truncateInline(entry.code || '(no code)', 140)}`
       );
