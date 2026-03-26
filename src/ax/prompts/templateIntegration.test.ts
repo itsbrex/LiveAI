@@ -124,9 +124,7 @@ describe('template integration', () => {
     expect(actorDefinition).toContain(
       '- `contextText` -> `inputs.contextText` (string, required)'
     );
-    expect(actorDefinition).toContain(
-      'The responder is looking to produce these output fields: **`finalAnswer`**'
-    );
+    expect(actorDefinition).toContain('### Responder Contract');
     expect(actorDefinition).toContain('llmQuery');
     expect(actorDefinition).toContain('### Exploration & Truncation');
     expect(actorDefinition).toContain(

@@ -29,6 +29,7 @@ Your job is not just to write valid code. Your job is to choose the smallest cor
 - Prefer `contextPolicy: { preset: 'adaptive', budget: 'balanced' }` when older successful turns should collapse sooner while live runtime state stays visible.
 - Prefer `actorModelPolicy` when the actor may need to upgrade after repeated error turns or discovery in specific namespaces without also upgrading the responder.
 - Use `actorTurnCallback` when the user needs per-turn observability into generated code, raw runtime result, formatted output, or provider thoughts.
+- Use `agentStatusCallback` when the user wants real-time task progress updates from the actor via `await success(message)` and `await failed(message)` calls.
 
 ## Decision Guide
 
@@ -41,6 +42,7 @@ Map user intent to agent shape before writing code:
 - "Need tool discovery because names/schemas are not stable" -> use `functions.discovery: true` and generate discovery-first code.
 - "Need a stronger actor only when the run gets noisy or large" -> use `actorModelPolicy` and keep the responder model separate.
 - "Need debugging or traceability" -> start with `debug: true` or `actorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
+- "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await success(message)` and `await failed(message)` to report sub-task progress.
 
 Choose options based on user needs, not feature completeness:
 
@@ -113,8 +115,8 @@ Practical rule:
 - If `agentIdentity.namespace` is set, call child agents through that module, not `agents`.
 - If `functions.discovery` is `true`, call `discoverModules(...)` first, then `discoverFunctions(...)`, then call only discovered functions.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
-- Never combine `console.log(...)` with `final(...)` or `askClarification(...)` in the same actor turn.
-- Inside actor-authored JavaScript, `final(...)` and `askClarification(...)` end the current turn immediately; code after them is dead code.
+- Never combine `console.log(...)` with `await final(...)` or `await askClarification(...)` in the same actor turn.
+- Inside actor-authored JavaScript, `await final(outputGenerationTask, context)` and `await askClarification(...)` end the current turn immediately; code after them is dead code.
 - If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
@@ -471,7 +473,7 @@ Use these rules when generating actor JavaScript for RLM in stdout mode:
 - If the prompt contains `Live Runtime State`, treat it as the canonical view of current variables.
 - Errors from child-agent or tool calls appear in `Action Log`; inspect them and fix the code on the next turn.
 - Non-final turns should contain exactly one `console.log(...)`.
-- Final turns should call `final(...)` or `askClarification(...)` without `console.log(...)`.
+- Final turns should call `await final(outputGenerationTask, context)` or `await askClarification(...)` without `console.log(...)`.
 - Do not write a complete multi-step program in one actor turn.
 - Do not re-declare or recompute values just because older turns are summarized; only rebuild after an explicit runtime restart or when you intentionally want a new value.
 - Do not assume older successful turns remain fully replayed; adaptive or lean policies may collapse them into a `Checkpoint Summary` block or compact action summaries.
@@ -597,7 +599,7 @@ console.log(snippets);
 Turn 3:
 
 ```javascript
-final({ answer: '...' });
+await final("Summarize the severity-related snippets found", { snippets });
 ```
 
 ## Actor Turn Observability
@@ -649,6 +651,28 @@ const supportAgent = agent('query:string -> answer:string', {
 });
 ```
 
+## Agent Status Callback
+
+Use `agentStatusCallback` when the caller wants real-time progress updates from the actor. When set, the actor can call `await success(message)` and `await failed(message)` in its JavaScript turns.
+
+```typescript
+const supportAgent = agent('query:string -> answer:string', {
+  contextFields: ['query'],
+  runtime,
+  agentStatusCallback: (message, status) => {
+    console.log(`[${status}] ${message}`);
+  },
+});
+```
+
+Rules:
+
+- `agentStatusCallback` receives `(message: string, status: 'success' | 'failed')`.
+- When set, the actor prompt automatically includes `success(message)` and `failed(message)` as available runtime functions.
+- The actor is instructed to keep the user updated of task progress.
+- `success` and `failed` are reserved runtime names when the callback is configured.
+- Child agents inherit the callback via the rlm config.
+
 ## Option Layout
 
 Use these top-level controls consistently:
@@ -661,6 +685,7 @@ Use these top-level controls consistently:
 - `actorOptions`: actor-only forward options such as `description`, `model`, `modelConfig`, `thinkingTokenBudget`, and `showThoughts`
 - `actorModelPolicy`: actor-only model override rules based on consecutive error turns or discovery fetches from listed namespaces
 - `responderOptions`: responder-only forward options
+- `agentStatusCallback`: real-time progress updates from actor via `success(message)` and `failed(message)`
 - `judgeOptions`: built-in judge options for `agent.optimize(...)`; for tuning workflows use the `ax-agent-optimize` skill
 
 Canonical shape:
@@ -775,7 +800,7 @@ Invalid pattern:
 const defs = await discoverFunctions(['kb.findSnippets']);
 console.log(defs);
 const snippets = await kb.findSnippets({ topic: 'severity' });
-final(snippets);
+await final("Summarize severity findings", { snippets });
 ```
 
 Reason: this mixes observation and follow-up work in one turn.

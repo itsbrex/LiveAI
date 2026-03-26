@@ -602,6 +602,13 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    */
   actorTurnCallback?: (args: AxAgentTurnCallbackArgs) => void | Promise<void>;
   /**
+   * Called when the actor signals task progress via `success(message)` or `failed(message)`.
+   */
+  agentStatusCallback?: (
+    message: string,
+    status: 'success' | 'failed'
+  ) => void | Promise<void>;
+  /**
    * Called before each Actor turn with current input values. Return a partial patch
    * to update in-flight inputs for subsequent Actor/Responder steps.
    */
@@ -1150,6 +1157,10 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private actorForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private responderForwardOptions?: Partial<AxProgramForwardOptions<string>>;
   private inputUpdateCallback?: AxAgentInputUpdateCallback<IN>;
+  private agentStatusCallback?: (
+    message: string,
+    status: 'success' | 'failed'
+  ) => void | Promise<void>;
   private contextPromptConfigByField: Map<string, AxContextFieldPromptConfig> =
     new Map();
   private agentModuleNamespace = DEFAULT_AGENT_MODULE_NAMESPACE;
@@ -1443,6 +1454,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       summarizerOptions,
       actorFields,
       actorTurnCallback,
+      agentStatusCallback,
       mode,
       actorModelPolicy,
       recursionOptions,
@@ -1480,6 +1492,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       'llmQuery',
       'final',
       'askClarification',
+      'success',
+      'failed',
       'inspect_runtime',
       DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
       DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
@@ -1543,6 +1557,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       summarizerOptions,
       actorFields,
       actorTurnCallback,
+      agentStatusCallback,
       mode,
     };
     this.recursionForwardOptions = recursionOptions;
@@ -1562,6 +1577,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.responderForwardOptions = responderForwardOptions;
     this.judgeOptions = judgeOptions ? { ...judgeOptions } : undefined;
     this.inputUpdateCallback = inputUpdateCallback;
+    this.agentStatusCallback = agentStatusCallback;
 
     const agents = this.agents;
     for (const agent of agents ?? []) {
@@ -1895,6 +1911,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       llmQueryPromptMode: effectiveLlmQueryPromptMode,
       enforceIncrementalConsoleTurns: this.enforceIncrementalConsoleTurns,
       agentModuleNamespace: this.agentModuleNamespace,
+      hasAgentStatusCallback: Boolean(this.agentStatusCallback),
       discoveryMode: this.functionDiscoveryEnabled,
       availableModules,
       agents: agentMeta,
@@ -3575,6 +3592,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       this.agentModuleNamespace,
       'final',
       'askClarification',
+      ...(this.agentStatusCallback ? ['success', 'failed'] : []),
       ...agentFunctionNamespaces,
       ...(effectiveContextConfig.stateInspection.enabled
         ? ['inspect_runtime']
@@ -3716,6 +3734,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           final: completionBindings.finalFunction,
           askClarification: completionBindings.askClarificationFunction,
           ...(inspectRuntime ? { inspect_runtime: inspectRuntime } : {}),
+          ...(this.agentStatusCallback
+            ? {
+                success: async (message: string) => {
+                  await this.agentStatusCallback!(message, 'success');
+                },
+                failed: async (message: string) => {
+                  await this.agentStatusCallback!(message, 'failed');
+                },
+              }
+            : {}),
           ...toolGlobals,
         },
         {

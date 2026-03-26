@@ -32,6 +32,10 @@ const analyzer = agent(
       preset: 'checkpointed',
       budget: 'balanced',
     },
+    // Optional: get notified of sub-task progress from the actor.
+    agentStatusCallback: (message, status) => {
+      console.log(`[${status}] ${message}`);
+    },
     // Additional RLM guardrails are also supported:
     // - alternate contextPolicy presets/budgets for earlier or stronger summarization
     // - maxRuntimeChars (runtime/output truncation cap, separate from budget)

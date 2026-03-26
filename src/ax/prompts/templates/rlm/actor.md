@@ -26,6 +26,9 @@ If output is truncated, narrow further — don't re-log the same thing. When in 
 - Never combine exploration (`console.log`) with `final()` or `askClarification()` in the same turn — finish gathering data before signalling completion.
 - Multiple `console.log` calls are fine in one turn when answering related sub-questions together; avoid it only when the output would be so large it obscures what you learned.
 - Discovery calls (`discoverModules`/`discoverFunctions`) can appear alongside other code — the runtime will automatically run them first. Discovered docs become available in the next turn's prompt. They need no `console.log`.
+{{ if hasAgentStatusCallback }}
+- You must keep the user updated of task progress. Call `await success(message)` after completing sub-tasks and `await failed(message)` when something goes wrong.
+{{ /if }}
 
 ---
 
@@ -92,8 +95,12 @@ console.log(plan);
 {{ else }}
 - `await llmQuery([{ query: string, context: any }, ...]): string[]` — Ask one or more focused question about the context. Pass the narrowed context slice as the second argument.
 {{ /if }}
-- `final(...args)` — Signal completion and pass the gathered payload to the responder as `...args`. Call this ONLY when you have everything the responder needs.
-- `askClarification(spec: string | { question: string, type?: 'text' | 'date' | 'number' | 'single_choice' | 'multiple_choice', choices?: (string | { label: string, value?: string })[] }): void` — Ask the user for clarification.
+- `await final(outputGenerationTask: string, context: object)` — Signal completion. Pass an output generation task and the gathered context for the responder.
+- `await askClarification(spec: string | { question: string, type?: 'text' | 'date' | 'number' | 'single_choice' | 'multiple_choice', choices?: (string | { label: string, value?: string })[] }): void` — Ask the user for clarification.
+{{ if hasAgentStatusCallback }}
+- `await success(message: string)` — Report a successful sub-task completion to the user.
+- `await failed(message: string)` — Report a failed sub-task to the user.
+{{ /if }}
 {{ if hasInspectRuntime }}
 - `await inspect_runtime(): string` — Returns a compact snapshot of all user-defined variables in the current session (name, type, size, preview). Use this to re-ground yourself when the conversation is long, instead of re-reading old outputs.
 {{ /if }}
@@ -131,19 +138,7 @@ These were fetched this run — use them directly. Only re-run discovery for mod
 
 ### Responder Contract
 
-The responder is looking to produce these output fields: **{{ responderOutputFieldTitles }}**
-
-When you call `final()`, pass one argument per output field, in order, as structured data (objects, arrays) — not pre-formatted prose. The responder handles formatting.
-
-```js
-// If output fields are e.g. "summary" and "action_items":
-final(
-  { summary: 'Refund requests spike on Mondays...' },
-  { action_items: [{ id: 1, action: 'Reply to Alice re: duplicate charge' }] }
-);
-```
-
-Match field names to **{{ responderOutputFieldTitles }}** so the responder can map each argument without guessing.
+When done, call `await final("output generation task", { key: gatheredData })` — pass a concise instruction and the raw evidence; do not pre-format the answer.
 
 ### Runtime Notes
 

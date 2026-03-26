@@ -263,6 +263,13 @@ export interface AxRLMConfig {
    */
   actorTurnCallback?: (args: AxAgentTurnCallbackArgs) => void | Promise<void>;
   /**
+   * Called when the actor signals task progress via `success(message)` or `failed(message)`.
+   */
+  agentStatusCallback?: (
+    message: string,
+    status: 'success' | 'failed'
+  ) => void | Promise<void>;
+  /**
    * Sub-query execution mode (default: 'simple').
    * - 'simple': llmQuery delegates to a plain AxGen (direct LLM call, no code runtime).
    * - 'advanced': llmQuery delegates to a full AxAgent (Actor/Responder + code runtime).
@@ -309,6 +316,8 @@ export function axBuildActorDefinition(
     }>;
     /** Module namespace used for child agent calls (default: "agents"). */
     agentModuleNamespace?: string;
+    /** Whether agentStatusCallback is set (enables success/failed in prompt). */
+    hasAgentStatusCallback?: boolean;
     /** Enables module-only discovery rendering in prompt. */
     discoveryMode?: boolean;
     /** Precomputed available modules for runtime discovery mode. */
@@ -411,6 +420,7 @@ export function axBuildActorDefinition(
     ),
     hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
     hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
+    hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
   })
     .replace(/\n{3,}/g, '\n\n')
     .trim();

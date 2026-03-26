@@ -6722,7 +6722,9 @@ describe('axBuildActorDefinition', () => {
 
   it('should document final()/askClarification() exit signals', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).toContain('final(...args)');
+    expect(result).toContain(
+      'final(outputGenerationTask: string, context: object)'
+    );
     expect(result).toContain('askClarification');
     expect(result).not.toContain('guideAgent(');
   });
@@ -8484,7 +8486,7 @@ describe('actorFields', () => {
       .getDescription() as string;
 
     expect(actorDesc).toContain('### Responder Contract');
-    expect(actorDesc).toContain('`answer`');
+    expect(actorDesc).toContain('await final(');
     expect(actorDesc).not.toContain('Output ONLY a `javascriptCode` field');
   });
 
