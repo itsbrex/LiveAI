@@ -1,5 +1,17 @@
 # Changelog
 
+## [19.0.35](///compare/19.0.33...19.0.34) (2026-03-26)
+
+### Bug Fixes
+
+* handle read-only global properties in Deno worker scope f2ae6a8
+## [19.0.34](///compare/19.0.33...19.0.34) (2026-03-26)
+
+### Features
+
+* add agentStatusCallback and fix final() contract in AxAgent RLM 921357f
+* add stop() and success()/failed() to AxAgentCompletionProtocol 375e391
+
 ## [19.0.34](///compare/19.0.32...19.0.33) (2026-03-26)
 
 ### Features
