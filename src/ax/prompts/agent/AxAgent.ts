@@ -112,6 +112,7 @@ import {
   AxAgentProtocolCompletionSignal,
   type AxAgentGuidancePayload,
   type AxAgentInternalCompletionPayload,
+  type AxAgentStopPayload,
   createCompletionBindings,
   normalizeClarificationForError,
 } from './completion.js';
@@ -231,7 +232,10 @@ export type AxAgentTestCompletionPayload = {
   args: unknown[];
 };
 
-export type AxAgentTestResult = string | AxAgentTestCompletionPayload;
+export type AxAgentTestResult =
+  | string
+  | AxAgentTestCompletionPayload
+  | AxAgentStopPayload;
 
 export type AxAgentClarificationKind =
   | 'text'
@@ -327,6 +331,16 @@ export type AxAgentState = {
   provenance: Record<string, RuntimeStateVariableProvenance>;
   actorModelState?: AxAgentStateActorModelState;
 };
+
+export class AxAgentStopError extends Error {
+  public readonly reason: string | undefined;
+
+  constructor(reason?: string) {
+    super(reason ?? 'Agent stopped');
+    this.name = 'AxAgentStopError';
+    this.reason = reason;
+  }
+}
 
 export class AxAgentClarificationError extends Error {
   public readonly question: string;
@@ -648,7 +662,7 @@ export type AxAgentJudgeInput = {
 };
 
 export type AxAgentJudgeOutput = {
-  completionType: 'final' | 'askClarification';
+  completionType: 'final' | 'askClarification' | 'stop';
   clarification?: AxFieldValue;
   finalOutput?: AxFieldValue;
   actionLog: string;
@@ -804,7 +818,7 @@ type AxMutableRecursiveTraceNode = {
   role: AxAgentRecursiveNodeRole;
   taskDigest?: string;
   contextDigest?: string;
-  completionType?: 'final' | 'askClarification';
+  completionType?: 'final' | 'askClarification' | 'stop';
   turnCount: number;
   actorTurns: AxAgentRecursiveTurn[];
   functionCalls: {
@@ -2411,7 +2425,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     usageBefore: Readonly<AxAgentRecursiveUsage>,
     actorTurnRecords: readonly AxAgentRecursiveTurn[],
     functionCallRecords: readonly AxAgentEvalFunctionCall[],
-    actorResult: Readonly<AxAgentActorResultPayload>
+    actorResult: Readonly<AxAgentActorResultPayload | AxAgentStopPayload>
   ): void {
     if (!node) {
       this.currentRecursiveTraceNodeId = undefined;
@@ -4200,7 +4214,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
     const completionBindings = createCompletionBindings((payload) => {
       completionState.payload = payload;
-    });
+    }, this.agentStatusCallback);
     const createdBudgetState = this._ensureLlmQueryBudgetState();
 
     const runtimeContext = this._createRuntimeExecutionContext({
@@ -4407,7 +4421,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     contextMetadata: string | undefined;
     guidanceLog: string | undefined;
     actionLog: string;
-    actorResult: AxAgentActorResultPayload;
+    actorResult: AxAgentActorResultPayload | AxAgentStopPayload;
     actorFieldValues: Record<string, unknown>;
     turnCount: number;
   }> {
@@ -4431,7 +4445,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     };
     const completionBindings = createCompletionBindings((payload) => {
       completionState.payload = payload;
-    });
+    }, this.agentStatusCallback);
     const actionLogEntries: ActionLogEntry[] = [];
     let runtimeStateSummary: string | undefined;
     const runtimeContext = this._createRuntimeExecutionContext({
@@ -5114,7 +5128,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     const actorResult =
-      completionState.payload && 'args' in completionState.payload
+      completionState.payload &&
+      ('args' in completionState.payload ||
+        completionState.payload.type === 'stop')
         ? completionState.payload
         : ({
             type: 'final',
@@ -5191,6 +5207,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
+      if (actorResult.type === 'stop') {
+        this._finalizeRecursiveTraceCapture(
+          recursiveTraceNode,
+          usageBefore,
+          actorTurnRecords,
+          functionCallRecords,
+          actorResult
+        );
+        throw new AxAgentStopError(
+          (actorResult as unknown as AxAgentStopPayload).reason
+        );
+      }
+
       const responderMergedOptions = {
         ...this._genOptions,
         ...this.responderForwardOptions,
@@ -5259,6 +5288,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             state: this.state,
             stateError: this.stateError,
           }
+        );
+      }
+
+      if (actorResult.type === 'stop') {
+        throw new AxAgentStopError(
+          (actorResult as unknown as AxAgentStopPayload).reason
         );
       }
 

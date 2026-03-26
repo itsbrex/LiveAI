@@ -13,9 +13,15 @@ export type AxAgentGuidancePayload = {
   triggeredBy?: string;
 };
 
+export type AxAgentStopPayload = {
+  type: 'stop';
+  reason?: string;
+};
+
 export type AxAgentInternalCompletionPayload =
   | AxAgentActorResultPayload
-  | AxAgentGuidancePayload;
+  | AxAgentGuidancePayload
+  | AxAgentStopPayload;
 
 export class AxAgentProtocolCompletionSignal extends Error {
   constructor(public readonly type: AxAgentInternalCompletionPayload['type']) {
@@ -25,7 +31,11 @@ export class AxAgentProtocolCompletionSignal extends Error {
 }
 
 export function createCompletionBindings(
-  setCompletionPayload: (payload: AxAgentInternalCompletionPayload) => void
+  setCompletionPayload: (payload: AxAgentInternalCompletionPayload) => void,
+  agentStatusCallback?: (
+    message: string,
+    status: 'success' | 'failed'
+  ) => void | Promise<void>
 ): {
   finalFunction: (...args: unknown[]) => never;
   askClarificationFunction: (...args: unknown[]) => never;
@@ -40,6 +50,14 @@ export function createCompletionBindings(
   const askClarificationFunction = (...args: unknown[]): never => {
     setCompletionPayload(normalizeCompletionPayload('askClarification', args));
     throw new AxAgentProtocolCompletionSignal('askClarification');
+  };
+
+  const successFn = async (message: string): Promise<void> => {
+    await agentStatusCallback?.(message, 'success');
+  };
+
+  const failedFn = async (message: string): Promise<void> => {
+    await agentStatusCallback?.(message, 'failed');
   };
 
   const protocolForTrigger = (
@@ -59,6 +77,12 @@ export function createCompletionBindings(
       setCompletionPayload(normalizeGuidancePayload(args, triggeredBy));
       throw new AxAgentProtocolCompletionSignal('guide_agent');
     },
+    stop: (reason?: string): never => {
+      setCompletionPayload({ type: 'stop', ...(reason ? { reason } : {}) });
+      throw new AxAgentProtocolCompletionSignal('stop');
+    },
+    success: successFn,
+    failed: failedFn,
   });
 
   return {

@@ -793,6 +793,7 @@ import {
   type AxAgentStateActorModelState,
   type AxAgentStateCheckpointState,
   type AxAgentStateRuntimeEntry,
+  AxAgentStopError,
   type AxAgentStructuredClarification,
   type AxAgentTestCompletionPayload,
   type AxAgentTestResult,
@@ -821,6 +822,7 @@ import {
   type AxAgentGuidancePayload,
   type AxAgentInternalCompletionPayload,
   AxAgentProtocolCompletionSignal,
+  type AxAgentStopPayload,
 } from './prompts/agent/completion.js';
 import {
   type AxCodeInterpreter,
@@ -921,6 +923,7 @@ export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentProtocolCompletionSignal };
+export { AxAgentStopError };
 export { AxApacheTika };
 export { AxAssertionError };
 export { AxBalancer };
@@ -1335,6 +1338,7 @@ export type { AxAgentStateActionLogEntry };
 export type { AxAgentStateActorModelState };
 export type { AxAgentStateCheckpointState };
 export type { AxAgentStateRuntimeEntry };
+export type { AxAgentStopPayload };
 export type { AxAgentStructuredClarification };
 export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };

@@ -117,12 +117,13 @@ Practical rule:
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
 - Never combine `console.log(...)` with `await final(...)` or `await askClarification(...)` in the same actor turn.
 - Inside actor-authored JavaScript, `await final(outputGenerationTask, context)` and `await askClarification(...)` end the current turn immediately; code after them is dead code.
-- If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
+- If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.stop(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
 - If `contextPolicy.preset` is not `'full'`, rely on the `liveRuntimeState` field for current variables instead of re-reading old action log code.
 - If `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
 - In public `forward()` and `streamingForward()` flows, `askClarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
+- In public `forward()` and `streamingForward()` flows, `stop(reason?)` does not go through the responder; it throws `AxAgentStopError`.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
 - For offline tuning, hand off to the `ax-agent-optimize` skill and prefer eval-safe tools or in-memory mocks because `agent.optimize(...)` will replay tasks many times.
 
@@ -294,9 +295,10 @@ const workflowTools = [
 Rules:
 
 - `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
-- Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
+- Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, `extra.protocol.stop(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
 - Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `askClarification(...)`.
 - `extra.protocol.guideAgent(...)` is handler-only internal control flow. It is not exposed as a JS runtime global or public completion type; it stops the current actor turn and appends trusted guidance to `guidanceLog` for the next iteration.
+- `extra.protocol.stop(reason?)` is protocol-only. It halts the agent run immediately without running the responder and causes `forward()` to throw `AxAgentStopError`. Use it when a function determines the run should not continue (e.g. access denied, nothing to do).
 - `askClarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 - Do not model these protocol completions as normal registered tool functions or discovery entries.
 
@@ -350,10 +352,12 @@ if (savedState) {
 Public flow rules:
 
 - `forward()` and `streamingForward()` throw `AxAgentClarificationError` when the actor calls `askClarification(...)`.
-- The responder is skipped for clarification in those public flows.
+- `forward()` and `streamingForward()` throw `AxAgentStopError` when a registered function calls `extra.protocol.stop(reason?)`.
+- The responder is skipped for both clarification and stop in those public flows.
 - `AxAgentClarificationError.question` is the user-facing question text.
 - `AxAgentClarificationError.clarification` is the normalized structured payload.
 - `AxAgentClarificationError.getState()` returns the saved continuation state captured at throw time.
+- `AxAgentStopError.reason` is the optional reason string passed to `stop(...)`.
 - `agent.getState()` and `agent.setState(...)` are the lower-level APIs for explicitly exporting or restoring continuation state on the agent instance.
 - `test(...)` is different: it still returns structured completion payloads for harness/debug use instead of throwing clarification exceptions.
 
@@ -394,6 +398,42 @@ Practical notes:
 - Only serializable/structured-clone-friendly values are guaranteed to round-trip through `getState()` / `setState(...)`.
 - Reserved runtime globals such as `inputs`, tools, and protocol helpers are rebuilt fresh and are not part of saved state.
 - Treat one agent instance as conversation-scoped when using `setState(...)`; do not share one mutable resumed instance across unrelated concurrent conversations.
+
+## Stop Signal
+
+Use `extra.protocol.stop(reason?)` inside a registered function handler to halt the agent run immediately without invoking the responder. `forward()` and `streamingForward()` throw `AxAgentStopError`.
+
+```typescript
+import { AxAgentStopError, agent, ai, f } from '@ax-llm/ax';
+
+const checkAccess = fn('checkAccess')
+  .description('Verify access and stop if denied')
+  .arg('resource', f.string('Resource name'))
+  .returns(f.string('Access status'))
+  .handler(async ({ resource }, extra) => {
+    if (!hasAccess(resource)) {
+      extra?.protocol?.stop(`Access denied for ${resource}`);
+    }
+    return 'granted';
+  })
+  .build();
+
+try {
+  const result = await myAgent.forward(llm, { query });
+  console.log(result);
+} catch (err) {
+  if (err instanceof AxAgentStopError) {
+    console.log('Stopped:', err.reason);
+  }
+}
+```
+
+Rules:
+
+- `stop(reason?)` is protocol-only — it is not available as a JS runtime global in actor code.
+- `AxAgentStopError.reason` is the string passed to `stop(...)`, or `undefined` if called without a reason.
+- The responder is not invoked; the run ends immediately when `stop(...)` is called.
+- Use `stop(...)` for clean early exits (nothing to do, access denied, precondition failed). Use `askClarification(...)` when the user must provide more information to continue.
 
 ## Discovery Mode
 

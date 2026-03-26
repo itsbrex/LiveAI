@@ -207,6 +207,9 @@ export type AxAgentCompletionProtocol = Readonly<{
   final: (...args: unknown[]) => never;
   askClarification: (...args: unknown[]) => never;
   guideAgent: (guidance: string) => never;
+  stop: (reason?: string) => never;
+  success: (message: string) => Promise<void>;
+  failed: (message: string) => Promise<void>;
 }>;
 
 export type AxFunctionJSONSchema = {
