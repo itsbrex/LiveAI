@@ -798,9 +798,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   const _buildPersistenceSuffix = (declNames: string[]): string => {
     if (declNames.length === 0) return '';
     const assignments = declNames
-      .map((n) => `globalThis[${JSON.stringify(n)}] = ${n};`)
+      .map((n) => `try { globalThis[${JSON.stringify(n)}] = ${n}; } catch {}`)
       .join(' ');
-    return `\ntry { ${assignments} } catch (_ax_e) {} void 0;`;
+    return `\n${assignments} void 0;`;
   };
 
   const _formatOutputArg = (value: unknown): string => {
@@ -1487,7 +1487,11 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         continue;
       }
 
-      _scope[key] = nextValue;
+      try {
+        _scope[key] = nextValue;
+      } catch {
+        // Property may be read-only (e.g., `location` in DedicatedWorkerGlobalScope).
+      }
     }
   };
 
@@ -1500,7 +1504,11 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     if (Array.isArray(msg.fnNames)) {
       for (const name of msg.fnNames) {
         if (typeof name === 'string') {
-          _scope[name] = _createFnProxy(name);
+          try {
+            _scope[name] = _createFnProxy(name);
+          } catch {
+            // Skip read-only globals that cannot accept a proxy.
+          }
         }
       }
     }
