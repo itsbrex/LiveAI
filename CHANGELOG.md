@@ -1,5 +1,17 @@
 # Changelog
 
+## [19.0.34](///compare/19.0.32...19.0.33) (2026-03-26)
+
+### Features
+
+* add agentStatusCallback and fix final() contract in AxAgent RLM 921357f
+* add stop() and success()/failed() to AxAgentCompletionProtocol 375e391
+## [19.0.33](///compare/19.0.32...19.0.33) (2026-03-24)
+
+### Bug Fixes
+
+* handle DataCloneError in JS runtime worker message passing 8f54922
+
 ## [19.0.33](///compare/19.0.31...19.0.32) (2026-03-24)
 
 ### Bug Fixes
