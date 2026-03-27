@@ -117,14 +117,13 @@ Practical rule:
 - If `functions.discovery` is `true`, call `discoverModules(...)` first, then `discoverFunctions(...)`, then call only discovered functions.
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
 - Never combine `console.log(...)` with `await final(...)` or `await askClarification(...)` in the same actor turn.
-- Inside actor-authored JavaScript, `await final(outputGenerationTask, context)` and `await askClarification(...)` end the current turn immediately; code after them is dead code.
-- If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.respond(...)`.
+- Inside actor-authored JavaScript, `await final(...)` and `await askClarification(...)` end the current turn immediately; code after them is dead code.
+- If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)` or `extra.protocol.askClarification(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
 - If `contextPolicy.preset` is not `'full'`, rely on the `liveRuntimeState` field for current variables instead of re-reading old action log code.
 - If `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
 - In public `forward()` and `streamingForward()` flows, `askClarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
-- In public `forward()` and `streamingForward()` flows, `respond(message)` does not go through the responder; it throws `AxAgentRespondError`.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
 - For offline tuning, hand off to the `ax-agent-optimize` skill and prefer eval-safe tools or in-memory mocks because `agent.optimize(...)` will replay tasks many times.
 - Errors listed in `bubbleErrors` bypass all actor-loop catch blocks and propagate directly to the caller of `.forward()`. The same list is automatically inherited by recursive child agents created for advanced-mode `llmQuery(...)` calls.
@@ -297,10 +296,9 @@ const workflowTools = [
 Rules:
 
 - `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
-- Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, `extra.protocol.respond(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
-- Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `askClarification(...)`. `final(message)` with a single string responds directly (skips responder, throws `AxAgentRespondError`). `final(task, context)` with two args goes through the responder.
+- Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
+- Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `askClarification(...)`. `final(message)` and `final(task, context)` both go through the same responder-backed completion path; use the one-arg form when no extra context object is needed.
 - `extra.protocol.guideAgent(...)` is handler-only internal control flow. It is not exposed as a JS runtime global or public completion type; it stops the current actor turn and appends trusted guidance to `guidanceLog` for the next iteration.
-- `extra.protocol.respond(message)` responds directly to the user without running the responder and causes `forward()` to throw `AxAgentRespondError`. Use it when a function handler can provide a direct answer or determines the run should not continue (e.g. access denied, nothing to do).
 - `askClarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 - Do not model these protocol completions as normal registered tool functions or discovery entries.
 
@@ -354,12 +352,10 @@ if (savedState) {
 Public flow rules:
 
 - `forward()` and `streamingForward()` throw `AxAgentClarificationError` when the actor calls `askClarification(...)`.
-- `forward()` and `streamingForward()` throw `AxAgentRespondError` when `respond(message)` is called (via protocol or runtime).
-- The responder is skipped for both clarification and respond in those public flows.
+- Successful `final(...)` completions always continue through the responder in those public flows.
 - `AxAgentClarificationError.question` is the user-facing question text.
 - `AxAgentClarificationError.clarification` is the normalized structured payload.
 - `AxAgentClarificationError.getState()` returns the saved continuation state captured at throw time.
-- `AxAgentRespondError.response` is the message string passed to `respond(...)`.
 - `agent.getState()` and `agent.setState(...)` are the lower-level APIs for explicitly exporting or restoring continuation state on the agent instance.
 - `test(...)` is different: it still returns structured completion payloads for harness/debug use instead of throwing clarification exceptions.
 
@@ -460,47 +456,41 @@ Rules:
 - The same `bubbleErrors` list is automatically propagated to recursive child agents created for advanced-mode `llmQuery(...)` calls.
 - Use `bubbleErrors` for fatal infrastructure errors (DB down, auth failures, quota exceeded) that should abort the run entirely rather than let the actor retry.
 - Do not use `bubbleErrors` for expected recoverable errors; let those return as `[ERROR] ...` strings so the actor can handle them.
-- `AxAgentClarificationError`, `AxAgentRespondError`, and `AxAIServiceAbortedError` always bubble up unconditionally — they do not need to be listed in `bubbleErrors`.
+- `AxAgentClarificationError` and `AxAIServiceAbortedError` always bubble up unconditionally — they do not need to be listed in `bubbleErrors`.
 
-## Direct Response Signal
+## Unified Final Signal
 
-There are two ways to respond directly without the responder:
+There are two ways to end a successful run through the responder:
 
-1. **In actor JS code**: Call `final(message)` with a single string argument. This skips the responder and throws `AxAgentRespondError`.
-2. **In function handlers**: Use `extra.protocol.respond(message)`. Same effect — throws `AxAgentRespondError`.
+1. **In actor JS code**: Call `final(message)` when no extra context object is needed, or `final(task, context)` when you gathered evidence.
+2. **In function handlers**: Use `extra.protocol.final(...)` with the same one-arg or two-arg forms.
 
 ```typescript
-import { AxAgentRespondError, agent, ai, f } from '@ax-llm/ax';
+import { agent, ai, f, fn } from '@ax-llm/ax';
 
 const checkAccess = fn('checkAccess')
-  .description('Verify access and respond if denied')
+  .description('Verify access and complete if denied')
   .arg('resource', f.string('Resource name'))
   .returns(f.string('Access status'))
   .handler(async ({ resource }, extra) => {
     if (!hasAccess(resource)) {
-      extra?.protocol?.respond(`Access denied for ${resource}`);
+      extra?.protocol?.final(`Access denied for ${resource}`);
     }
     return 'granted';
   })
   .build();
 
-try {
-  const result = await myAgent.forward(llm, { query });
-  console.log(result);
-} catch (err) {
-  if (err instanceof AxAgentRespondError) {
-    console.log('Direct response:', err.response);
-  }
-}
+const result = await myAgent.forward(llm, { query });
+console.log(result);
 ```
 
 Rules:
 
-- `respond(message)` is always available on the protocol for function handlers.
-- In actor JS code, `final(message)` (single string arg) triggers the same direct response path.
-- `AxAgentRespondError.response` is the message string.
-- The responder is not invoked; the run ends immediately.
-- Use direct response for greetings, simple known answers, access denied, nothing to do. Use `final(task, context)` when context was gathered and needs synthesis. Use `askClarification(...)` when the user must provide more information to continue.
+- Use `final(message)` when the actor already knows the answer and no extra context object is needed.
+- Use `final(task, context)` when context was gathered and needs synthesis into output fields.
+- In function handlers, use `extra.protocol.final(...)` instead of a separate respond API.
+- The responder still runs for both successful `final(...)` forms.
+- Use `askClarification(...)` when the user must provide more information to continue.
 
 ## Discovery Mode
 

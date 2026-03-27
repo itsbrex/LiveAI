@@ -1249,10 +1249,10 @@ describe('AxAgent.test()', () => {
       args: ['generate output', { data: 'done' }],
     });
 
-    // final(message) with a single string triggers respond (direct response)
+    // final(message) with a single string still goes through the final path
     await expect(testAgent.test('final("done")')).resolves.toEqual({
-      type: 'respond',
-      message: 'done',
+      type: 'final',
+      args: ['done'],
     });
 
     await expect(testAgent.test('askClarification("more")')).resolves.toEqual({
@@ -16513,7 +16513,7 @@ describe('AxFunction', () => {
       payloads.push(payload);
     });
 
-    // Single string arg triggers respond path
+    // Single string arg stays on the final path
     expect(() => bindings.finalFunction('done')).toThrowError(
       AxAgentProtocolCompletionSignal
     );
@@ -16525,7 +16525,7 @@ describe('AxFunction', () => {
       bindings.askClarificationFunction('Need more detail')
     ).toThrowError(AxAgentProtocolCompletionSignal);
     expect(payloads).toEqual([
-      { type: 'respond', message: 'done' },
+      { type: 'final', args: ['done'] },
       { type: 'final', args: ['task', { data: 'done' }] },
       { type: 'askClarification', args: ['Need more detail'] },
     ]);

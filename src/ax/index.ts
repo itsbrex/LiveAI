@@ -787,7 +787,6 @@ import {
   type AxAgentOptimizeTarget,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
-  AxAgentRespondError,
   type AxAgentRuntimeExecutionContext,
   type AxAgentState,
   type AxAgentStateActionLogEntry,
@@ -822,7 +821,6 @@ import {
   type AxAgentGuidancePayload,
   type AxAgentInternalCompletionPayload,
   AxAgentProtocolCompletionSignal,
-  type AxAgentRespondPayload,
 } from './prompts/agent/completion.js';
 import {
   type AxCodeInterpreter,
@@ -923,7 +921,6 @@ export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentProtocolCompletionSignal };
-export { AxAgentRespondError };
 export { AxApacheTika };
 export { AxAssertionError };
 export { AxBalancer };
@@ -1332,7 +1329,6 @@ export type { AxAgentRecursiveTargetId };
 export type { AxAgentRecursiveTraceNode };
 export type { AxAgentRecursiveTurn };
 export type { AxAgentRecursiveUsage };
-export type { AxAgentRespondPayload };
 export type { AxAgentRuntimeExecutionContext };
 export type { AxAgentState };
 export type { AxAgentStateActionLogEntry };

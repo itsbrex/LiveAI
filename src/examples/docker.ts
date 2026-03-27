@@ -1,4 +1,12 @@
-import { AxAI, AxDockerSession, AxGen } from '@ax-llm/ax';
+import {
+  ai,
+  ax,
+  AxAI,
+  AxAIGoogleGeminiModel,
+  AxDockerSession,
+  AxGen,
+  f,
+} from '@ax-llm/ax';
 
 // Initialize Docker session
 const dockerSession = new AxDockerSession();
@@ -9,24 +17,31 @@ await dockerSession.findOrCreateContainer({
   tag: 'ax:example',
 });
 
+const sig = f()
+  .input(
+    'fileQuery',
+    f.string('A query to find a specific file in the container')
+  )
+  .output('content', f.string('Top 3 lines of the file content'))
+  .output('hash', f.string('Hash of the file content'))
+  .description(
+    'Find requested file and display top 3 lines of its content and a hash of the file.'
+  )
+  .build();
+
 // Define the task for generating a command sequence
-const prompt = new AxGen(
-  `"Find requested file and display top 3 lines of its content and a hash of the file."
-  fileQuery:string -> content:string, hash:string`,
-  { functions: [dockerSession] }
-);
+const prompt = ax(sig, { functions: [dockerSession] });
 
 // Initialize the AI instance with your API key
-const ai = new AxAI({
-  name: 'openai',
-  apiKey: process.env.OPENAI_APIKEY as string,
-});
-ai.setOptions({
-  debug: true,
+const llm = ai({
+  name: 'google-gemini',
+  apiKey: process.env.GOOGLE_APIKEY,
+  config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
+  options: { debug: true },
 });
 
 // Execute the task
-const res = await prompt.forward(ai, {
+const res = await prompt.forward(llm, {
   fileQuery: 'config file for current shell',
 });
 

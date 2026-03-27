@@ -104,8 +104,7 @@ describe('Agent Split Architecture Flow', () => {
             if (globals?.final && code.includes('final(')) {
               if (code.includes('"Clear skies, 72F"')) {
                 (globals.final as (...args: unknown[]) => void)(
-                  'Clear skies, 72F',
-                  {}
+                  'Clear skies, 72F'
                 );
               } else {
                 (globals.final as (...args: unknown[]) => void)(

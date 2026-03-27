@@ -13,15 +13,9 @@ export type AxAgentGuidancePayload = {
   triggeredBy?: string;
 };
 
-export type AxAgentRespondPayload = {
-  type: 'respond';
-  message: string;
-};
-
 export type AxAgentInternalCompletionPayload =
   | AxAgentActorResultPayload
-  | AxAgentGuidancePayload
-  | AxAgentRespondPayload;
+  | AxAgentGuidancePayload;
 
 export class AxAgentProtocolCompletionSignal extends Error {
   constructor(public readonly type: AxAgentInternalCompletionPayload['type']) {
@@ -43,7 +37,7 @@ export function createCompletionBindings(
   protocolForTrigger: (triggeredBy?: string) => AxAgentCompletionProtocol;
 } {
   const FINAL_USAGE =
-    'Usage: final(message: string) to respond directly, or final(outputGenerationTask: string, context: object) to signal the responder.';
+    'Usage: final(message: string) or final(outputGenerationTask: string, context: object).';
 
   const ASK_CLARIFICATION_USAGE =
     'Usage: askClarification(question: string) or askClarification({ question: string, type?: "text" | "date" | "number" | "single_choice" | "multiple_choice", choices?: string[] })';
@@ -61,10 +55,10 @@ export function createCompletionBindings(
       );
     }
 
-    // final(message: string) → direct response (skip responder)
+    // final(message: string) → responder flow without extra context
     if (args.length === 1) {
-      setCompletionPayload({ type: 'respond', message: args[0] });
-      throw new AxAgentProtocolCompletionSignal('respond');
+      setCompletionPayload(normalizeCompletionPayload('final', args));
+      throw new AxAgentProtocolCompletionSignal('final');
     }
 
     // final(task: string, context: object) → responder flow
@@ -127,13 +121,6 @@ export function createCompletionBindings(
     guideAgent: (...args: unknown[]): never => {
       setCompletionPayload(normalizeGuidancePayload(args, triggeredBy));
       throw new AxAgentProtocolCompletionSignal('guide_agent');
-    },
-    respond: (message: string): never => {
-      if (typeof message !== 'string' || message.trim().length === 0) {
-        throw new Error('respond() requires a non-empty string message');
-      }
-      setCompletionPayload({ type: 'respond', message });
-      throw new AxAgentProtocolCompletionSignal('respond');
     },
     success: successFn,
     failed: failedFn,

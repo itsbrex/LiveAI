@@ -112,7 +112,6 @@ import {
   AxAgentProtocolCompletionSignal,
   type AxAgentGuidancePayload,
   type AxAgentInternalCompletionPayload,
-  type AxAgentRespondPayload,
   createCompletionBindings,
   normalizeClarificationForError,
 } from './completion.js';
@@ -232,10 +231,7 @@ export type AxAgentTestCompletionPayload = {
   args: unknown[];
 };
 
-export type AxAgentTestResult =
-  | string
-  | AxAgentTestCompletionPayload
-  | AxAgentRespondPayload;
+export type AxAgentTestResult = string | AxAgentTestCompletionPayload;
 
 export type AxAgentClarificationKind =
   | 'text'
@@ -331,16 +327,6 @@ export type AxAgentState = {
   provenance: Record<string, RuntimeStateVariableProvenance>;
   actorModelState?: AxAgentStateActorModelState;
 };
-
-export class AxAgentRespondError extends Error {
-  public readonly response: string;
-
-  constructor(message: string) {
-    super(message);
-    this.name = 'AxAgentRespondError';
-    this.response = message;
-  }
-}
 
 export class AxAgentClarificationError extends Error {
   public readonly question: string;
@@ -480,19 +466,11 @@ export type AxAgentEvalPrediction<OUT = any> =
       completionType: 'final';
       output: OUT;
       clarification?: undefined;
-      response?: undefined;
     })
   | (AxAgentEvalPredictionShared & {
       completionType: 'askClarification';
       output?: undefined;
       clarification: AxAgentStructuredClarification;
-      response?: undefined;
-    })
-  | (AxAgentEvalPredictionShared & {
-      completionType: 'respond';
-      output?: undefined;
-      clarification?: undefined;
-      response: string;
     });
 
 export type AxAgentEvalTask<IN = any> = {
@@ -672,7 +650,7 @@ export type AxAgentJudgeInput = {
 };
 
 export type AxAgentJudgeOutput = {
-  completionType: 'final' | 'askClarification' | 'respond';
+  completionType: 'final' | 'askClarification';
   clarification?: AxFieldValue;
   finalOutput?: AxFieldValue;
   actionLog: string;
@@ -828,7 +806,7 @@ type AxMutableRecursiveTraceNode = {
   role: AxAgentRecursiveNodeRole;
   taskDigest?: string;
   contextDigest?: string;
-  completionType?: 'final' | 'askClarification' | 'respond';
+  completionType?: 'final' | 'askClarification';
   turnCount: number;
   actorTurns: AxAgentRecursiveTurn[];
   functionCalls: {
@@ -2443,7 +2421,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     usageBefore: Readonly<AxAgentRecursiveUsage>,
     actorTurnRecords: readonly AxAgentRecursiveTurn[],
     functionCallRecords: readonly AxAgentEvalFunctionCall[],
-    actorResult: Readonly<AxAgentActorResultPayload | AxAgentRespondPayload>
+    actorResult: Readonly<AxAgentActorResultPayload>
   ): void {
     if (!node) {
       this.currentRecursiveTraceNodeId = undefined;
@@ -2806,40 +2784,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           clarification: normalizeClarificationForError(
             actorResult.args[0] as AxAgentClarification
           ),
-          guidanceLog,
-          actionLog,
-          functionCalls,
-          toolErrors,
-          turnCount,
-          recursiveTrace: projectedRecursiveTrace,
-          recursiveStats,
-          recursiveSummary,
-        };
-      }
-
-      if (actorResult.type === 'respond') {
-        this._finalizeRecursiveTraceCapture(
-          recursiveTraceNode,
-          usageBefore,
-          actorTurnRecords,
-          functionCalls,
-          actorResult
-        );
-        const projectedRecursiveTrace = recursiveCollector?.rootNode
-          ? projectRecursiveTraceForEval(
-              materializeRecursiveTraceNode(recursiveCollector.rootNode)
-            )
-          : undefined;
-        const recursiveStats = projectedRecursiveTrace
-          ? deriveRecursiveStats(projectedRecursiveTrace)
-          : undefined;
-        const recursiveSummary =
-          projectedRecursiveTrace && recursiveStats
-            ? renderRecursiveSummary(projectedRecursiveTrace, recursiveStats)
-            : undefined;
-        return {
-          completionType: 'respond',
-          response: (actorResult as unknown as AxAgentRespondPayload).message,
           guidanceLog,
           actionLog,
           functionCalls,
@@ -3455,10 +3399,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             }
             if (this.shouldBubbleUserError(err)) {
               throw err;
-            }
-            // Child agent used final("message") → direct response; treat as the answer.
-            if (err instanceof AxAgentRespondError) {
-              return normalizeSubAgentAnswer(err.response);
             }
             lastError = err;
             if (!isTransientError(err) || attempt >= maxAttempts - 1) {
@@ -4494,7 +4434,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     contextMetadata: string | undefined;
     guidanceLog: string | undefined;
     actionLog: string;
-    actorResult: AxAgentActorResultPayload | AxAgentRespondPayload;
+    actorResult: AxAgentActorResultPayload;
     actorFieldValues: Record<string, unknown>;
     turnCount: number;
   }> {
@@ -5208,9 +5148,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     }
 
     const actorResult =
-      completionState.payload &&
-      ('args' in completionState.payload ||
-        completionState.payload.type === 'respond')
+      completionState.payload && 'args' in completionState.payload
         ? completionState.payload
         : ({
             type: 'final',
@@ -5287,19 +5225,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
-      if (actorResult.type === 'respond') {
-        this._finalizeRecursiveTraceCapture(
-          recursiveTraceNode,
-          usageBefore,
-          actorTurnRecords,
-          functionCallRecords,
-          actorResult
-        );
-        throw new AxAgentRespondError(
-          (actorResult as unknown as AxAgentRespondPayload).message
-        );
-      }
-
       const responderMergedOptions = {
         ...this._genOptions,
         ...this.responderForwardOptions,
@@ -5368,12 +5293,6 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             state: this.state,
             stateError: this.stateError,
           }
-        );
-      }
-
-      if (actorResult.type === 'respond') {
-        throw new AxAgentRespondError(
-          (actorResult as unknown as AxAgentRespondPayload).message
         );
       }
 

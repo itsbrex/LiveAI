@@ -55,7 +55,7 @@ gen.setExamples([
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY as string,
-  config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+  config: { model: AxAIGoogleGeminiModel.Gemini3Flash },
 });
 
 const updates = [

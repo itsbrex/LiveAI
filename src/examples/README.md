@@ -62,7 +62,7 @@ What to look for:
 
 ## Host-Controlled RLM Example
 
-`rlm-agent-controlled.ts` demonstrates host-side workflow control for `AxAgent`, with the default runnable path focused on `extra.protocol.guideAgent(...)` and `extra.protocol.askClarification(...)` while successful actor turns complete with direct `final(...)`.
+`rlm-agent-controlled.ts` demonstrates host-side workflow control for `AxAgent`, with the default runnable path focused on `extra.protocol.guideAgent(...)` and `extra.protocol.askClarification(...)` while successful actor turns complete with `final(...)`.
 
 **Quick Start:**
 ```bash
@@ -71,7 +71,7 @@ npm run tsx src/examples/rlm-agent-controlled.ts
 ```
 
 What to look for:
-- The default runnable path stays on the authenticated guidance flow, so it demonstrates `workflow.reviewReplyDraft(...)` interrupting the actor and forcing a revised draft before direct `final(...)`.
+- The default runnable path stays on the authenticated guidance flow, so it demonstrates `workflow.reviewReplyDraft(...)` interrupting the actor and forcing a revised draft before `final(...)`.
 - The host can still stop and ask the user for missing information with `workflow.askForOrderId(...)`, but that path is kept out of the default run so the example stays focused on `guideAgent(...)`.
 - Each sample run uses a fresh agent instance so restored runtime state from the first message does not contaminate the second one.
 

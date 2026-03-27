@@ -44,7 +44,7 @@ export type AxAgentRecursiveTraceNode = {
   role: AxAgentRecursiveNodeRole;
   taskDigest?: string;
   contextDigest?: string;
-  completionType?: 'final' | 'askClarification' | 'respond';
+  completionType?: 'final' | 'askClarification';
   turnCount: number;
   childCount: number;
   actorTurns: AxAgentRecursiveTurn[];
