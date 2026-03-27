@@ -1622,12 +1622,28 @@ class AxAIGoogleGeminiImpl
         } else if (msg.role === 'assistant') {
           const parts: AxAIGoogleGeminiContentPart[] = [];
 
-          if (msg.content) {
-            parts.push({ text: msg.content });
+          // Handle thought blocks for Gemini 3+ thought signature round-tripping
+          const thoughtBlocks = (msg as any).thoughtBlocks as
+            | AxThoughtBlockItem[]
+            | undefined;
+          const hasFunctionCalls =
+            msg.functionCalls && msg.functionCalls.length > 0;
+          const firstSignature = thoughtBlocks?.[0]?.signature;
+          const combinedThoughtData =
+            thoughtBlocks?.map((b) => b.data).join('') ?? '';
+
+          if (combinedThoughtData) {
+            parts.push({
+              ...(hasFunctionCalls ? {} : { thought: true }),
+              text: combinedThoughtData,
+              ...(firstSignature && !hasFunctionCalls
+                ? { thought_signature: firstSignature }
+                : {}),
+            });
           }
 
           if (msg.functionCalls) {
-            for (const f of msg.functionCalls) {
+            for (const [index, f] of msg.functionCalls.entries()) {
               let args: object;
               if (typeof f.function.params === 'string') {
                 try {
@@ -1638,8 +1654,18 @@ class AxAIGoogleGeminiImpl
               } else {
                 args = f.function.params ?? {};
               }
-              parts.push({ functionCall: { name: f.function.name, args } });
+              const part: AxAIGoogleGeminiContentPart = {
+                functionCall: { name: f.function.name, args },
+              };
+              if (firstSignature && index === 0) {
+                part.thought_signature = firstSignature;
+              }
+              parts.push(part);
             }
+          }
+
+          if (msg.content) {
+            parts.push({ text: msg.content });
           }
 
           if (parts.length > 0) {
@@ -1753,11 +1779,29 @@ class AxAIGoogleGeminiImpl
         }
       } else if (msg.role === 'assistant') {
         const parts: AxAIGoogleGeminiContentPart[] = [];
-        if (msg.content) {
-          parts.push({ text: msg.content });
+
+        // Handle thought blocks for Gemini 3+ thought signature round-tripping
+        const thoughtBlocks = (msg as any).thoughtBlocks as
+          | AxThoughtBlockItem[]
+          | undefined;
+        const hasFunctionCalls =
+          msg.functionCalls && msg.functionCalls.length > 0;
+        const firstSignature = thoughtBlocks?.[0]?.signature;
+        const combinedThoughtData =
+          thoughtBlocks?.map((b) => b.data).join('') ?? '';
+
+        if (combinedThoughtData) {
+          parts.push({
+            ...(hasFunctionCalls ? {} : { thought: true }),
+            text: combinedThoughtData,
+            ...(firstSignature && !hasFunctionCalls
+              ? { thought_signature: firstSignature }
+              : {}),
+          });
         }
+
         if (msg.functionCalls) {
-          for (const f of msg.functionCalls) {
+          for (const [index, f] of msg.functionCalls.entries()) {
             let args: object;
             if (typeof f.function.params === 'string') {
               try {
@@ -1768,8 +1812,19 @@ class AxAIGoogleGeminiImpl
             } else {
               args = f.function.params ?? {};
             }
-            parts.push({ functionCall: { name: f.function.name, args } });
+            const part: AxAIGoogleGeminiContentPart = {
+              functionCall: { name: f.function.name, args },
+            };
+            // Attach signature only to the first function call
+            if (firstSignature && index === 0) {
+              part.thought_signature = firstSignature;
+            }
+            parts.push(part);
           }
+        }
+
+        if (msg.content) {
+          parts.push({ text: msg.content });
         }
         if (parts.length > 0) {
           dynamicContents.push({ role: 'model' as const, parts });

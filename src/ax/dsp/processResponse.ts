@@ -227,6 +227,16 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
   streamingAsserts,
   asserts,
 }: ProcessStreamingResponseArgs2): AsyncGenDeltaOut<OUT> {
+  // Yield thought even when the response includes function calls
+  if (result.thought && result.thought.length > 0) {
+    state.values[thoughtFieldName] =
+      (state.values[thoughtFieldName] ?? '') + result.thought;
+    yield {
+      index: result.index,
+      delta: { [thoughtFieldName]: result.thought } as Partial<OUT>,
+    };
+  }
+
   if (result.functionCalls && result.functionCalls.length > 0) {
     mergeFunctionCalls(state.functionCalls, result.functionCalls);
     mem.updateResult(
@@ -241,13 +251,6 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
       sessionId
     );
   } else if (result.content && result.content.length > 0) {
-    if (result.thought && result.thought.length > 0) {
-      yield {
-        index: result.index,
-        delta: { [thoughtFieldName]: result.thought } as Partial<OUT>,
-      };
-    }
-
     state.content += result.content;
     mem.updateResult(
       {
@@ -398,15 +401,7 @@ async function* ProcessStreamingResponse<OUT extends AxGenOut>({
 
     await assertAssertions(asserts, state.values);
   } else if (result.thought && result.thought.length > 0) {
-    state.values[thoughtFieldName] =
-      (state.values[thoughtFieldName] ?? '') + result.thought;
-
-    yield {
-      index: result.index,
-      delta: { [thoughtFieldName]: result.thought } as Partial<OUT>,
-    };
-
-    // Update memory with thought and thoughtBlocks
+    // Update memory with thought and thoughtBlocks (yield already handled above)
     mem.updateResult(
       {
         name: result.name,
@@ -853,6 +848,11 @@ export async function* processResponse<OUT>({
       }
     }
 
+    // Capture thought even when the response includes function calls
+    if (result.thought && result.thought.length > 0) {
+      state.values[thoughtFieldName] = result.thought;
+    }
+
     if (result.functionCalls?.length) {
       const funcs = parseFunctionCalls(ai, result.functionCalls, state.values);
       if (funcs && funcs.length > 0) {
@@ -898,10 +898,6 @@ export async function* processResponse<OUT>({
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
       }
     } else if (result.content) {
-      if (result.thought && result.thought.length > 0) {
-        state.values[thoughtFieldName] = result.thought;
-      }
-
       const outputFields = signature.getOutputFields();
       const hasComplexFields = signature.hasComplexFields();
 
