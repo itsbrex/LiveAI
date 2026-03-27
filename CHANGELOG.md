@@ -1,5 +1,22 @@
 # Changelog
 
+## [19.0.37](///compare/19.0.35...19.0.36) (2026-03-27)
+
+### Features
+
+* **dsp:** add customTemplate option to AxGen ([#499](undefined/undefined/undefined/issues/499)) 63e496e, closes #469 #493
+* refresh system prompt <available_functions> after ctx.addFunctions() ([#501](undefined/undefined/undefined/issues/501)) 6d8517c, closes #500
+
+### Bug Fixes
+
+* preserve thought_signature in Gemini 3 context cache paths ([#502](undefined/undefined/undefined/issues/502)) 31e2f95
+* various fixes f50828c
+## [19.0.36](///compare/19.0.35...19.0.36) (2026-03-27)
+
+### Bug Fixes
+
+* various fixes 05cbc64
+
 ## [19.0.36](///compare/19.0.34...19.0.35) (2026-03-27)
 
 ### Bug Fixes
