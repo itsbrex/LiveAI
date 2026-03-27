@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.36](///compare/19.0.34...19.0.35) (2026-03-27)
+
+### Bug Fixes
+
+* various fixes 05cbc64
+## [19.0.35](///compare/19.0.34...19.0.35) (2026-03-26)
+
+### Bug Fixes
+
+* handle read-only global properties in Deno worker scope f2ae6a8
+
 ## [19.0.35](///compare/19.0.33...19.0.34) (2026-03-26)
 
 ### Bug Fixes
