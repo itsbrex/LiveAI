@@ -5,7 +5,10 @@ import {
 } from '../ai/promptMetrics.js';
 import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 
-import { renderPromptTemplate } from '../prompts/templateEngine.js';
+import {
+  renderPromptTemplate,
+  renderTemplateContent,
+} from '../prompts/templateEngine.js';
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';
@@ -25,6 +28,11 @@ export interface AxPromptTemplateOptions {
   ignoreBreakpoints?: boolean;
   /** When set, indicates structured output should be delivered via a function call with this name */
   structuredOutputFunctionName?: string;
+  /** Custom Ax template-engine string to use instead of the built-in dspy.md.
+   * Uses Mustache-style syntax with `{{ var }}`, `{{ if cond }}` / `{{ else }}` / `{{ /if }}`.
+   * Receives the same variables as the default template (identityText, taskDefinitionText, etc.).
+   * Useful for reordering prompt sections to enable cross-signature prompt caching. */
+  customTemplate?: string;
 }
 type AxChatRequestChatPrompt = Writeable<AxChatRequest['chatPrompt'][0]>;
 
@@ -129,6 +137,7 @@ export class AxPromptTemplate {
   private readonly examplesInSystem: boolean;
   private readonly ignoreBreakpoints: boolean;
   private readonly structuredOutputFunctionName?: string;
+  private readonly customTemplate?: string;
 
   constructor(
     sig: Readonly<AxSignature>,
@@ -143,6 +152,7 @@ export class AxPromptTemplate {
     this.examplesInSystem = options?.examplesInSystem ?? false;
     this.ignoreBreakpoints = options?.ignoreBreakpoints ?? false;
     this.structuredOutputFunctionName = options?.structuredOutputFunctionName;
+    this.customTemplate = options?.customTemplate;
 
     this.rebuildTask();
   }
@@ -195,27 +205,31 @@ export class AxPromptTemplate {
     const funcs = this.getFunctions();
     const hasFunctions = funcs.length > 0;
 
-    return {
-      type: 'text' as const,
-      text: renderPromptTemplate('dsp/dspy.md', {
-        hasFunctions,
-        hasTaskDefinition: Boolean(taskDefinition),
-        hasExampleDemonstrations,
-        hasOutputFields: !hasComplexFields,
-        hasComplexFields,
-        hasStructuredOutputFunction: Boolean(
-          hasComplexFields && this.structuredOutputFunctionName
-        ),
-        identityText: this.buildIdentitySection(),
-        taskDefinitionText: taskDefinition,
-        functionsList: hasFunctions ? this.buildFunctionsSection(funcs) : '',
-        inputFieldsSection: this.buildInputFieldsSection(),
-        outputFieldsSection: !hasComplexFields
-          ? this.buildOutputFieldsSection()
-          : '',
-        structuredOutputFunctionName: this.structuredOutputFunctionName ?? '',
-      }).trim(),
+    const templateVars = {
+      hasFunctions,
+      hasTaskDefinition: Boolean(taskDefinition),
+      hasExampleDemonstrations,
+      hasOutputFields: !hasComplexFields,
+      hasComplexFields,
+      hasStructuredOutputFunction: Boolean(
+        hasComplexFields && this.structuredOutputFunctionName
+      ),
+      identityText: this.buildIdentitySection(),
+      taskDefinitionText: taskDefinition,
+      functionsList: hasFunctions ? this.buildFunctionsSection(funcs) : '',
+      inputFieldsSection: this.buildInputFieldsSection(),
+      outputFieldsSection: !hasComplexFields
+        ? this.buildOutputFieldsSection()
+        : '',
+      structuredOutputFunctionName: this.structuredOutputFunctionName ?? '',
     };
+
+    const rendered =
+      this.customTemplate !== undefined
+        ? renderTemplateContent(this.customTemplate, templateVars)
+        : renderPromptTemplate('dsp/dspy.md', templateVars);
+
+    return { type: 'text' as const, text: rendered.trim() };
   }
 
   /**
