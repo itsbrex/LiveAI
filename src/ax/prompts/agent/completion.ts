@@ -13,15 +13,15 @@ export type AxAgentGuidancePayload = {
   triggeredBy?: string;
 };
 
-export type AxAgentStopPayload = {
-  type: 'stop';
-  reason?: string;
+export type AxAgentRespondPayload = {
+  type: 'respond';
+  message: string;
 };
 
 export type AxAgentInternalCompletionPayload =
   | AxAgentActorResultPayload
   | AxAgentGuidancePayload
-  | AxAgentStopPayload;
+  | AxAgentRespondPayload;
 
 export class AxAgentProtocolCompletionSignal extends Error {
   constructor(public readonly type: AxAgentInternalCompletionPayload['type']) {
@@ -42,12 +42,63 @@ export function createCompletionBindings(
   protocol: AxAgentCompletionProtocol;
   protocolForTrigger: (triggeredBy?: string) => AxAgentCompletionProtocol;
 } {
+  const FINAL_USAGE =
+    'Usage: final(message: string) to respond directly, or final(outputGenerationTask: string, context: object) to signal the responder.';
+
+  const ASK_CLARIFICATION_USAGE =
+    'Usage: askClarification(question: string) or askClarification({ question: string, type?: "text" | "date" | "number" | "single_choice" | "multiple_choice", choices?: string[] })';
+
   const finalFunction = (...args: unknown[]): never => {
-    setCompletionPayload(normalizeCompletionPayload('final', args));
-    throw new AxAgentProtocolCompletionSignal('final');
+    // final() — no args
+    if (args.length === 0) {
+      throw new Error(`final() requires at least one argument. ${FINAL_USAGE}`);
+    }
+
+    // First arg must always be a non-empty string
+    if (typeof args[0] !== 'string' || args[0].trim().length === 0) {
+      throw new Error(
+        `final() first argument must be a non-empty string. ${FINAL_USAGE}`
+      );
+    }
+
+    // final(message: string) → direct response (skip responder)
+    if (args.length === 1) {
+      setCompletionPayload({ type: 'respond', message: args[0] });
+      throw new AxAgentProtocolCompletionSignal('respond');
+    }
+
+    // final(task: string, context: object) → responder flow
+    if (args.length === 2) {
+      if (
+        args[1] === null ||
+        typeof args[1] !== 'object' ||
+        Array.isArray(args[1])
+      ) {
+        throw new Error(
+          `final() second argument must be a context object. ${FINAL_USAGE}`
+        );
+      }
+      setCompletionPayload(normalizeCompletionPayload('final', args));
+      throw new AxAgentProtocolCompletionSignal('final');
+    }
+
+    // Too many args
+    throw new Error(
+      `final() accepts at most 2 arguments, got ${args.length}. ${FINAL_USAGE}`
+    );
   };
 
   const askClarificationFunction = (...args: unknown[]): never => {
+    if (args.length === 0) {
+      throw new Error(
+        `askClarification() requires exactly one argument. ${ASK_CLARIFICATION_USAGE}`
+      );
+    }
+    if (args.length > 1) {
+      throw new Error(
+        `askClarification() requires exactly one argument, got ${args.length}. ${ASK_CLARIFICATION_USAGE}`
+      );
+    }
     setCompletionPayload(normalizeCompletionPayload('askClarification', args));
     throw new AxAgentProtocolCompletionSignal('askClarification');
   };
@@ -77,9 +128,12 @@ export function createCompletionBindings(
       setCompletionPayload(normalizeGuidancePayload(args, triggeredBy));
       throw new AxAgentProtocolCompletionSignal('guide_agent');
     },
-    stop: (reason?: string): never => {
-      setCompletionPayload({ type: 'stop', ...(reason ? { reason } : {}) });
-      throw new AxAgentProtocolCompletionSignal('stop');
+    respond: (message: string): never => {
+      if (typeof message !== 'string' || message.trim().length === 0) {
+        throw new Error('respond() requires a non-empty string message');
+      }
+      setCompletionPayload({ type: 'respond', message });
+      throw new AxAgentProtocolCompletionSignal('respond');
     },
     success: successFn,
     failed: failedFn,

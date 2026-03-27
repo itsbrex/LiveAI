@@ -112,7 +112,7 @@ import {
   AxAgentProtocolCompletionSignal,
   type AxAgentGuidancePayload,
   type AxAgentInternalCompletionPayload,
-  type AxAgentStopPayload,
+  type AxAgentRespondPayload,
   createCompletionBindings,
   normalizeClarificationForError,
 } from './completion.js';
@@ -235,7 +235,7 @@ export type AxAgentTestCompletionPayload = {
 export type AxAgentTestResult =
   | string
   | AxAgentTestCompletionPayload
-  | AxAgentStopPayload;
+  | AxAgentRespondPayload;
 
 export type AxAgentClarificationKind =
   | 'text'
@@ -332,13 +332,13 @@ export type AxAgentState = {
   actorModelState?: AxAgentStateActorModelState;
 };
 
-export class AxAgentStopError extends Error {
-  public readonly reason: string | undefined;
+export class AxAgentRespondError extends Error {
+  public readonly response: string;
 
-  constructor(reason?: string) {
-    super(reason ?? 'Agent stopped');
-    this.name = 'AxAgentStopError';
-    this.reason = reason;
+  constructor(message: string) {
+    super(message);
+    this.name = 'AxAgentRespondError';
+    this.response = message;
   }
 }
 
@@ -480,11 +480,19 @@ export type AxAgentEvalPrediction<OUT = any> =
       completionType: 'final';
       output: OUT;
       clarification?: undefined;
+      response?: undefined;
     })
   | (AxAgentEvalPredictionShared & {
       completionType: 'askClarification';
       output?: undefined;
       clarification: AxAgentStructuredClarification;
+      response?: undefined;
+    })
+  | (AxAgentEvalPredictionShared & {
+      completionType: 'respond';
+      output?: undefined;
+      clarification?: undefined;
+      response: string;
     });
 
 export type AxAgentEvalTask<IN = any> = {
@@ -650,6 +658,8 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   >;
   /** Default options for the built-in judge used by optimize(). */
   judgeOptions?: AxAgentJudgeOptions;
+  /** Error classes that should bubble up instead of being caught and returned to the LLM. */
+  bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
 };
 
 export type AxAgentJudgeInput = {
@@ -662,7 +672,7 @@ export type AxAgentJudgeInput = {
 };
 
 export type AxAgentJudgeOutput = {
-  completionType: 'final' | 'askClarification' | 'stop';
+  completionType: 'final' | 'askClarification' | 'respond';
   clarification?: AxFieldValue;
   finalOutput?: AxFieldValue;
   actionLog: string;
@@ -818,7 +828,7 @@ type AxMutableRecursiveTraceNode = {
   role: AxAgentRecursiveNodeRole;
   taskDigest?: string;
   contextDigest?: string;
-  completionType?: 'final' | 'askClarification' | 'stop';
+  completionType?: 'final' | 'askClarification' | 'respond';
   turnCount: number;
   actorTurns: AxAgentRecursiveTurn[];
   functionCalls: {
@@ -1181,6 +1191,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private functionDiscoveryEnabled = false;
   private runtimeUsageInstructions = '';
   private enforceIncrementalConsoleTurns = false;
+  private bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
 
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
@@ -1212,6 +1223,11 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   private _parentSharedAgents: Set<string> = new Set();
   // Agent function keys (namespace.name) injected by a parent.
   private _parentSharedAgentFunctions: Set<string> = new Set();
+
+  private shouldBubbleUserError(err: unknown): boolean {
+    if (!this.bubbleErrors || this.bubbleErrors.length === 0) return false;
+    return this.bubbleErrors.some((ErrorClass) => err instanceof ErrorClass);
+  }
 
   private _reservedAgentFunctionNamespaces(): Set<string> {
     return new Set([
@@ -1476,6 +1492,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       responderOptions,
       judgeOptions,
       inputUpdateCallback,
+      bubbleErrors,
     } = options;
 
     this.ai = ai;
@@ -1575,6 +1592,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       mode,
     };
     this.recursionForwardOptions = recursionOptions;
+    this.bubbleErrors = bubbleErrors;
 
     const { description: actorDescription, ...actorForwardOptions } =
       actorOptions ?? {};
@@ -2425,7 +2443,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     usageBefore: Readonly<AxAgentRecursiveUsage>,
     actorTurnRecords: readonly AxAgentRecursiveTurn[],
     functionCallRecords: readonly AxAgentEvalFunctionCall[],
-    actorResult: Readonly<AxAgentActorResultPayload | AxAgentStopPayload>
+    actorResult: Readonly<AxAgentActorResultPayload | AxAgentRespondPayload>
   ): void {
     if (!node) {
       this.currentRecursiveTraceNodeId = undefined;
@@ -2788,6 +2806,40 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           clarification: normalizeClarificationForError(
             actorResult.args[0] as AxAgentClarification
           ),
+          guidanceLog,
+          actionLog,
+          functionCalls,
+          toolErrors,
+          turnCount,
+          recursiveTrace: projectedRecursiveTrace,
+          recursiveStats,
+          recursiveSummary,
+        };
+      }
+
+      if (actorResult.type === 'respond') {
+        this._finalizeRecursiveTraceCapture(
+          recursiveTraceNode,
+          usageBefore,
+          actorTurnRecords,
+          functionCalls,
+          actorResult
+        );
+        const projectedRecursiveTrace = recursiveCollector?.rootNode
+          ? projectRecursiveTraceForEval(
+              materializeRecursiveTraceNode(recursiveCollector.rootNode)
+            )
+          : undefined;
+        const recursiveStats = projectedRecursiveTrace
+          ? deriveRecursiveStats(projectedRecursiveTrace)
+          : undefined;
+        const recursiveSummary =
+          projectedRecursiveTrace && recursiveStats
+            ? renderRecursiveSummary(projectedRecursiveTrace, recursiveStats)
+            : undefined;
+        return {
+          completionType: 'respond',
+          response: (actorResult as unknown as AxAgentRespondPayload).message,
           guidanceLog,
           actionLog,
           functionCalls,
@@ -3191,6 +3243,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             contextFields: [],
             actorFields: undefined,
             actorModelPolicy: this.options?.actorModelPolicy,
+            bubbleErrors: this.bubbleErrors,
             recursionOptions: childRecursionOptions,
             actorOptions: {
               ...this.actorForwardOptions,
@@ -3400,6 +3453,13 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             ) {
               throw err;
             }
+            if (this.shouldBubbleUserError(err)) {
+              throw err;
+            }
+            // Child agent used final("message") → direct response; treat as the answer.
+            if (err instanceof AxAgentRespondError) {
+              return normalizeSubAgentAnswer(err.response);
+            }
             lastError = err;
             if (!isTransientError(err) || attempt >= maxAttempts - 1) {
               return formatSubAgentError(err);
@@ -3509,6 +3569,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                     );
                   }
                   throw terminalBatchError;
+                }
+                if (this.shouldBubbleUserError(err)) {
+                  if (!batchAbortController.signal.aborted) {
+                    batchAbortController.abort('User bubble error');
+                  }
+                  throw err;
                 }
                 return `[ERROR] ${err instanceof Error ? err.message : String(err)}`;
               }
@@ -3763,7 +3829,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         {
           shouldBubbleError: (err: unknown) =>
             err instanceof AxAgentClarificationError ||
-            err instanceof AxAIServiceAbortedError,
+            err instanceof AxAIServiceAbortedError ||
+            this.shouldBubbleUserError(err),
         }
       );
     };
@@ -4041,6 +4108,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         ) {
           throw err;
         }
+        if (this.shouldBubbleUserError(err)) {
+          throw err;
+        }
         if (effectiveAbortSignal?.aborted) {
           throw new AxAIServiceAbortedError(
             'rlm-session',
@@ -4086,6 +4156,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               retryErr instanceof AxAgentClarificationError ||
               retryErr instanceof AxAIServiceAbortedError
             ) {
+              throw retryErr;
+            }
+            if (this.shouldBubbleUserError(retryErr)) {
               throw retryErr;
             }
             const retryErrLimit = getMaxRuntimeChars();
@@ -4421,7 +4494,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     contextMetadata: string | undefined;
     guidanceLog: string | undefined;
     actionLog: string;
-    actorResult: AxAgentActorResultPayload | AxAgentStopPayload;
+    actorResult: AxAgentActorResultPayload | AxAgentRespondPayload;
     actorFieldValues: Record<string, unknown>;
     turnCount: number;
   }> {
@@ -4953,16 +5026,21 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         } catch (err) {
           if (
             err instanceof AxAgentClarificationError ||
-            err instanceof AxAIServiceAbortedError
+            err instanceof AxAIServiceAbortedError ||
+            this.shouldBubbleUserError(err)
           ) {
+            const bubbledError =
+              err instanceof Error ? err : new Error(String(err));
             actorTurnRecords?.push({
               turn: actionLogEntries.length + 1,
               code,
               output: formatBubbledActorTurnOutput(
-                err,
+                bubbledError,
                 runtimeContext.effectiveContextConfig.maxRuntimeChars
               ),
-              isError: err instanceof AxAIServiceAbortedError,
+              isError:
+                err instanceof AxAIServiceAbortedError ||
+                this.shouldBubbleUserError(err),
               thought:
                 typeof actorResult.thought === 'string'
                   ? actorResult.thought
@@ -4975,10 +5053,12 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                 code,
                 result: undefined,
                 output: formatBubbledActorTurnOutput(
-                  err,
+                  bubbledError,
                   runtimeContext.effectiveContextConfig.maxRuntimeChars
                 ),
-                isError: err instanceof AxAIServiceAbortedError,
+                isError:
+                  err instanceof AxAIServiceAbortedError ||
+                  this.shouldBubbleUserError(err),
                 thought:
                   typeof actorResult.thought === 'string'
                     ? actorResult.thought
@@ -5130,7 +5210,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const actorResult =
       completionState.payload &&
       ('args' in completionState.payload ||
-        completionState.payload.type === 'stop')
+        completionState.payload.type === 'respond')
         ? completionState.payload
         : ({
             type: 'final',
@@ -5207,7 +5287,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
-      if (actorResult.type === 'stop') {
+      if (actorResult.type === 'respond') {
         this._finalizeRecursiveTraceCapture(
           recursiveTraceNode,
           usageBefore,
@@ -5215,8 +5295,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           functionCallRecords,
           actorResult
         );
-        throw new AxAgentStopError(
-          (actorResult as unknown as AxAgentStopPayload).reason
+        throw new AxAgentRespondError(
+          (actorResult as unknown as AxAgentRespondPayload).message
         );
       }
 
@@ -5291,9 +5371,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         );
       }
 
-      if (actorResult.type === 'stop') {
-        throw new AxAgentStopError(
-          (actorResult as unknown as AxAgentStopPayload).reason
+      if (actorResult.type === 'respond') {
+        throw new AxAgentRespondError(
+          (actorResult as unknown as AxAgentRespondPayload).message
         );
       }
 

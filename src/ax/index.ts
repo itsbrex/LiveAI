@@ -787,13 +787,13 @@ import {
   type AxAgentOptimizeTarget,
   type AxAgentOptions,
   type AxAgentRecursionOptions,
+  AxAgentRespondError,
   type AxAgentRuntimeExecutionContext,
   type AxAgentState,
   type AxAgentStateActionLogEntry,
   type AxAgentStateActorModelState,
   type AxAgentStateCheckpointState,
   type AxAgentStateRuntimeEntry,
-  AxAgentStopError,
   type AxAgentStructuredClarification,
   type AxAgentTestCompletionPayload,
   type AxAgentTestResult,
@@ -822,7 +822,7 @@ import {
   type AxAgentGuidancePayload,
   type AxAgentInternalCompletionPayload,
   AxAgentProtocolCompletionSignal,
-  type AxAgentStopPayload,
+  type AxAgentRespondPayload,
 } from './prompts/agent/completion.js';
 import {
   type AxCodeInterpreter,
@@ -923,7 +923,7 @@ export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
 export { AxAgentProtocolCompletionSignal };
-export { AxAgentStopError };
+export { AxAgentRespondError };
 export { AxApacheTika };
 export { AxAssertionError };
 export { AxBalancer };
@@ -1332,13 +1332,13 @@ export type { AxAgentRecursiveTargetId };
 export type { AxAgentRecursiveTraceNode };
 export type { AxAgentRecursiveTurn };
 export type { AxAgentRecursiveUsage };
+export type { AxAgentRespondPayload };
 export type { AxAgentRuntimeExecutionContext };
 export type { AxAgentState };
 export type { AxAgentStateActionLogEntry };
 export type { AxAgentStateActorModelState };
 export type { AxAgentStateCheckpointState };
 export type { AxAgentStateRuntimeEntry };
-export type { AxAgentStopPayload };
 export type { AxAgentStructuredClarification };
 export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };

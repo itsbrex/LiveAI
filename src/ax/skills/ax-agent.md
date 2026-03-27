@@ -43,6 +43,7 @@ Map user intent to agent shape before writing code:
 - "Need a stronger actor only when the run gets noisy or large" -> use `actorModelPolicy` and keep the responder model separate.
 - "Need debugging or traceability" -> start with `debug: true` or `actorTurnCallback`; do not add both unless the user clearly wants both prompt/runtime visibility and structured telemetry.
 - "Need real-time progress updates" -> add `agentStatusCallback` so the actor can call `await success(message)` and `await failed(message)` to report sub-task progress.
+- "Need certain errors to escape the agent loop" -> add `bubbleErrors` with an array of error classes; those errors propagate through function handlers, actor code, and llmQuery sub-agents all the way to `.forward()`.
 
 Choose options based on user needs, not feature completeness:
 
@@ -117,15 +118,16 @@ Practical rule:
 - In stdout-mode RLM, non-final turns must emit exactly one `console.log(...)` and stop immediately after it.
 - Never combine `console.log(...)` with `await final(...)` or `await askClarification(...)` in the same actor turn.
 - Inside actor-authored JavaScript, `await final(outputGenerationTask, context)` and `await askClarification(...)` end the current turn immediately; code after them is dead code.
-- If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.stop(...)`.
+- If a host-side `AxAgentFunction` needs to end the current actor turn, use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, or `extra.protocol.respond(...)`.
 - If a child agent needs parent inputs such as `audience`, use `fields.shared` or `fields.globallyShared`.
 - `llmQuery(...)` failures may come back as `[ERROR] ...`; do not assume success.
 - If `contextPolicy.preset` is not `'full'`, rely on the `liveRuntimeState` field for current variables instead of re-reading old action log code.
 - If `contextPolicy.preset` is `'adaptive'`, `'checkpointed'`, or `'lean'`, assume older successful turns may be replaced by a `Checkpoint Summary` and that replay-pruned successful turns may appear as compact summaries instead of full code blocks.
 - In public `forward()` and `streamingForward()` flows, `askClarification(...)` does not go through the responder; it throws `AxAgentClarificationError`.
-- In public `forward()` and `streamingForward()` flows, `stop(reason?)` does not go through the responder; it throws `AxAgentStopError`.
+- In public `forward()` and `streamingForward()` flows, `respond(message)` does not go through the responder; it throws `AxAgentRespondError`.
 - When resuming after clarification, prefer `error.getState()` from the thrown `AxAgentClarificationError`, then call `agent.setState(savedState)` before the next `forward(...)`.
 - For offline tuning, hand off to the `ax-agent-optimize` skill and prefer eval-safe tools or in-memory mocks because `agent.optimize(...)` will replay tasks many times.
+- Errors listed in `bubbleErrors` bypass all actor-loop catch blocks and propagate directly to the caller of `.forward()`. The same list is automatically inherited by recursive child agents created for advanced-mode `llmQuery(...)` calls.
 
 ## Canonical Pattern
 
@@ -295,10 +297,10 @@ const workflowTools = [
 Rules:
 
 - `extra.protocol` is only available when the function call comes from an active AxAgent actor runtime session.
-- Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, `extra.protocol.stop(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
-- Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `askClarification(...)`.
+- Use `extra.protocol.final(...)`, `extra.protocol.askClarification(...)`, `extra.protocol.respond(...)`, or `extra.protocol.guideAgent(...)` only inside host-side function handlers.
+- Inside actor-authored JavaScript, keep using the runtime globals `final(...)` and `askClarification(...)`. `final(message)` with a single string responds directly (skips responder, throws `AxAgentRespondError`). `final(task, context)` with two args goes through the responder.
 - `extra.protocol.guideAgent(...)` is handler-only internal control flow. It is not exposed as a JS runtime global or public completion type; it stops the current actor turn and appends trusted guidance to `guidanceLog` for the next iteration.
-- `extra.protocol.stop(reason?)` is protocol-only. It halts the agent run immediately without running the responder and causes `forward()` to throw `AxAgentStopError`. Use it when a function determines the run should not continue (e.g. access denied, nothing to do).
+- `extra.protocol.respond(message)` responds directly to the user without running the responder and causes `forward()` to throw `AxAgentRespondError`. Use it when a function handler can provide a direct answer or determines the run should not continue (e.g. access denied, nothing to do).
 - `askClarification(...)` accepts either a simple string or a structured object with `question` plus optional UI hints such as `type: 'date' | 'number' | 'single_choice' | 'multiple_choice'` and `choices`.
 - Do not model these protocol completions as normal registered tool functions or discovery entries.
 
@@ -352,12 +354,12 @@ if (savedState) {
 Public flow rules:
 
 - `forward()` and `streamingForward()` throw `AxAgentClarificationError` when the actor calls `askClarification(...)`.
-- `forward()` and `streamingForward()` throw `AxAgentStopError` when a registered function calls `extra.protocol.stop(reason?)`.
-- The responder is skipped for both clarification and stop in those public flows.
+- `forward()` and `streamingForward()` throw `AxAgentRespondError` when `respond(message)` is called (via protocol or runtime).
+- The responder is skipped for both clarification and respond in those public flows.
 - `AxAgentClarificationError.question` is the user-facing question text.
 - `AxAgentClarificationError.clarification` is the normalized structured payload.
 - `AxAgentClarificationError.getState()` returns the saved continuation state captured at throw time.
-- `AxAgentStopError.reason` is the optional reason string passed to `stop(...)`.
+- `AxAgentRespondError.response` is the message string passed to `respond(...)`.
 - `agent.getState()` and `agent.setState(...)` are the lower-level APIs for explicitly exporting or restoring continuation state on the agent instance.
 - `test(...)` is different: it still returns structured completion payloads for harness/debug use instead of throwing clarification exceptions.
 
@@ -399,20 +401,84 @@ Practical notes:
 - Reserved runtime globals such as `inputs`, tools, and protocol helpers are rebuilt fresh and are not part of saved state.
 - Treat one agent instance as conversation-scoped when using `setState(...)`; do not share one mutable resumed instance across unrelated concurrent conversations.
 
-## Stop Signal
+## Bubble Errors
 
-Use `extra.protocol.stop(reason?)` inside a registered function handler to halt the agent run immediately without invoking the responder. `forward()` and `streamingForward()` throw `AxAgentStopError`.
+Use `bubbleErrors` when certain exceptions thrown inside function handlers or llmQuery sub-agent calls should propagate all the way out to the caller of `.forward()` instead of being caught by the actor loop and returned as `[ERROR]` strings.
 
 ```typescript
-import { AxAgentStopError, agent, ai, f } from '@ax-llm/ax';
+import { agent, ai, f, fn } from '@ax-llm/ax';
+
+class DatabaseError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'DatabaseError';
+  }
+}
+
+class AuthError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = 'AuthError';
+  }
+}
+
+const dbTool = fn('queryUsers')
+  .description('Query the user database')
+  .namespace('db')
+  .arg('filter', f.string('Filter expression'))
+  .returns(f.string('JSON result'))
+  .handler(async ({ filter }) => {
+    if (!isConnected()) throw new DatabaseError('DB connection refused');
+    return JSON.stringify(await db.query(filter));
+  })
+  .build();
+
+const myAgent = agent('query:string -> answer:string', {
+  contextFields: [],
+  functions: { local: [dbTool] },
+  bubbleErrors: [DatabaseError, AuthError],
+});
+
+try {
+  const result = await myAgent.forward(llm, { query: 'find active users' });
+  console.log(result.answer);
+} catch (err) {
+  if (err instanceof DatabaseError) {
+    console.error('DB is down:', err.message);
+  } else if (err instanceof AuthError) {
+    console.error('Auth failed:', err.message);
+  } else {
+    throw err;
+  }
+}
+```
+
+Rules:
+
+- `bubbleErrors` takes an array of Error constructor classes (checked via `instanceof`).
+- A matching error thrown anywhere — inside a function handler, during actor code execution, or inside a nested `llmQuery(...)` child agent — propagates immediately to `.forward()`.
+- The same `bubbleErrors` list is automatically propagated to recursive child agents created for advanced-mode `llmQuery(...)` calls.
+- Use `bubbleErrors` for fatal infrastructure errors (DB down, auth failures, quota exceeded) that should abort the run entirely rather than let the actor retry.
+- Do not use `bubbleErrors` for expected recoverable errors; let those return as `[ERROR] ...` strings so the actor can handle them.
+- `AxAgentClarificationError`, `AxAgentRespondError`, and `AxAIServiceAbortedError` always bubble up unconditionally — they do not need to be listed in `bubbleErrors`.
+
+## Direct Response Signal
+
+There are two ways to respond directly without the responder:
+
+1. **In actor JS code**: Call `final(message)` with a single string argument. This skips the responder and throws `AxAgentRespondError`.
+2. **In function handlers**: Use `extra.protocol.respond(message)`. Same effect — throws `AxAgentRespondError`.
+
+```typescript
+import { AxAgentRespondError, agent, ai, f } from '@ax-llm/ax';
 
 const checkAccess = fn('checkAccess')
-  .description('Verify access and stop if denied')
+  .description('Verify access and respond if denied')
   .arg('resource', f.string('Resource name'))
   .returns(f.string('Access status'))
   .handler(async ({ resource }, extra) => {
     if (!hasAccess(resource)) {
-      extra?.protocol?.stop(`Access denied for ${resource}`);
+      extra?.protocol?.respond(`Access denied for ${resource}`);
     }
     return 'granted';
   })
@@ -422,18 +488,19 @@ try {
   const result = await myAgent.forward(llm, { query });
   console.log(result);
 } catch (err) {
-  if (err instanceof AxAgentStopError) {
-    console.log('Stopped:', err.reason);
+  if (err instanceof AxAgentRespondError) {
+    console.log('Direct response:', err.response);
   }
 }
 ```
 
 Rules:
 
-- `stop(reason?)` is protocol-only — it is not available as a JS runtime global in actor code.
-- `AxAgentStopError.reason` is the string passed to `stop(...)`, or `undefined` if called without a reason.
-- The responder is not invoked; the run ends immediately when `stop(...)` is called.
-- Use `stop(...)` for clean early exits (nothing to do, access denied, precondition failed). Use `askClarification(...)` when the user must provide more information to continue.
+- `respond(message)` is always available on the protocol for function handlers.
+- In actor JS code, `final(message)` (single string arg) triggers the same direct response path.
+- `AxAgentRespondError.response` is the message string.
+- The responder is not invoked; the run ends immediately.
+- Use direct response for greetings, simple known answers, access denied, nothing to do. Use `final(task, context)` when context was gathered and needs synthesis. Use `askClarification(...)` when the user must provide more information to continue.
 
 ## Discovery Mode
 
@@ -727,6 +794,7 @@ Use these top-level controls consistently:
 - `responderOptions`: responder-only forward options
 - `agentStatusCallback`: real-time progress updates from actor via `success(message)` and `failed(message)`
 - `judgeOptions`: built-in judge options for `agent.optimize(...)`; for tuning workflows use the `ax-agent-optimize` skill
+- `bubbleErrors`: error classes that propagate out of function handlers, actor code, and llmQuery sub-agents directly to `.forward()` instead of being caught and returned as `[ERROR]` strings
 
 Canonical shape:
 
@@ -1118,6 +1186,7 @@ agentIdentity?: {
   actorOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
   responderOptions?: Partial<AxProgramForwardOptions & { description?: string }>;
   judgeOptions?: Partial<AxJudgeOptions>;
+  bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
 }
 ```
 
@@ -1153,3 +1222,4 @@ Fetch these for full working code:
 - Do not write a full multi-step RLM actor program in one turn.
 - Do not combine `console.log(...)` with `final(...)`.
 - Do not forget `fields.shared` when child agents depend on parent inputs.
+- Do not add `bubbleErrors` for ordinary recoverable tool errors; those should stay as `[ERROR]` strings so the actor can handle them.

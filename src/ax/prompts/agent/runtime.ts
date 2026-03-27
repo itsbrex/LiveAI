@@ -441,7 +441,7 @@ export function formatBootstrapContextSummary(
 }
 
 export function formatBubbledActorTurnOutput(
-  error: AxAgentClarificationError | AxAIServiceAbortedError,
+  error: AxAgentClarificationError | AxAIServiceAbortedError | Error,
   maxRuntimeChars: number
 ): string {
   if (error instanceof AxAgentClarificationError) {

@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { agent, s } from '../../index.js';
-import type { AxCodeRuntime } from '../../prompts/rlm.js';
-import { AxMockAIService } from '../mock/api.js';
+import { agent, s } from '../index.js';
+import type { AxCodeRuntime } from './rlm.js';
+import { AxMockAIService } from '../ai/mock/api.js';
 
 const makeModelUsage = () => ({
   ai: 'mock',
@@ -39,7 +39,8 @@ describe('Agent Split Architecture Flow', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop' as const,
                 },
               ],
@@ -103,10 +104,14 @@ describe('Agent Split Architecture Flow', () => {
             if (globals?.final && code.includes('final(')) {
               if (code.includes('"Clear skies, 72F"')) {
                 (globals.final as (...args: unknown[]) => void)(
-                  'Clear skies, 72F'
+                  'Clear skies, 72F',
+                  {}
                 );
               } else {
-                (globals.final as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  { data: 'done' }
+                );
               }
               return 'submitted';
             }

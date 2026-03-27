@@ -91,7 +91,9 @@ const defaultRuntime: AxCodeRuntime = {
     return {
       execute: async (code: string) => {
         if (globals?.final && code.includes('final(')) {
-          (globals.final as (...args: unknown[]) => void)('done');
+          (globals.final as (...args: unknown[]) => void)('generate output', {
+            data: 'done',
+          });
         }
         if (globals?.askClarification && code.includes('askClarification(')) {
           (globals.askClarification as (...args: unknown[]) => void)(
@@ -175,7 +177,9 @@ function makeDiscoveryPromptRuntime(): AxCodeRuntime {
             return '(no user variables)';
           }
           if (globals?.final && code.includes('final(')) {
-            (globals.final as (...args: unknown[]) => void)('done');
+            (globals.final as (...args: unknown[]) => void)('generate output', {
+              data: 'done',
+            });
             return 'done';
           }
           if (code.includes('discoverModules') && globals?.discoverModules) {
@@ -271,7 +275,9 @@ function makeEmailSearchDiscoveryPromptRuntime(): AxCodeRuntime {
             return '(no user variables)';
           }
           if (globals?.final && code.includes('final(')) {
-            (globals.final as (...args: unknown[]) => void)('done');
+            (globals.final as (...args: unknown[]) => void)('generate output', {
+              data: 'done',
+            });
             return 'done';
           }
           if (code.includes('discoverModules') && globals?.discoverModules) {
@@ -471,7 +477,8 @@ async function runDiscoveryPromptScenario(args: {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -605,7 +612,7 @@ async function runInvalidDiscoveryRecoveryScenario() {
             }
             break;
           default:
-            content = 'Javascript Code: final("done")';
+            content = 'Javascript Code: final("done", {})';
             break;
         }
 
@@ -1235,9 +1242,17 @@ describe('AxAgent.test()', () => {
       runtime: new AxJSRuntime(),
     });
 
-    await expect(testAgent.test('final("done")')).resolves.toEqual({
+    await expect(
+      testAgent.test('final("generate output", { data: "done" })')
+    ).resolves.toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['generate output', { data: 'done' }],
+    });
+
+    // final(message) with a single string triggers respond (direct response)
+    await expect(testAgent.test('final("done")')).resolves.toEqual({
+      type: 'respond',
+      message: 'done',
     });
 
     await expect(testAgent.test('askClarification("more")')).resolves.toEqual({
@@ -1299,7 +1314,8 @@ describe('Context field runtime access and prompt inlining', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -1333,7 +1349,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1374,7 +1393,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1411,7 +1433,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1448,7 +1473,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1485,7 +1513,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1522,7 +1553,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1560,7 +1594,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1598,7 +1635,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1638,7 +1678,10 @@ describe('Context field runtime access and prompt inlining', () => {
         return {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -1770,7 +1813,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -1805,7 +1849,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             try {
@@ -1905,7 +1952,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -2096,7 +2144,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -2133,7 +2182,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'executed';
           },
@@ -2177,7 +2229,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -2212,7 +2265,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return code.includes('payload') ? longOutput : 'ok';
@@ -2299,7 +2355,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -2329,7 +2386,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('triggerError')) {
@@ -2403,7 +2463,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -2426,7 +2487,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('triggerError')) {
@@ -2510,7 +2574,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -2535,7 +2600,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('triggerError')) {
@@ -2668,7 +2736,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('firstPass')) {
@@ -2751,7 +2822,7 @@ describe('Actor/Responder execution loop', () => {
             1: 'Javascript Code: const draft = "v1"; console.log(draft)',
             2: 'Javascript Code: console.log("note")',
             3: 'Javascript Code: console.log("more")',
-            4: 'Javascript Code: final("done")',
+            4: 'Javascript Code: final("done", {})',
           };
 
           return {
@@ -2783,7 +2854,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('draft')) {
@@ -2879,7 +2953,7 @@ describe('Actor/Responder execution loop', () => {
             2: 'Javascript Code: console.log("note")',
             3: 'Javascript Code: console.log("more")',
             4: 'Javascript Code: console.log("extra")',
-            5: 'Javascript Code: final("done")',
+            5: 'Javascript Code: final("done", {})',
           };
 
           return {
@@ -2910,7 +2984,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('draft')) {
@@ -3004,8 +3081,11 @@ describe('Actor/Responder execution loop', () => {
               await discoverModules?.(['kb', 'db']);
               return 'plain evidence';
             }
-            if (code === 'final("done")' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+            if (code === 'final("done", {})' && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'ok';
@@ -3036,7 +3116,8 @@ describe('Actor/Responder execution loop', () => {
       actorActionLogs.push(values.actionLog);
       actorTurn++;
       return {
-        javascriptCode: actorTurn === 1 ? 'DISCOVER_AND_LOG' : 'final("done")',
+        javascriptCode:
+          actorTurn === 1 ? 'DISCOVER_AND_LOG' : 'final("done", {})',
       };
     };
     anyAgent.responderProgram.forward = async () => {
@@ -3052,7 +3133,7 @@ describe('Actor/Responder execution loop', () => {
 
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['generate output', { data: 'done' }],
     });
     expect(actorState.actionLog).toContain('plain evidence');
     expect(actorState.actionLog).toContain(
@@ -3080,7 +3161,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -3135,7 +3217,8 @@ describe('Actor/Responder execution loop', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -3328,7 +3411,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -3377,7 +3461,10 @@ describe('Actor/Responder execution loop', () => {
                 : '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('console.log(1)')) {
@@ -3443,7 +3530,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -3486,7 +3574,10 @@ describe('Actor/Responder execution loop', () => {
                 : '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('console.log(1)')) {
@@ -3540,7 +3631,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -3581,7 +3673,10 @@ describe('Actor/Responder execution loop', () => {
               return hasTotal ? 'total: number = 5' : '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('const total = 5')) {
@@ -3634,7 +3729,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -3694,7 +3790,10 @@ describe('Actor/Responder execution loop', () => {
               });
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('await db.search(')) {
@@ -3755,7 +3854,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -3803,7 +3903,10 @@ describe('Actor/Responder execution loop', () => {
                 : '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('const ready = true')) {
@@ -3859,7 +3962,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -3907,7 +4011,10 @@ describe('Actor/Responder execution loop', () => {
               return '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('console.log("growth leader: East Widget-A")')) {
@@ -3962,7 +4069,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -4004,7 +4112,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('step1')) return 'a';
@@ -4057,7 +4168,8 @@ describe('Actor/Responder execution loop', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("done")',
+                  content:
+                    'Javascript Code: final("generate output", { data: "done" })',
                   finishReason: 'stop',
                 },
               ],
@@ -4098,7 +4210,10 @@ describe('Actor/Responder execution loop', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('step1')) return 'a';
@@ -4197,7 +4312,7 @@ describe('Actor/Responder execution loop', () => {
 
               const snapshot = await inspectRuntime();
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(snapshot);
+                (globals.final as (...args: unknown[]) => void)(snapshot, {});
               }
               return snapshot;
             }
@@ -4262,7 +4377,7 @@ describe('Actor/Responder execution loop', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: const total = 5; console.log(total)'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -4289,7 +4404,10 @@ describe('Actor/Responder execution loop', () => {
               throw new Error('internal inspection should not use execute()');
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             if (code.includes('const total = 5')) {
@@ -4365,7 +4483,7 @@ describe('Actor/Responder execution loop', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: const broken = ;'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -4398,7 +4516,10 @@ describe('Actor/Responder execution loop', () => {
               throw new Error('SyntaxError: Unexpected token ;');
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'ok';
@@ -4479,7 +4600,7 @@ describe('Actor/Responder execution loop', () => {
               executionReservedNames = opts?.reservedNames;
             }
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('ok');
+              (globals.final as (...args: unknown[]) => void)('ok', {});
             }
             return 'ok';
           },
@@ -4706,7 +4827,7 @@ describe('final()/askClarification() as runtime globals', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: var x = 42; final("inline")',
+                content: 'Javascript Code: var x = 42; final("inline", {})',
                 finishReason: 'stop',
               },
             ],
@@ -4748,7 +4869,7 @@ describe('final()/askClarification() as runtime globals', () => {
             }
             // Simulate calling the submit function from globals
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('inline');
+              (globals.final as (...args: unknown[]) => void)('inline', {});
             }
             return 42;
           },
@@ -4770,7 +4891,7 @@ describe('final()/askClarification() as runtime globals', () => {
     expect(actorCallCount).toBe(1);
     expect(responderCalled).toBe(true);
     expect(result.answer).toBe('inline done result');
-    expect(executedCode).toContain('final("inline")');
+    expect(executedCode).toContain('final("inline", {})');
   });
 
   it('should pass final and askClarification functions in session globals', async () => {
@@ -4786,7 +4907,8 @@ describe('final()/askClarification() as runtime globals', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -4821,7 +4943,10 @@ describe('final()/askClarification() as runtime globals', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -4863,7 +4988,7 @@ describe('final()/askClarification() as runtime globals', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("recovered final")',
+                  content: 'Javascript Code: final("recovered final", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -4933,7 +5058,7 @@ describe('final()/askClarification() as runtime globals', () => {
         if (systemPrompt.includes('Code Generation Agent')) {
           if (
             userPrompt.includes(
-              'askClarification() requires at least one argument'
+              'askClarification() requires exactly one argument'
             )
           ) {
             sawMissingAskArgsError = true;
@@ -4941,7 +5066,8 @@ describe('final()/askClarification() as runtime globals', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("recovered clarification")',
+                  content:
+                    'Javascript Code: final("recovered clarification", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -5164,7 +5290,7 @@ describe('final()/askClarification() as runtime globals', () => {
               'askClarification({ question: "Which routes should I use?", type: "multiple_choice" })',
           }
         : {
-            javascriptCode: 'final("Recovered")',
+            javascriptCode: 'final("Recovered", {})',
           };
     };
 
@@ -5196,7 +5322,7 @@ describe('final()/askClarification() as runtime globals', () => {
     );
     expect(loopResult.actorResult).toEqual({
       type: 'final',
-      args: ['Recovered'],
+      args: ['Recovered', {}],
     });
   });
 
@@ -5315,7 +5441,7 @@ describe('final()/askClarification() as runtime globals', () => {
       }
 
       return {
-        javascriptCode: `final(\`\${draftReply} on \${inputs.answer} under $\${budget}\`)`,
+        javascriptCode: `final(\`\${draftReply} on \${inputs.answer} under $\${budget}\`, {})`,
       };
     };
     anyAgent.responderProgram.forward = async (
@@ -5416,13 +5542,16 @@ describe('final()/askClarification() as runtime globals', () => {
               return 'after guidance';
             }
 
-            if (code.includes('final("done")') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+            if (code.includes('final("done", {})') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
 
-            if (code.includes('final("resumed")') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('resumed');
+            if (code.includes('final("resumed", {})') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('resumed', {});
               return 'resumed';
             }
 
@@ -5455,7 +5584,7 @@ describe('final()/askClarification() as runtime globals', () => {
         javascriptCode:
           actorTurn === 1
             ? 'await utils.reviewPlan({ guidance: "Use the approved template only." })'
-            : 'final("done")',
+            : 'final("done", {})',
       };
     };
     anyAgent.responderProgram.forward = async (
@@ -5501,7 +5630,7 @@ describe('final()/askClarification() as runtime globals', () => {
       resumedActionDescriptions.push(
         inputFields.find((f) => f.name === 'actionLog')?.description ?? ''
       );
-      return { javascriptCode: 'final("resumed")' };
+      return { javascriptCode: 'final("resumed", {})' };
     };
     anyResumedAgent.responderProgram.forward = async (
       _ai: unknown,
@@ -5573,7 +5702,7 @@ describe('final()/askClarification() as runtime globals', () => {
       actorGuidanceDescriptions.push(
         inputFields.find((f) => f.name === 'guidanceLog')?.description ?? ''
       );
-      return { javascriptCode: 'final("ok")' };
+      return { javascriptCode: 'final("ok", {})' };
     };
     anyAgent.responderProgram.forward = async (
       _ai: unknown,
@@ -5631,7 +5760,7 @@ describe('final()/askClarification() as runtime globals', () => {
             ].join('\n'),
           }
         : {
-            javascriptCode: `final(\`\${draftReply} on \${inputs.answer} under $\${budget}\`)`,
+            javascriptCode: `final(\`\${draftReply} on \${inputs.answer} under $\${budget}\`, {})`,
           };
     };
     anyAgent.responderProgram.forward = async (
@@ -5680,7 +5809,10 @@ describe('final()/askClarification() as runtime globals', () => {
         return {
           execute: async (code: string) => {
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'done';
           },
@@ -5822,7 +5954,9 @@ describe('incremental console-turn policy', () => {
       return {
         execute: async (code: string) => {
           if (globals?.final && code.includes('final(')) {
-            (globals.final as (...args: unknown[]) => void)('done');
+            (globals.final as (...args: unknown[]) => void)('generate output', {
+              data: 'done',
+            });
           }
           return 'ok';
         },
@@ -5994,7 +6128,7 @@ console.log('Keys:', Object.keys(globalThis));`;
           const codeByTurn: Record<number, string> = {
             1: "Javascript Code: await discoverModules(['kb', 'db'])",
             2: "Javascript Code: await discoverFunctions(['kb.lookup', 'db.search'])",
-            3: 'Javascript Code: final("done")',
+            3: 'Javascript Code: final("done", {})',
           };
           return {
             results: [
@@ -6045,7 +6179,10 @@ console.log('Keys:', Object.keys(globalThis));`;
               return 'ok';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -6073,7 +6210,7 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(getActorAuthoredCodes(executedCode)).toEqual([
       "await discoverModules(['kb', 'db'])",
       "await discoverFunctions(['kb.lookup', 'db.search'])",
-      'final("done")',
+      'final("done", {})',
     ]);
     expect(actorUserPrompts[1]).not.toContain(
       '[POLICY] Non-final turns must include at least one console.log(...)'
@@ -6100,7 +6237,7 @@ console.log('Keys:', Object.keys(globalThis));`;
   it('should allow completion turns with dead code after final without requiring console.log', () => {
     expect(
       validateActorTurnCodePolicy(`
-        final("done")
+        final("done", {})
         // dead code after completion should be ignored
         const shouldNotMatter = true
       `)
@@ -6130,7 +6267,7 @@ console.log('Keys:', Object.keys(globalThis));`;
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: var x = 42; x'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -6161,7 +6298,10 @@ console.log('Keys:', Object.keys(globalThis));`;
           execute: async (code: string) => {
             executedCode.push(code);
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -6183,7 +6323,9 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(result.answer).toBe('done');
     expect(actorCallCount).toBe(2);
     expect(getActorAuthoredCodes(executedCode)).toHaveLength(1);
-    expect(getActorAuthoredCodes(executedCode)[0]).toContain('final("done")');
+    expect(getActorAuthoredCodes(executedCode)[0]).toContain(
+      'final("done", {})'
+    );
     expect(secondTurnUserPrompt).toContain(
       '[POLICY] Non-final turns must include at least one console.log(...)'
     );
@@ -6212,7 +6354,7 @@ console.log('Keys:', Object.keys(globalThis));`;
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: ```javascript\nconsole.log("drafted")\n```'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -6243,7 +6385,10 @@ console.log('Keys:', Object.keys(globalThis));`;
           execute: async (code: string) => {
             executedCode.push(code);
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return code.includes('console.log(') ? 'drafted' : 'ok';
           },
@@ -6266,7 +6411,7 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(actorCallCount).toBe(2);
     expect(getActorAuthoredCodes(executedCode)).toEqual([
       'console.log("drafted")',
-      'final("done")',
+      'final("done", {})',
     ]);
     expect(secondTurnUserPrompt).toContain(
       '```javascript\nconsole.log("drafted")'
@@ -6301,7 +6446,7 @@ console.log('Keys:', Object.keys(globalThis));`;
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: ```javascript\nconsole.log("drafted")'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -6332,7 +6477,10 @@ console.log('Keys:', Object.keys(globalThis));`;
           execute: async (code: string) => {
             executedCode.push(code);
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return code.includes('console.log(') ? 'drafted' : 'ok';
           },
@@ -6355,7 +6503,7 @@ console.log('Keys:', Object.keys(globalThis));`;
     expect(actorCallCount).toBe(2);
     expect(getActorAuthoredCodes(executedCode)).toEqual([
       'console.log("drafted")',
-      'final("done")',
+      'final("done", {})',
     ]);
     expect(secondTurnUserPrompt).not.toContain('```javascript\n```javascript');
     expect(secondTurnUserPrompt).not.toContain(
@@ -6378,7 +6526,7 @@ console.log('Keys:', Object.keys(globalThis));`;
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: console.log("x"); final("done")',
+                content: 'Javascript Code: console.log("x"); final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -6409,7 +6557,10 @@ console.log('Keys:', Object.keys(globalThis));`;
           execute: async (code: string) => {
             executedCode.push(code);
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -6432,7 +6583,9 @@ console.log('Keys:', Object.keys(globalThis));`;
     // Code executes in turn 1 — no policy violation
     expect(actorCallCount).toBe(1);
     expect(getActorAuthoredCodes(executedCode)).toHaveLength(1);
-    expect(getActorAuthoredCodes(executedCode)[0]).toContain('final("done")');
+    expect(getActorAuthoredCodes(executedCode)[0]).toContain(
+      'final("done", {})'
+    );
   });
 
   it('should allow non-final code with statements after console.log', async () => {
@@ -6453,7 +6606,7 @@ console.log('Keys:', Object.keys(globalThis));`;
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: var x = 1; console.log(x); var y = 2; y'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -6484,7 +6637,10 @@ console.log('Keys:', Object.keys(globalThis));`;
           execute: async (code: string) => {
             executedCode.push(code);
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -6851,7 +7007,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("one")',
+                  content: 'Javascript Code: final("one", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -6863,7 +7019,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("two")',
+                  content: 'Javascript Code: final("two", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -6874,7 +7030,8 @@ describe('RLM llmQuery runtime behavior', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -6916,7 +7073,10 @@ describe('RLM llmQuery runtime behavior', () => {
             }
 
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'submitted';
             }
 
@@ -6963,7 +7123,8 @@ describe('RLM llmQuery runtime behavior', () => {
               rootChildAnswer = await llmQueryFn('child query', 'ctx1');
               if (globals?.final) {
                 (globals.final as (...args: unknown[]) => void)(
-                  rootChildAnswer
+                  rootChildAnswer,
+                  {}
                 );
               }
               return rootChildAnswer;
@@ -6976,7 +7137,7 @@ describe('RLM llmQuery runtime behavior', () => {
               ) => Promise<string>;
               const nested = await llmQueryFn('grandchild query', 'ctx2');
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(nested);
+                (globals.final as (...args: unknown[]) => void)(nested, {});
               }
               return nested;
             }
@@ -7013,7 +7174,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("grandchild")',
+                  content: 'Javascript Code: final("grandchild", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -7110,7 +7271,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("ok")',
+                  content: 'Javascript Code: final("ok", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -7122,7 +7283,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("fail")',
+                  content: 'Javascript Code: final("fail", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -7133,7 +7294,8 @@ describe('RLM llmQuery runtime behavior', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -7187,11 +7349,14 @@ describe('RLM llmQuery runtime behavior', () => {
 
             if (globals?.final && code.includes('final(')) {
               if (code.includes('"ok"')) {
-                (globals.final as (...args: unknown[]) => void)('ok');
+                (globals.final as (...args: unknown[]) => void)('ok', {});
               } else if (code.includes('"fail"')) {
-                (globals.final as (...args: unknown[]) => void)('fail');
+                (globals.final as (...args: unknown[]) => void)('fail', {});
               } else {
-                (globals.final as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  { data: 'done' }
+                );
               }
               return 'submitted';
             }
@@ -7267,7 +7432,10 @@ describe('RLM llmQuery runtime behavior', () => {
                 { query: 'write a poem', context: {} },
               ]);
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(batchResult[0]);
+                (globals.final as (...args: unknown[]) => void)(
+                  batchResult[0],
+                  {}
+                );
               }
               return batchResult[0];
             }
@@ -7347,7 +7515,10 @@ describe('RLM llmQuery runtime behavior', () => {
               ]);
               queryResult = results[0] ?? '';
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(queryResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  queryResult,
+                  {}
+                );
               }
               return queryResult;
             }
@@ -7439,7 +7610,10 @@ describe('RLM llmQuery runtime behavior', () => {
             }
 
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
 
@@ -7562,7 +7736,8 @@ describe('RLM llmQuery runtime behavior', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -7596,7 +7771,10 @@ describe('RLM llmQuery runtime behavior', () => {
             }
 
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'submitted';
             }
 
@@ -7654,7 +7832,7 @@ describe('RLM llmQuery runtime behavior', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("sub-lm-answer")',
+                  content: 'Javascript Code: final("sub-lm-answer", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -7665,7 +7843,8 @@ describe('RLM llmQuery runtime behavior', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -7721,10 +7900,14 @@ describe('RLM llmQuery runtime behavior', () => {
             if (globals?.final && code.includes('final(')) {
               if (code.includes('"sub-lm-answer"')) {
                 (globals.final as (...args: unknown[]) => void)(
-                  'sub-lm-answer'
+                  'sub-lm-answer',
+                  {}
                 );
               } else {
-                (globals.final as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  { data: 'done' }
+                );
               }
               return 'submitted';
             }
@@ -7889,7 +8072,8 @@ describe('RLM session restart', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -7973,7 +8157,8 @@ describe('RLM session restart', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -8042,7 +8227,8 @@ describe('Program registration for optimization', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop' as const,
               },
             ],
@@ -8100,7 +8286,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "step"'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop' as const,
               },
             ],
@@ -8152,7 +8338,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "x"'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop' as const,
               },
             ],
@@ -8349,7 +8535,7 @@ describe('Program registration for optimization', () => {
                 content:
                   actorCallCount === 1
                     ? 'Javascript Code: "hello"'
-                    : 'Javascript Code: final("done")',
+                    : 'Javascript Code: final("done", {})',
                 finishReason: 'stop' as const,
               },
             ],
@@ -8518,7 +8704,7 @@ describe('actorFields', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: final("done")\nReasoning: Final reasoning',
+                  'Javascript Code: final("done", {})\nReasoning: Final reasoning',
                 finishReason: 'stop',
               },
             ],
@@ -8571,7 +8757,9 @@ describe('actorTurnCallback', () => {
       return {
         execute: async (code: string) => {
           if (globals?.final && code.includes('final(')) {
-            (globals.final as (...args: unknown[]) => void)('done');
+            (globals.final as (...args: unknown[]) => void)('generate output', {
+              data: 'done',
+            });
           }
           if (code.includes('console.log(')) {
             return longOutput;
@@ -8611,7 +8799,8 @@ describe('actorTurnCallback', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -8651,7 +8840,7 @@ describe('actorTurnCallback', () => {
     });
     expect(callbackResults[1]).toMatchObject({
       turn: 2,
-      code: 'final("done")',
+      code: 'final("generate output", { data: "done" })',
       result: undefined,
       output: '(no output)',
       isError: false,
@@ -8678,12 +8867,15 @@ describe('actorTurnCallback', () => {
               ) => Promise<string>;
               const childAnswer = await llmQueryFn('child query', 'ctx');
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childAnswer);
+                (globals.final as (...args: unknown[]) => void)(
+                  childAnswer,
+                  {}
+                );
               }
               return childAnswer;
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done');
+              (globals.final as (...args: unknown[]) => void)('child done', {});
               return 'child done';
             }
             return 'ok';
@@ -8705,7 +8897,7 @@ describe('actorTurnCallback', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("child done")',
+                  content: 'Javascript Code: final("child done", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -8749,7 +8941,7 @@ describe('actorTurnCallback', () => {
     await testAgent.forward(testMockAI, { query: 'test' });
 
     expect(callbackCodes).toContain('ROOT_STEP');
-    expect(callbackCodes).toContain('final("child done")');
+    expect(callbackCodes).toContain('final("child done", {})');
     expect(callbackCodes).toHaveLength(2);
   });
 
@@ -8913,7 +9105,7 @@ describe('inputUpdateCallback', () => {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
               finalArg = (globals.inputs as Record<string, unknown>)?.query;
-              (globals.final as (...args: unknown[]) => void)(finalArg);
+              (globals.final as (...args: unknown[]) => void)(finalArg, {});
               return 'done';
             }
             return 'ok';
@@ -9001,7 +9193,7 @@ describe('inputUpdateCallback', () => {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
               finalArg = globals.query;
-              (globals.final as (...args: unknown[]) => void)(finalArg);
+              (globals.final as (...args: unknown[]) => void)(finalArg, {});
               return 'done';
             }
             return 'ok';
@@ -9064,7 +9256,7 @@ describe('inputUpdateCallback', () => {
               const inputs = globals.inputs as Record<string, unknown>;
               finalArg = inputs.query;
               hasUnknownKey = Object.hasOwn(inputs, 'unknownKey');
-              (globals.final as (...args: unknown[]) => void)(finalArg);
+              (globals.final as (...args: unknown[]) => void)(finalArg, {});
               return 'done';
             }
             return 'ok';
@@ -9126,7 +9318,7 @@ describe('inputUpdateCallback', () => {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
               finalArg = (globals.inputs as Record<string, unknown>).query;
-              (globals.final as (...args: unknown[]) => void)(finalArg);
+              (globals.final as (...args: unknown[]) => void)(finalArg, {});
               return 'done';
             }
             return 'ok';
@@ -9242,7 +9434,10 @@ describe('inputUpdateCallback', () => {
               await agentsObj.child({ question: 'test' });
             }
             if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'ok';
@@ -9317,7 +9512,7 @@ describe('inputUpdateCallback', () => {
           execute: async (code: string) => {
             if (code.includes('final(') && globals?.final) {
               finalArg = (globals.inputs as Record<string, unknown>)?.query;
-              (globals.final as (...args: unknown[]) => void)(finalArg);
+              (globals.final as (...args: unknown[]) => void)(finalArg, {});
               return 'done';
             }
             return 'ok';
@@ -9368,7 +9563,7 @@ describe('inputUpdateCallback', () => {
       query: 'stream-updated',
       contextData: {
         type: 'final',
-        args: ['stream-updated'],
+        args: ['stream-updated', {}],
       },
     });
   });
@@ -9385,7 +9580,8 @@ describe('inputUpdateCallback', () => {
             executedCode.push(code);
             if (code.includes('final(') && globals?.final) {
               (globals.final as (...args: unknown[]) => void)(
-                (globals.inputs as Record<string, unknown>)?.query
+                (globals.inputs as Record<string, unknown>)?.query,
+                {}
               );
               return 'done';
             }
@@ -9410,7 +9606,7 @@ describe('inputUpdateCallback', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const anyAgent = testAgent as any;
     anyAgent.actorProgram.forward = async () => ({
-      javascriptCode: 'final(inputs.query)',
+      javascriptCode: 'final(inputs.query, {})',
     });
     anyAgent.responderProgram.forward = async () => ({ answer: 'ok' });
 
@@ -9421,7 +9617,7 @@ describe('inputUpdateCallback', () => {
     await testAgent.forward(ai, { query: 'initial-query' });
 
     expect(getActorAuthoredCodes(executedCode)).toEqual([
-      'final(inputs.query)',
+      'final(inputs.query, {})',
     ]);
     expect(patchedGlobals).toHaveLength(1);
     expect(patchedGlobals[0]?.query).toBe('updated-query');
@@ -9447,7 +9643,10 @@ describe('inputUpdateCallback', () => {
             }
             if (code.includes('final(') && globals?.final) {
               aliasStates.push(globals?.note, globals?.note);
-              (globals.final as (...args: unknown[]) => void)(aliasStates);
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { aliasStates }
+              );
               return 'done';
             }
             return 'ok';
@@ -9482,7 +9681,7 @@ describe('inputUpdateCallback', () => {
       }
       return {
         javascriptCode:
-          'globalThis.savedAliasStates.push(note, globalThis.note); final(globalThis.savedAliasStates)',
+          'globalThis.savedAliasStates.push(note, globalThis.note); final("generate output", { aliasStates: globalThis.savedAliasStates })',
       };
     };
     anyAgent.responderProgram.forward = async (_ai: unknown, values: any) => ({
@@ -9519,7 +9718,7 @@ describe('inputUpdateCallback', () => {
               const savedInputs = (globals as Record<string, unknown>)
                 .savedInputs as Record<string, unknown>;
               savedQuery = savedInputs?.query;
-              (globals.final as (...args: unknown[]) => void)(savedQuery);
+              (globals.final as (...args: unknown[]) => void)(savedQuery, {});
               return 'done';
             }
             return 'ok';
@@ -9587,7 +9786,8 @@ describe('actorOptions / responderOptions', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -9629,7 +9829,8 @@ describe('actorOptions / responderOptions', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -9723,7 +9924,8 @@ describe('actorModelPolicy', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -9773,7 +9975,7 @@ describe('actorModelPolicy', () => {
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
             1: 'Javascript Code: await discoverFunctions(["db.search"])',
-            2: 'Javascript Code: final("done")',
+            2: 'Javascript Code: final("done", {})',
           };
           return {
             results: [
@@ -9835,7 +10037,7 @@ describe('actorModelPolicy', () => {
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
             1: 'Javascript Code: await discoverFunctions(["lookup"])',
-            2: 'Javascript Code: final("done")',
+            2: 'Javascript Code: final("done", {})',
           };
           return {
             results: [
@@ -9913,7 +10115,7 @@ describe('actorModelPolicy', () => {
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
             1: 'Javascript Code: await discoverFunctions(["db.search", "kb.lookup"])',
-            2: 'Javascript Code: final("done")',
+            2: 'Javascript Code: final("done", {})',
           };
           return {
             results: [
@@ -9978,7 +10180,7 @@ describe('actorModelPolicy', () => {
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
             1: 'Javascript Code: await discoverFunctions(["kb.lookup"])',
-            2: 'Javascript Code: final("done")',
+            2: 'Javascript Code: final("done", {})',
           };
           return {
             results: [
@@ -10039,7 +10241,7 @@ describe('actorModelPolicy', () => {
           actorModels.push(req.model as string | undefined);
           const codeByTurn: Record<number, string> = {
             1: 'Javascript Code: await discoverFunctions(["db.missing"])',
-            2: 'Javascript Code: final("done")',
+            2: 'Javascript Code: final("done", {})',
           };
           return {
             results: [
@@ -10118,7 +10320,10 @@ describe('actorModelPolicy', () => {
               throw new Error(`runtime failure for ${code}`);
             }
             if (code === 'DONE' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'ok';
@@ -10147,7 +10352,7 @@ describe('actorModelPolicy', () => {
                 index: 0,
                 content:
                   actorCodeByTurn[actorCallCount] ??
-                  'Javascript Code: final("done")',
+                  'Javascript Code: final("done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -10214,7 +10419,10 @@ describe('actorModelPolicy', () => {
               return '(no user variables)';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'ok';
@@ -10262,7 +10470,8 @@ describe('actorModelPolicy', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop',
               },
             ],
@@ -10343,7 +10552,7 @@ describe('actorModelPolicy', () => {
           if (phase === 'initial') {
             const codeByTurn: Record<number, string> = {
               1: 'Javascript Code: await discoverFunctions(["db.search"])',
-              2: 'Javascript Code: final("initial done")',
+              2: 'Javascript Code: final("initial done", {})',
             };
             return {
               results: [
@@ -10361,7 +10570,7 @@ describe('actorModelPolicy', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("resumed done")',
+                content: 'Javascript Code: final("resumed done", {})',
                 finishReason: 'stop',
               },
             ],
@@ -10434,7 +10643,10 @@ describe('actorModelPolicy', () => {
               ) => Promise<string>;
               await llmQueryFn('child query', 'child context');
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)('root done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'root done',
+                  {}
+                );
               }
               return 'root done';
             }
@@ -10442,7 +10654,7 @@ describe('actorModelPolicy', () => {
               throw new Error('child failure');
             }
             if (code === 'CHILD_DONE' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('child done');
+              (globals.final as (...args: unknown[]) => void)('child done', {});
               return 'child done';
             }
             return 'ok';
@@ -10537,7 +10749,7 @@ describe('actorModelPolicy', () => {
             childModels.push(req.model as string | undefined);
             const childCodeByTurn: Record<number, string> = {
               1: 'Javascript Code: await discoverFunctions(["db.search"])',
-              2: 'Javascript Code: final("child done")',
+              2: 'Javascript Code: final("child done", {})',
             };
             return {
               results: [
@@ -10557,7 +10769,7 @@ describe('actorModelPolicy', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: const result = await llmQuery("child query", "child context"); final(result)',
+                  'Javascript Code: const result = await llmQuery("child query", "child context"); final(result, {})',
                 finishReason: 'stop',
               },
             ],
@@ -10709,7 +10921,7 @@ describe('judgeOptions / optimize', () => {
               {
                 index: 0,
                 content:
-                  'Javascript Code: const result = await email.sendEmail({ to: "jim@example.com" }); final("email sent")',
+                  'Javascript Code: const result = await email.sendEmail({ to: "jim@example.com" }); final("email sent", {})',
                 finishReason: 'stop',
               },
             ],
@@ -10824,8 +11036,8 @@ describe('judgeOptions / optimize', () => {
               ? (options?.rootCode ??
                 'const child = await llmQuery("child task"); final(`root saw ' +
                   '${' +
-                  'child}`)')
-              : (options?.childCode ?? 'final("child detail")');
+                  'child}`, {})')
+              : (options?.childCode ?? 'final("child detail", {})');
 
           return {
             results: [
@@ -11286,7 +11498,7 @@ describe('judgeOptions / optimize', () => {
 
       return {
         javascriptCode:
-          'final(typeof temp === "undefined" && typeof seed === "undefined" ? "clean" : JSON.stringify({ temp: typeof temp === "undefined" ? null : temp, seed: typeof seed === "undefined" ? null : seed }))',
+          'final(typeof temp === "undefined" && typeof seed === "undefined" ? "clean" : JSON.stringify({ temp: typeof temp === "undefined" ? null : temp, seed: typeof seed === "undefined" ? null : seed }), {})',
       };
     };
     anyAgent.responderProgram.forward = async (
@@ -11715,7 +11927,7 @@ describe('judgeOptions / optimize', () => {
 
   it('should capture a no-recursion evaluation trace when the root answers directly', async () => {
     const studentAI = makeRecursiveStudentAI({
-      rootCode: 'final("direct answer")',
+      rootCode: 'final("direct answer", {})',
     });
 
     const testAgent = agent('query:string -> answer:string', {
@@ -11772,13 +11984,16 @@ describe('recursionOptions and recursive parity', () => {
                 await myTool({ input: 'ok' });
               }
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)('child answer');
+                (globals.final as (...args: unknown[]) => void)(
+                  'child answer',
+                  {}
+                );
               }
               return 'child done';
             }
 
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('root done');
+              (globals.final as (...args: unknown[]) => void)('root done', {});
               return 'root done';
             }
 
@@ -11886,7 +12101,10 @@ describe('recursionOptions and recursive parity', () => {
               ) => Promise<string>;
               const childResult = await llmQueryFn('child query');
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  childResult,
+                  {}
+                );
               }
               return childResult;
             }
@@ -11898,7 +12116,10 @@ describe('recursionOptions and recursive parity', () => {
                 contextType: typeof globals?.context,
               };
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(payload);
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  payload
+                );
               }
               return payload;
             }
@@ -12015,7 +12236,10 @@ describe('recursionOptions and recursive parity', () => {
                 rubric: 'refund-or-not',
               });
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  childResult,
+                  {}
+                );
               }
               return childResult;
             }
@@ -12033,7 +12257,10 @@ describe('recursionOptions and recursive parity', () => {
                   (globals?.knowledge as string | undefined) ?? '',
               };
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(payload);
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  payload
+                );
               }
               return payload;
             }
@@ -12137,7 +12364,10 @@ describe('recursionOptions and recursive parity', () => {
                 rubric: 'refund-or-not',
               });
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  childResult,
+                  {}
+                );
               }
               return childResult;
             }
@@ -12183,7 +12413,7 @@ describe('recursionOptions and recursive parity', () => {
             }
 
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done');
+              (globals.final as (...args: unknown[]) => void)('child done', {});
               return 'child done';
             }
 
@@ -12207,7 +12437,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("child done")',
+                  content: 'Javascript Code: final("child done", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -12278,13 +12508,16 @@ describe('recursionOptions and recursive parity', () => {
                 priority: 'high',
               });
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  childResult,
+                  {}
+                );
               }
               return childResult;
             }
 
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done');
+              (globals.final as (...args: unknown[]) => void)('child done', {});
               return 'child done';
             }
 
@@ -12308,7 +12541,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("child done")',
+                  content: 'Javascript Code: final("child done", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -12382,13 +12615,16 @@ describe('recursionOptions and recursive parity', () => {
                 tag: 'urgent',
               });
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  childResult,
+                  {}
+                );
               }
               return childResult;
             }
 
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done');
+              (globals.final as (...args: unknown[]) => void)('child done', {});
               return 'child done';
             }
 
@@ -12412,7 +12648,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("child done")',
+                  content: 'Javascript Code: final("child done", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -12487,7 +12723,10 @@ describe('recursionOptions and recursive parity', () => {
                 context: { nested: true },
               });
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(childResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  childResult,
+                  {}
+                );
               }
               return childResult;
             }
@@ -12515,7 +12754,10 @@ describe('recursionOptions and recursive parity', () => {
                   childContext.context !== null,
               };
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(payload);
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  payload
+                );
               }
               return payload;
             }
@@ -12622,7 +12864,10 @@ describe('recursionOptions and recursive parity', () => {
               return 'root-finished';
             }
             if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child submit');
+              (globals.final as (...args: unknown[]) => void)(
+                'child submit',
+                {}
+              );
               return 'child submit';
             }
             if (
@@ -12654,7 +12899,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("child submit")',
+                  content: 'Javascript Code: final("child submit", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -12748,7 +12993,10 @@ describe('recursionOptions and recursive parity', () => {
               return await llmQueryFn('child query', 'child context');
             }
             if (globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
             }
             return 'ok';
           },
@@ -12772,7 +13020,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("child answer")',
+                  content: 'Javascript Code: final("child answer", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -12854,7 +13102,10 @@ describe('recursionOptions and recursive parity', () => {
               ) => Promise<string>;
               llmQueryResult = await llmQueryFn('child query', 'child context');
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(llmQueryResult);
+                (globals.final as (...args: unknown[]) => void)(
+                  llmQueryResult,
+                  {}
+                );
               }
               return llmQueryResult;
             }
@@ -12933,7 +13184,8 @@ describe('recursionOptions and recursive parity', () => {
               );
               if (globals?.final) {
                 (globals.final as (...args: unknown[]) => void)(
-                  childSimpleAnswer
+                  childSimpleAnswer,
+                  {}
                 );
               }
               return childSimpleAnswer;
@@ -12949,7 +13201,7 @@ describe('recursionOptions and recursive parity', () => {
                 'grandchild context'
               );
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(nested);
+                (globals.final as (...args: unknown[]) => void)(nested, {});
               }
               return nested;
             }
@@ -13055,10 +13307,14 @@ describe('recursionOptions and recursive parity', () => {
             if (globals?.final && code.includes('final(')) {
               if (code.includes('"recovered child"')) {
                 (globals.final as (...args: unknown[]) => void)(
-                  'recovered child'
+                  'recovered child',
+                  {}
                 );
               } else {
-                (globals.final as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  { data: 'done' }
+                );
               }
               return 'submitted';
             }
@@ -13085,7 +13341,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("recovered child")',
+                  content: 'Javascript Code: final("recovered child", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -13162,9 +13418,15 @@ describe('recursionOptions and recursive parity', () => {
 
             if (globals?.final && code.includes('final(')) {
               if (code.includes('"recovered fn"')) {
-                (globals.final as (...args: unknown[]) => void)('recovered fn');
+                (globals.final as (...args: unknown[]) => void)(
+                  'recovered fn',
+                  {}
+                );
               } else {
-                (globals.final as (...args: unknown[]) => void)('done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'generate output',
+                  { data: 'done' }
+                );
               }
               return 'submitted';
             }
@@ -13189,7 +13451,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("recovered fn")',
+                  content: 'Javascript Code: final("recovered fn", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -13335,7 +13597,10 @@ describe('recursionOptions and recursive parity', () => {
               await llmQueryFn('child-set', 'ctx');
               await llmQueryFn('child-read', 'ctx');
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)('root done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'root done',
+                  {}
+                );
               }
               return 'root done';
             }
@@ -13344,7 +13609,8 @@ describe('recursionOptions and recursive parity', () => {
               sessionState.marker = 'set';
               if (globals?.final) {
                 (globals.final as (...args: unknown[]) => void)(
-                  sessionState.marker
+                  sessionState.marker,
+                  {}
                 );
               }
               return sessionState.marker;
@@ -13353,7 +13619,7 @@ describe('recursionOptions and recursive parity', () => {
             if (code === 'CHILD_READ') {
               const marker = sessionState.marker ?? 'missing';
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(marker);
+                (globals.final as (...args: unknown[]) => void)(marker, {});
               }
               return marker;
             }
@@ -13462,12 +13728,15 @@ describe('recursionOptions and recursive parity', () => {
               ) => Promise<string>;
               await llmQueryFn('child query', 'child context');
               if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)('root done');
+                (globals.final as (...args: unknown[]) => void)(
+                  'root done',
+                  {}
+                );
               }
               return 'root done';
             }
             if (globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('child done');
+              (globals.final as (...args: unknown[]) => void)('child done', {});
             }
             return 'ok';
           },
@@ -13489,7 +13758,7 @@ describe('recursionOptions and recursive parity', () => {
               results: [
                 {
                   index: 0,
-                  content: 'Javascript Code: final("child answer")',
+                  content: 'Javascript Code: final("child answer", {})',
                   finishReason: 'stop',
                 },
               ],
@@ -13572,7 +13841,9 @@ describe('Shared Fields', () => {
       return {
         execute: async (code: string) => {
           if (globals?.final && code.includes('final(')) {
-            (globals.final as (...args: unknown[]) => void)('done');
+            (globals.final as (...args: unknown[]) => void)('generate output', {
+              data: 'done',
+            });
             return 'done';
           }
           return 'ok';
@@ -13800,7 +14071,7 @@ describe('Shared Fields', () => {
               return String(result);
             }
             if (code.includes('final(')) {
-              (globals!.final as (...args: unknown[]) => void)('done');
+              (globals!.final as (...args: unknown[]) => void)('done', {});
               return 'done';
             }
             return 'ok';
@@ -13833,7 +14104,8 @@ describe('Shared Fields', () => {
             results: [
               {
                 index: 0,
-                content: 'Javascript Code: final("done")',
+                content:
+                  'Javascript Code: final("generate output", { data: "done" })',
                 finishReason: 'stop' as const,
               },
             ],
@@ -16241,14 +16513,20 @@ describe('AxFunction', () => {
       payloads.push(payload);
     });
 
+    // Single string arg triggers respond path
     expect(() => bindings.finalFunction('done')).toThrowError(
+      AxAgentProtocolCompletionSignal
+    );
+    // Two args triggers responder path
+    expect(() => bindings.finalFunction('task', { data: 'done' })).toThrowError(
       AxAgentProtocolCompletionSignal
     );
     expect(() =>
       bindings.askClarificationFunction('Need more detail')
     ).toThrowError(AxAgentProtocolCompletionSignal);
     expect(payloads).toEqual([
-      { type: 'final', args: ['done'] },
+      { type: 'respond', message: 'done' },
+      { type: 'final', args: ['task', { data: 'done' }] },
       { type: 'askClarification', args: ['Need more detail'] },
     ]);
   });
@@ -16357,7 +16635,7 @@ describe('AxFunction', () => {
         return {
           execute: async (code: string) => {
             if (code === 'RUNTIME_FINAL') {
-              (globals?.final as (...args: unknown[]) => never)('done');
+              (globals?.final as (...args: unknown[]) => never)('done', {});
               continuedAfterCompletion = true;
               return 'after final';
             }
@@ -16395,7 +16673,7 @@ describe('AxFunction', () => {
     expect(continuedAfterCompletion).toBe(false);
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['done', {}],
     });
     expect(actorState.actionLog).not.toContain(
       'AxAgentProtocolCompletionSignal'
@@ -16614,7 +16892,8 @@ describe('AxFunction', () => {
             }
             if (code.includes('final(') && globals?.final) {
               (globals.final as (...args: unknown[]) => void)(
-                'done after guide'
+                'done after guide',
+                {}
               );
               return 'after final';
             }
@@ -16654,7 +16933,7 @@ describe('AxFunction', () => {
       actorTurn++;
       return {
         javascriptCode:
-          actorTurn === 1 ? 'HOST_GUIDE' : 'final("done after guide")',
+          actorTurn === 1 ? 'HOST_GUIDE' : 'final("done after guide", {})',
       };
     };
     anyAgent.responderProgram.forward = async () => {
@@ -16674,7 +16953,7 @@ describe('AxFunction', () => {
     expect(actorTurn).toBe(2);
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done after guide'],
+      args: ['done after guide', {}],
     });
     expect(actorState.actionLog).toContain(
       'Execution stopped at `utils.reviewPlan`. Guidance recorded in `guidanceLog`.'
@@ -16766,9 +17045,10 @@ describe('AxFunction', () => {
               });
               return 'after guidance';
             }
-            if (code === 'final("done after guide")' && globals?.final) {
+            if (code === 'final("done after guide", {})' && globals?.final) {
               (globals.final as (...args: unknown[]) => void)(
-                'done after guide'
+                'done after guide',
+                {}
               );
               return 'after final';
             }
@@ -16802,7 +17082,9 @@ describe('AxFunction', () => {
       actorTurn++;
       return {
         javascriptCode:
-          actorTurn === 1 ? 'DISCOVER_AND_GUIDE' : 'final("done after guide")',
+          actorTurn === 1
+            ? 'DISCOVER_AND_GUIDE'
+            : 'final("done after guide", {})',
       };
     };
     anyAgent.responderProgram.forward = async () => {
@@ -16818,7 +17100,7 @@ describe('AxFunction', () => {
 
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done after guide'],
+      args: ['done after guide', {}],
     });
     expect(actorState.actionLog).toContain(
       'Execution stopped at `utils.reviewPlan`. Guidance recorded in `guidanceLog`.'
@@ -16853,7 +17135,10 @@ describe('AxFunction', () => {
         return {
           execute: async (code: string) => {
             if (code === 'TURN_3' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return code.toLowerCase();
@@ -16901,7 +17186,7 @@ describe('AxFunction', () => {
 
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['generate output', { data: 'done' }],
     });
     const chatLogs = getLoggedChatPromptsFromCalls(
       chatSpy.mock.calls as Parameters<typeof getLoggedChatPromptsFromCalls>[0],
@@ -16927,7 +17212,10 @@ describe('AxFunction', () => {
         return {
           execute: async (code: string) => {
             if (code === 'TURN_3' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return code.toLowerCase();
@@ -16979,7 +17267,7 @@ describe('AxFunction', () => {
 
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['generate output', { data: 'done' }],
     });
     const chatLogs = getLoggedChatPromptsFromCalls(
       chatSpy.mock.calls as Parameters<typeof getLoggedChatPromptsFromCalls>[0],
@@ -17020,7 +17308,10 @@ describe('AxFunction', () => {
               return 'discovered';
             }
             if (code === 'FINAL' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'after discovery';
@@ -17077,7 +17368,7 @@ describe('AxFunction', () => {
 
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['generate output', { data: 'done' }],
     });
     const chatLogs = getLoggedChatPromptsFromCalls(
       chatSpy.mock.calls as Parameters<typeof getLoggedChatPromptsFromCalls>[0],
@@ -17140,7 +17431,10 @@ describe('AxFunction', () => {
               return 'guided';
             }
             if (code === 'FINAL' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'after guidance';
@@ -17194,7 +17488,7 @@ describe('AxFunction', () => {
 
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['generate output', { data: 'done' }],
     });
     const chatLogs = getLoggedChatPromptsFromCalls(
       chatSpy.mock.calls as Parameters<typeof getLoggedChatPromptsFromCalls>[0],
@@ -17266,7 +17560,10 @@ describe('AxFunction', () => {
               return 'after discovery and guidance';
             }
             if (code === 'FINAL' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('done');
+              (globals.final as (...args: unknown[]) => void)(
+                'generate output',
+                { data: 'done' }
+              );
               return 'done';
             }
             return 'after combined update';
@@ -17323,7 +17620,7 @@ describe('AxFunction', () => {
 
     expect(actorState.actorResult).toEqual({
       type: 'final',
-      args: ['done'],
+      args: ['generate output', { data: 'done' }],
     });
     const chatLogs = getLoggedChatPromptsFromCalls(
       chatSpy.mock.calls as Parameters<typeof getLoggedChatPromptsFromCalls>[0],
@@ -17400,7 +17697,8 @@ describe('AxFunction', () => {
               const childAnswer = await llmQueryFn('child query', 'ctx');
               if (globals?.final) {
                 (globals.final as (...args: unknown[]) => void)(
-                  `root:${childAnswer}`
+                  `root:${childAnswer}`,
+                  {}
                 );
               }
               return 'root complete';

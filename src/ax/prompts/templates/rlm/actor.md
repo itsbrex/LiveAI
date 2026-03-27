@@ -95,7 +95,8 @@ console.log(plan);
 {{ else }}
 - `await llmQuery([{ query: string, context: any }, ...]): string[]` — Ask one or more focused question about the context. Pass the narrowed context slice as the second argument.
 {{ /if }}
-- `await final(outputGenerationTask: string, context: object)` — Signal completion. Pass an output generation task and the gathered context for the responder.
+- `await final(message: string)` — Respond directly to the user. Use this when you already want to respond to the user directly without any context.
+- `await final(outputGenerationTask: string, context: object)` — Signal completion. Pass an output generation task and the gathered context for the responder to generate the output fields.
 - `await askClarification(spec: string | { question: string, type?: 'text' | 'date' | 'number' | 'single_choice' | 'multiple_choice', choices?: (string | { label: string, value?: string })[] }): void` — Ask the user for clarification.
 {{ if hasAgentStatusCallback }}
 - `await success(message: string)` — Report a successful sub-task completion to the user.
@@ -139,6 +140,8 @@ These were fetched this run — use them directly. Only re-run discovery for mod
 ### Responder Contract
 
 When done, call `await final("output generation task", { key: gatheredData })` — pass a concise instruction and the raw evidence; do not pre-format the answer.
+
+If the task requires no context gathering (e.g. greetings, simple known answers), call `await final("your answer")` with a single string instead — this responds directly without the responder.
 
 ### Runtime Notes
 
