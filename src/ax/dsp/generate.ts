@@ -242,7 +242,10 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private async renderPromptWithMetricsForInternalUse(
     ai: Readonly<AxAIService>,
     values: IN | AxMessage<IN>[],
-    options?: Readonly<Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>>
+    options?: Readonly<
+      Partial<Omit<AxProgramForwardOptions<any>, 'functions'>>
+    >,
+    functionsOverride?: AxFunction[]
   ): Promise<{
     prompt: AxChatRequest['chatPrompt'];
     promptMetrics?: AxPromptMetrics;
@@ -251,7 +254,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
       options?.promptTemplate ??
       this.options?.promptTemplate ??
       AxPromptTemplate;
-    const mutableFunctions = [...this.functions];
+    const mutableFunctions = [...(functionsOverride ?? this.functions)];
     const functionCallMode =
       options?.functionCallMode ?? this.options?.functionCallMode ?? 'auto';
     const hasFunctions = mutableFunctions.length > 0;
@@ -595,11 +598,34 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     });
 
     const { prompt: basePrompt, promptMetrics: basePromptMetrics } =
-      await this.renderPromptWithMetricsForInternalUse(ai, values as any, {
-        ...options,
-        sessionId,
-      });
+      await this.renderPromptWithMetricsForInternalUse(
+        ai,
+        values as any,
+        {
+          ...options,
+          sessionId,
+        },
+        functions
+      );
     const chatPrompt = mem?.history(selectedIndex, sessionId) ?? basePrompt;
+
+    // Replace the system message in memory history with the freshly rendered one.
+    // This ensures that dynamically added functions (via ctx.addFunctions()) are
+    // reflected in the <available_functions> section of the system prompt, not just
+    // in the API tool definitions.
+    if (
+      chatPrompt !== basePrompt &&
+      chatPrompt.length > 0 &&
+      basePrompt.length > 0
+    ) {
+      const freshSystemMsg = basePrompt.find((m) => m.role === 'system');
+      if (freshSystemMsg) {
+        const systemIdx = chatPrompt.findIndex((m) => m.role === 'system');
+        if (systemIdx !== -1) {
+          chatPrompt[systemIdx] = freshSystemMsg;
+        }
+      }
+    }
 
     // History transformation for prompt-mode is handled centrally in base.ts
 
