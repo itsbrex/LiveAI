@@ -8318,7 +8318,7 @@ describe('Program registration for optimization', () => {
 
     const usage = testAgent.getUsage();
     // Should have usage entries (aggregated from Actor + Responder)
-    expect(usage.length).toBeGreaterThan(0);
+    expect(usage.actor.length + usage.responder.length).toBeGreaterThan(0);
   });
 
   it('should reset usage for Actor and Responder', async () => {
@@ -8367,10 +8367,14 @@ describe('Program registration for optimization', () => {
     );
 
     await testAgent.forward(mockAI, { query: 'test' });
-    expect(testAgent.getUsage().length).toBeGreaterThan(0);
+    const usageBefore = testAgent.getUsage();
+    expect(
+      usageBefore.actor.length + usageBefore.responder.length
+    ).toBeGreaterThan(0);
 
     testAgent.resetUsage();
-    expect(testAgent.getUsage().length).toBe(0);
+    const usageAfter = testAgent.getUsage();
+    expect(usageAfter.actor.length + usageAfter.responder.length).toBe(0);
   });
 
   it('should expose both Actor and Responder via namedPrograms()', () => {

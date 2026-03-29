@@ -710,9 +710,9 @@ export class AxAIOpenAIResponsesImpl<
   }
 
   // Create Chat Stream Response from /v1/responses stream events
-  createChatStreamResp(
+  createChatStreamResp = (
     streamEvent: Readonly<AxAIOpenAIResponsesResponseDelta>
-  ): Readonly<AxChatResponse> {
+  ): Readonly<AxChatResponse> => {
     // Handle new streaming event format
     const event = streamEvent as AxAIOpenAIResponsesStreamEvent;
 
@@ -1150,7 +1150,7 @@ export class AxAIOpenAIResponsesImpl<
       results: [baseResult],
       remoteId,
     } as Readonly<AxChatResponse>;
-  }
+  };
 
   createEmbedReq(
     req: Readonly<AxInternalEmbedRequest<TEmbedModel>>

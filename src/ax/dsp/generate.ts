@@ -89,6 +89,8 @@ import { SignatureToolCallingManager } from './signatureToolCalling.js';
 import { AxStepContextImpl } from './stepContext.js';
 import type {
   AsyncGenDeltaOut,
+  AxChatLogEntry,
+  AxChatLogMessage,
   AxGenDeltaOut,
   AxGenOut,
   AxGenStreamingOut,
@@ -171,6 +173,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private structuredOutputFunctionFallback = false;
   private activeAbortControllers = new Set<AbortController>();
   private _stopRequested = false;
+  private chatLog: AxChatLogEntry[] = [];
 
   constructor(
     signature:
@@ -562,6 +565,146 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     );
   }
 
+  /**
+   * Get the normalized chat log from the last forward() call.
+   * One entry per AI chat round-trip, with roles normalized to
+   * system/user/assistant/tool and inline XML for thinking and tool calls.
+   */
+  public getChatLog(): readonly AxChatLogEntry[] {
+    return this.chatLog;
+  }
+
+  /**
+   * Normalize internal chatPrompt messages to standard training format.
+   * If functions are provided, appends a <tools> JSON block to the system prompt.
+   */
+  private normalizeChatMessages(
+    chatPrompt: AxChatRequest['chatPrompt'],
+    functions?: AxFunction[]
+  ): AxChatLogMessage[] {
+    const messages: AxChatLogMessage[] = [];
+
+    const toolsBlock =
+      functions && functions.length > 0
+        ? `\n<tools>\n${JSON.stringify(
+            functions.map((fn) => ({
+              type: 'function',
+              function: {
+                name: fn.name,
+                description: fn.description,
+                ...(fn.parameters ? { parameters: fn.parameters } : {}),
+              },
+            }))
+          )}\n</tools>`
+        : '';
+
+    for (const msg of chatPrompt) {
+      switch (msg.role) {
+        case 'system':
+          messages.push({
+            role: 'system',
+            content: msg.content + toolsBlock,
+          });
+          break;
+
+        case 'user': {
+          let content: string;
+          if (typeof msg.content === 'string') {
+            content = msg.content;
+          } else {
+            content = msg.content
+              .map((part) => {
+                switch (part.type) {
+                  case 'text':
+                    return part.text;
+                  case 'image':
+                    return '[image]';
+                  case 'audio':
+                    return '[audio]';
+                  case 'file':
+                    return '[file]';
+                  case 'url':
+                    return '[url]';
+                  default:
+                    return '';
+                }
+              })
+              .join('\n');
+          }
+          messages.push({ role: 'user', content });
+          break;
+        }
+
+        case 'assistant': {
+          let content = '';
+          if (msg.thought) {
+            content += `<think>${msg.thought}</think>\n`;
+          }
+          if (msg.content) {
+            content += msg.content;
+          }
+          if (msg.functionCalls?.length) {
+            for (const fc of msg.functionCalls) {
+              const callObj = {
+                name: fc.function.name,
+                arguments: fc.function.params ?? {},
+              };
+              content += `\n<tool_call>\n${JSON.stringify(callObj)}\n</tool_call>`;
+            }
+          }
+          messages.push({ role: 'assistant', content: content.trim() });
+          break;
+        }
+
+        case 'function': {
+          // Look up function name from preceding assistant message's functionCalls
+          let name = 'unknown';
+          for (let i = messages.length - 1; i >= 0; i--) {
+            const prev = chatPrompt[i];
+            if (prev && prev.role === 'assistant' && prev.functionCalls) {
+              const match = prev.functionCalls.find(
+                (fc) => fc.id === msg.functionId
+              );
+              if (match) {
+                name = match.function.name;
+                break;
+              }
+            }
+          }
+          messages.push({ role: 'tool', name, content: msg.result });
+          break;
+        }
+      }
+    }
+
+    return messages;
+  }
+
+  /**
+   * Build an assistant AxChatLogMessage from a response result.
+   */
+  private buildAssistantLogMessage(
+    result: Readonly<AxChatResponseResult>
+  ): AxChatLogMessage {
+    let content = '';
+    if (result.thought) {
+      content += `<think>${result.thought}</think>\n`;
+    }
+    if (result.content) {
+      content += result.content;
+    }
+    if (result.functionCalls?.length) {
+      for (const fc of result.functionCalls) {
+        const callObj = {
+          name: fc.function.name,
+          arguments: fc.function.params ?? {},
+        };
+        content += `\n<tool_call>\n${JSON.stringify(callObj)}\n</tool_call>`;
+      }
+    }
+    return { role: 'assistant' as const, content: content.trim() };
+  }
+
   private async forwardSendRequest({
     ai,
     values,
@@ -682,6 +825,12 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         })()
       : undefined;
 
+    // Save original functions for chat log before zeroing out for prompt mode.
+    // Filter out internal synthetic functions (e.g. __finalResult).
+    const logFunctions = functions.filter(
+      (fn) => fn.name !== STRUCTURED_OUTPUT_FUNCTION_NAME
+    );
+
     // Do not send native functions to the provider when emulating via prompt mode
     functions = this.signatureToolCallingManager ? [] : functions;
 
@@ -775,6 +924,28 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         customLabels: options?.customLabels,
       }
     );
+
+    // Capture chat log entry
+    const logMessages = this.normalizeChatMessages(chatPrompt, logFunctions);
+    const modelStr = String(model ?? ai.getLastUsedChatModel?.() ?? '');
+
+    if (!(res instanceof ReadableStream)) {
+      // Non-streaming: capture full response immediately
+      for (const result of res.results) {
+        logMessages.push(this.buildAssistantLogMessage(result));
+      }
+      this.chatLog.push({
+        model: modelStr,
+        messages: logMessages,
+        modelUsage: res.modelUsage,
+      });
+    } else {
+      // Streaming: push partial entry, response filled after stream completes
+      this.chatLog.push({
+        model: modelStr,
+        messages: logMessages,
+      });
+    }
 
     return { res, debugPromptMetrics };
   }
@@ -884,6 +1055,30 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         stepContext,
         abortSignal: options.abortSignal,
       });
+
+      // Update the streaming chat log entry with accumulated response.
+      // For streaming, state.content is the raw LLM output. We don't extract
+      // thought separately here because state.values[thoughtFieldName] is a DSP
+      // output field (not native extended thinking) and would be duplicated.
+      const lastLogEntry = this.chatLog[this.chatLog.length - 1];
+      if (lastLogEntry) {
+        for (const state of states) {
+          lastLogEntry.messages.push(
+            this.buildAssistantLogMessage({
+              index: state.index,
+              content: state.content || undefined,
+              functionCalls:
+                state.functionCalls.length > 0
+                  ? state.functionCalls
+                  : undefined,
+            })
+          );
+        }
+        // Attach usage if available
+        if (this.usage.length > 0) {
+          lastLogEntry.modelUsage = this.usage[this.usage.length - 1];
+        }
+      }
     } else {
       yield* processResponse<OUT>({
         ai,
@@ -923,8 +1118,9 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     span?: Span,
     traceContext?: Context
   ): AxGenStreamingOut<OUT> {
-    // Reset per-call prompt-mode manager so previous calls do not leak mode.
+    // Reset per-call state so previous calls do not leak.
     this.signatureToolCallingManager = undefined;
+    this.chatLog = [];
 
     const rawStop = options?.stopFunction ?? this.options?.stopFunction;
     let stopFunctionNames = Array.isArray(rawStop)

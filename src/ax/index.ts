@@ -621,8 +621,11 @@ import {
 } from './dsp/synth.js';
 import { ax, s } from './dsp/template.js';
 import type {
+  AxAgentUsage,
   AxAIServiceActionOptions,
   AxAIServiceModelType,
+  AxChatLogEntry,
+  AxChatLogMessage,
   AxExamples,
   AxFieldValue,
   AxForwardable,
@@ -1339,6 +1342,7 @@ export type { AxAgentStructuredClarification };
 export type { AxAgentTestCompletionPayload };
 export type { AxAgentTestResult };
 export type { AxAgentTurnCallbackArgs };
+export type { AxAgentUsage };
 export type { AxAgentic };
 export type { AxAnyAgentic };
 export type { AxApacheTikaArgs };
@@ -1347,6 +1351,8 @@ export type { AxAssertion };
 export type { AxBalancerOptions };
 export type { AxBaseAIArgs };
 export type { AxBootstrapOptimizerOptions };
+export type { AxChatLogEntry };
+export type { AxChatLogMessage };
 export type { AxChatRequest };
 export type { AxChatResponse };
 export type { AxChatResponseFunctionCall };

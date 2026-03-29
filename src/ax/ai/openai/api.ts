@@ -444,10 +444,10 @@ class AxAIOpenAIImpl<
     };
   }
 
-  createChatStreamResp(
+  createChatStreamResp = (
     resp: Readonly<AxAIOpenAIChatResponseDelta>,
     state: object
-  ): AxChatResponse {
+  ): AxChatResponse => {
     const { id, usage, choices } = resp;
 
     this.tokensUsed = usage
@@ -531,7 +531,7 @@ class AxAIOpenAIImpl<
     );
 
     return { results };
-  }
+  };
 
   createEmbedResp(resp: Readonly<AxAIOpenAIEmbedResponse>): AxEmbedResponse {
     const { data, usage } = resp;

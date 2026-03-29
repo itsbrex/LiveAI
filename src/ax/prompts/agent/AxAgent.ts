@@ -25,6 +25,8 @@ import type { AxIField, AxSignatureConfig } from '../../dsp/sig.js';
 import { AxSignature, f } from '../../dsp/sig.js';
 import type { ParseSignature } from '../../dsp/sigtypes.js';
 import type {
+  AxAgentUsage,
+  AxChatLogEntry,
   AxFieldValue,
   AxGenIn,
   AxGenOut,
@@ -2271,12 +2273,26 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     this.program.setDemos(demos as readonly AxProgramDemos<IN, OUT>[], options);
   }
 
-  public getUsage() {
-    return this.program.getUsage();
+  public getUsage(): AxAgentUsage {
+    return {
+      actor: (this.actorProgram?.getUsage() as AxProgramUsage[]) ?? [],
+      responder: (this.responderProgram?.getUsage() as AxProgramUsage[]) ?? [],
+    };
+  }
+
+  public getChatLog(): {
+    actor: readonly AxChatLogEntry[];
+    responder: readonly AxChatLogEntry[];
+  } {
+    return {
+      actor: this.actorProgram?.getChatLog() ?? [],
+      responder: this.responderProgram?.getChatLog() ?? [],
+    };
   }
 
   public resetUsage() {
-    this.program.resetUsage();
+    this.actorProgram?.resetUsage();
+    this.responderProgram?.resetUsage();
   }
 
   public getState(): AxAgentState | undefined {
@@ -2392,7 +2408,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     node: AxMutableRecursiveTraceNode | undefined;
     usageBefore: AxAgentRecursiveUsage;
   } {
-    const usageBefore = usageFromProgramUsages(this.getUsage());
+    const { actor: _a, responder: _r } = this.getUsage();
+    const usageBefore = usageFromProgramUsages([..._a, ..._r]);
     const role = this._getRecursiveActorRole();
     if (!this.recursiveEvalContext || !role) {
       return { node: undefined, usageBefore };
@@ -2428,7 +2445,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return;
     }
 
-    const usageAfter = usageFromProgramUsages(this.getUsage());
+    const { actor: _a2, responder: _r2 } = this.getUsage();
+    const usageAfter = usageFromProgramUsages([..._a2, ..._r2]);
     node.localUsage = addRecursiveUsage(
       node.localUsage,
       diffRecursiveUsage(usageAfter, usageBefore)

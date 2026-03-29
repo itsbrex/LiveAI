@@ -1186,6 +1186,82 @@ agentIdentity?: {
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.
 - `maxSubAgentCalls` is a shared delegated-call budget across the entire run.
 
+## Observability: getChatLog() and getUsage()
+
+`AxAgent` exposes two sub-programs (Actor and Responder). Both `getChatLog()` and `getUsage()` return an object split by role — unlike `AxGen`, which returns a flat array.
+
+### getChatLog()
+
+Returns the full normalized chat history split by actor/responder after any `.forward()` call. Each entry is one `ai.chat()` round-trip. The actor accumulates one entry per turn; the responder typically has one.
+
+```typescript
+const log = myAgent.getChatLog();
+// { actor: AxChatLogEntry[], responder: AxChatLogEntry[] }
+
+for (const entry of log.actor) {
+  console.log('Actor model:', entry.model);
+  for (const msg of entry.messages) {
+    console.log(`[${msg.role}]`, msg.content);
+  }
+}
+
+for (const entry of log.responder) {
+  console.log('Responder model:', entry.model);
+  for (const msg of entry.messages) {
+    console.log(`[${msg.role}]`, msg.content);
+  }
+}
+```
+
+Each `AxChatLogEntry` captures the full prompt sent to the model and its response:
+
+```typescript
+type AxChatLogMessage =
+  | { role: 'system'; content: string }       // system prompt (includes <tools> block when functions present)
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string }    // may contain <think>...</think> and <tool_call>{...}</tool_call>
+  | { role: 'tool'; name: string; content: string };
+
+type AxChatLogEntry = {
+  model: string;
+  messages: AxChatLogMessage[];
+  modelUsage?: AxProgramUsage;
+};
+```
+
+### getUsage()
+
+Returns token usage split by actor/responder. Each sub-array contains one `AxProgramUsage` entry per model/run, merged by `(ai, model)` key.
+
+```typescript
+const usage = myAgent.getUsage();
+// { actor: AxProgramUsage[], responder: AxProgramUsage[] }
+
+console.log('Actor tokens:', usage.actor[0]?.tokens);
+console.log('Responder tokens:', usage.responder[0]?.tokens);
+```
+
+### resetUsage()
+
+Resets both actor and responder usage at once:
+
+```typescript
+myAgent.resetUsage();
+```
+
+### Type signatures
+
+```typescript
+// AxAgent
+agent.getChatLog(): { actor: readonly AxChatLogEntry[]; responder: readonly AxChatLogEntry[] }
+agent.getUsage():   { actor: AxProgramUsage[]; responder: AxProgramUsage[] }
+agent.resetUsage(): void
+
+// AxGen (flat — no split)
+gen.getChatLog(): readonly AxChatLogEntry[]
+gen.getUsage():   AxProgramUsage[]
+```
+
 ## Examples
 
 Fetch these for full working code:

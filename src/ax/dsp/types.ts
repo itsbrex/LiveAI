@@ -316,8 +316,13 @@ export type AxNamedProgramInstance<IN = any, OUT = any> = {
   signature?: string;
 };
 
+export type AxAgentUsage = {
+  actor: AxProgramUsage[];
+  responder: AxProgramUsage[];
+};
+
 export interface AxUsable {
-  getUsage(): AxProgramUsage[];
+  getUsage(): AxProgramUsage[] | AxAgentUsage;
   resetUsage(): void;
 }
 
@@ -331,6 +336,28 @@ export interface AxProgrammable<IN, OUT, TModelKey = string>
 export type AxProgramUsage = AxChatResponse['modelUsage'] & {
   ai: string;
   model: string;
+};
+
+// === Chat Log Types (for training/distillation capture) ===
+
+/**
+ * A normalized chat message with standard roles: system, user, assistant, tool.
+ * Assistant content uses inline XML: `<think>` for reasoning, `<tool_call>` for tool invocations.
+ */
+export type AxChatLogMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string }
+  | { role: 'tool'; name: string; content: string };
+
+/**
+ * A single chat round-trip entry: the full prompt sent to the model and its response,
+ * with normalized roles and inline XML formatting.
+ */
+export type AxChatLogEntry = {
+  model: string;
+  messages: AxChatLogMessage[];
+  modelUsage?: AxChatResponse['modelUsage'];
 };
 
 export interface AxProgramOptions {

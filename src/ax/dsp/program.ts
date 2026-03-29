@@ -165,7 +165,10 @@ export class AxProgram<IN = any, OUT = any>
 
     for (const child of Array.from(this.children)) {
       const cu = child?.getUsage();
-      usage = [...usage, ...(cu ?? [])];
+      if (cu) {
+        const flat = Array.isArray(cu) ? cu : [...cu.actor, ...cu.responder];
+        usage = [...usage, ...flat];
+      }
     }
     return mergeProgramUsage(usage);
   }

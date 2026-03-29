@@ -1884,10 +1884,13 @@ export class AxFlow<
           typeof nodeProgram.getUsage === 'function'
         ) {
           const nodeUsage = nodeProgram.getUsage();
-          if (nodeUsage && nodeUsage.length > 0) {
+          const flatUsage = Array.isArray(nodeUsage)
+            ? nodeUsage
+            : [...nodeUsage.actor, ...nodeUsage.responder];
+          if (flatUsage.length > 0) {
             // Store usage for this node
             const existingUsage = this.nodeUsage.get(nodeName) || [];
-            this.nodeUsage.set(nodeName, [...existingUsage, ...nodeUsage]);
+            this.nodeUsage.set(nodeName, [...existingUsage, ...flatUsage]);
           }
         }
 

@@ -299,6 +299,58 @@ Rules:
 - `AxGenerateError` includes `details` with `model` and `signature` for debugging.
 - `AxAIServiceAbortedError` is thrown on cancellation via `stop()` or `abortSignal`.
 
+## Chat Log and Usage
+
+### getChatLog()
+
+After any `.forward()` or `streamingForward()` call, `gen.getChatLog()` returns the full normalized chat history — every `ai.chat()` round-trip, including the system prompt, all messages, and the model response. The log is reset at the start of each `.forward()` call. Multi-step generators (with function calls) produce one entry per step.
+
+```typescript
+await gen.forward(llm, { question: 'What is 2+2?' });
+
+for (const entry of gen.getChatLog()) {
+  console.log('model:', entry.model);
+  for (const msg of entry.messages) {
+    console.log(`[${msg.role}]`, msg.content);
+  }
+  console.log('tokens:', entry.modelUsage?.tokens);
+}
+```
+
+Message roles: `system`, `user`, `assistant`, `tool`. Assistant content uses inline XML:
+- `<think>...</think>` — reasoning/thinking tokens
+- `<tool_call>\n{...}\n</tool_call>` — tool invocations
+
+The system message includes a `<tools>` JSON block when functions are present.
+
+```typescript
+type AxChatLogMessage =
+  | { role: 'system'; content: string }
+  | { role: 'user'; content: string }
+  | { role: 'assistant'; content: string }
+  | { role: 'tool'; name: string; content: string };
+
+type AxChatLogEntry = {
+  model: string;
+  messages: AxChatLogMessage[];
+  modelUsage?: AxProgramUsage;
+};
+
+gen.getChatLog(): readonly AxChatLogEntry[]
+```
+
+### getUsage()
+
+Returns token usage aggregated by `(ai, model)` across all steps. Reset with `resetUsage()`.
+
+```typescript
+const usage = gen.getUsage(); // AxProgramUsage[]
+console.log(usage[0]?.tokens?.promptTokens);
+gen.resetUsage();
+```
+
+> For `AxAgent`, both `getChatLog()` and `getUsage()` return `{ actor: ..., responder: ... }` — see `ax-agent` skill.
+
 ## Examples
 
 Fetch these for full working code:
