@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.39](///compare/19.0.37...19.0.38) (2026-04-01)
+
+### Bug Fixes
+
+* gemini 3.1 pro vertex fixes 979383d
+## [19.0.38](///compare/19.0.37...19.0.38) (2026-03-29)
+
+### Features
+
+* chat logs for training data 874e38f
+
 ## [19.0.38](///compare/19.0.36...19.0.37) (2026-03-29)
 
 ### Features
