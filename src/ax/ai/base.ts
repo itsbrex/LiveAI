@@ -368,6 +368,7 @@ export class AxBaseAI<
   private retry?: AxAIServiceOptions['retry'];
   private customLabels?: Record<string, string>;
   private contextCache?: AxAIServiceOptions['contextCache'];
+  private noBeta?: AxAIServiceOptions['noBeta'];
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
@@ -507,6 +508,7 @@ export class AxBaseAI<
     this.retry = options.retry;
     this.customLabels = options.customLabels;
     this.contextCache = options.contextCache;
+    this.noBeta = options.noBeta;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -525,6 +527,7 @@ export class AxBaseAI<
       retry: this.retry,
       customLabels: this.customLabels,
       contextCache: this.contextCache,
+      noBeta: this.noBeta,
     };
   }
 
@@ -1189,6 +1192,7 @@ export class AxBaseAI<
         ).thinkingTokenBudget
       : undefined;
     const mergedOptions: Readonly<AxAIServiceOptions> = {
+      ...(this.noBeta !== undefined ? { noBeta: this.noBeta } : undefined),
       ...(modelKeyEntry
         ? {
             thinkingTokenBudget: modelKeyThinkingTokenBudget,
@@ -1212,6 +1216,11 @@ export class AxBaseAI<
                 useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
               }
             ).useExpensiveModel,
+            noBeta: (
+              modelKeyEntry as {
+                noBeta?: AxAIServiceOptions['noBeta'];
+              }
+            ).noBeta,
           }
         : undefined),
       // Filter out undefined values from options to avoid overriding model key defaults
@@ -1492,7 +1501,7 @@ export class AxBaseAI<
         const res = await apiCall(
           {
             name: apiConfig.name,
-            url: this.apiURL,
+            url: apiConfig.url ?? this.apiURL,
             localCall: apiConfig.localCall,
             headers: await this.buildHeaders(apiConfig.headers),
             stream: modelConfig.stream,
@@ -1522,7 +1531,7 @@ export class AxBaseAI<
       const res = await apiCall(
         {
           name: apiConfig.name,
-          url: this.apiURL,
+          url: apiConfig.url ?? this.apiURL,
           localCall: apiConfig.localCall,
           headers: await this.buildHeaders(apiConfig.headers),
           stream: modelConfig.stream,
@@ -1727,6 +1736,7 @@ export class AxBaseAI<
       req.embedModel as TModel | TEmbedModel | TModelKey
     );
     const mergedOptions: Readonly<AxAIServiceOptions> = {
+      ...(this.noBeta !== undefined ? { noBeta: this.noBeta } : undefined),
       ...(modelKeyEntry
         ? {
             thinkingTokenBudget: (
@@ -1754,6 +1764,11 @@ export class AxBaseAI<
                 useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
               }
             ).useExpensiveModel,
+            noBeta: (
+              modelKeyEntry as {
+                noBeta?: AxAIServiceOptions['noBeta'];
+              }
+            ).noBeta,
           }
         : undefined),
       ...options,
@@ -1859,12 +1874,12 @@ export class AxBaseAI<
     }
 
     const fn = async () => {
-      const [apiConfig, reqValue] = await createEmbedReq(req);
+      const [apiConfig, reqValue] = await createEmbedReq(req, options);
 
       const res = await apiCall(
         {
           name: apiConfig.name,
-          url: this.apiURL,
+          url: apiConfig.url ?? this.apiURL,
           localCall: apiConfig.localCall,
           headers: await this.buildHeaders(apiConfig.headers),
           verbose,
@@ -2038,7 +2053,9 @@ export class AxBaseAI<
         await this.executeCacheOperation(
           this.aiImpl.buildCacheUpdateTTLOp(
             existingEntry.cacheName,
-            ttlSeconds
+            ttlSeconds,
+            req.model,
+            options?.noBeta
           ),
           options,
           span
@@ -2187,7 +2204,7 @@ export class AxBaseAI<
       const response = await apiCall(
         {
           name: op.apiConfig.name,
-          url: this.apiURL,
+          url: op.apiConfig.url ?? this.apiURL,
           localCall: op.apiConfig.localCall,
           headers: await this.buildHeaders(op.apiConfig.headers),
           stream: false,

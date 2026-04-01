@@ -64,6 +64,21 @@ import {
   GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS,
 } from './types.js';
 
+const PRE_GEMINI_3_VERTEX_V1_MODELS = new Set<string>([
+  ...Object.values(AxAIGoogleGeminiModel).filter(
+    (model) => !model.startsWith('gemini-3')
+  ),
+  ...Object.values(AxAIGoogleGeminiEmbedModel),
+  'gemini-2.0-flash-001',
+  'gemini-2.0-flash-lite-001',
+]);
+
+const getVertexGeminiAPIVersion = (
+  model: string,
+  noBeta?: boolean
+): 'v1' | 'v1beta1' =>
+  noBeta || PRE_GEMINI_3_VERTEX_V1_MODELS.has(model) ? 'v1' : 'v1beta1';
+
 /**
  * Clean function schema for Gemini API compatibility by removing unsupported fields
  * Gemini doesn't support: additionalProperties, default, optional, maximum, oneOf, anyOf
@@ -256,7 +271,8 @@ class AxAIGoogleGeminiImpl
     private isVertex: boolean,
     private endpointId?: string,
     private apiKey?: string | (() => Promise<string>),
-    private options?: AxAIGoogleGeminiArgs<any>['options']
+    private options?: AxAIGoogleGeminiArgs<any>['options'],
+    private vertexApiURLForModel?: (model: string, noBeta?: boolean) => string
   ) {
     if (!this.isVertex && this.config.autoTruncate) {
       throw new Error('Auto truncate is not supported for GoogleGemini');
@@ -331,6 +347,12 @@ class AxAIGoogleGeminiImpl
 
   getTokenUsage(): AxTokenUsage | undefined {
     return this.tokensUsed;
+  }
+
+  private getVertexApiURL(model: string, noBeta?: boolean): string | undefined {
+    return this.isVertex
+      ? this.vertexApiURLForModel?.(model, noBeta)
+      : undefined;
   }
 
   getModelConfig(): AxModelConfig {
@@ -556,6 +578,10 @@ class AxAIGoogleGeminiImpl
           ? `/models/${model}:streamGenerateContent?alt=sse`
           : `/models/${model}:generateContent`,
       };
+    }
+
+    if (this.isVertex) {
+      apiConfig.url = this.getVertexApiURL(model as string, config?.noBeta);
     }
 
     if (!this.isVertex) {
@@ -948,7 +974,8 @@ class AxAIGoogleGeminiImpl
   };
 
   createEmbedReq = async (
-    req: Readonly<AxInternalEmbedRequest<AxAIGoogleGeminiEmbedModel>>
+    req: Readonly<AxInternalEmbedRequest<AxAIGoogleGeminiEmbedModel>>,
+    config?: Readonly<AxAIServiceOptions>
   ): Promise<
     [
       AxAPI,
@@ -980,6 +1007,8 @@ class AxAIGoogleGeminiImpl
           name: `/models/${model}:predict`,
         };
       }
+
+      apiConfig.url = this.getVertexApiURL(model as string, config?.noBeta);
 
       reqValue = {
         instances: req.texts.map((text) => ({
@@ -1322,7 +1351,12 @@ class AxAIGoogleGeminiImpl
 
     return {
       type: 'create',
-      apiConfig: { name: apiPath },
+      apiConfig: {
+        name: apiPath,
+        ...(this.isVertex
+          ? { url: this.getVertexApiURL(model as string, options?.noBeta) }
+          : {}),
+      },
       request: cacheRequest,
       parseResponse: (response: unknown): AxContextCacheInfo | undefined => {
         const resp = response as AxAIGoogleGeminiCacheResponse;
@@ -1385,7 +1419,9 @@ class AxAIGoogleGeminiImpl
    */
   buildCacheUpdateTTLOp = (
     cacheName: string,
-    ttlSeconds: number
+    ttlSeconds: number,
+    model?: AxAIGoogleGeminiModel,
+    noBeta?: AxAIServiceOptions['noBeta']
   ): AxContextCacheOperation => {
     const updateRequest: AxAIGoogleGeminiCacheUpdateRequest = {
       ttl: `${ttlSeconds}s`,
@@ -1404,6 +1440,9 @@ class AxAIGoogleGeminiImpl
       apiConfig: {
         name: apiPath,
         headers: { 'Content-Type': 'application/json' },
+        ...(this.isVertex && model
+          ? { url: this.getVertexApiURL(model, noBeta) }
+          : {}),
       },
       request: updateRequest,
       parseResponse: (response: unknown): AxContextCacheInfo | undefined => {
@@ -1885,9 +1924,16 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
     modelInfo,
   }: Readonly<Omit<AxAIGoogleGeminiArgs<TModelKey>, 'name'>>) {
     const isVertex = projectId !== undefined && region !== undefined;
+    const Config = {
+      ...axAIGoogleGeminiDefaultConfig(),
+      ...config,
+    };
 
     let apiURL: string;
     let headers: () => Promise<Record<string, string>>;
+    let buildVertexApiURL:
+      | ((model: string, noBeta?: boolean) => string)
+      | undefined;
 
     if (isVertex) {
       if (!apiKey) {
@@ -1907,7 +1953,9 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       }
 
       const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
-      apiURL = `https://${tld}.googleapis.com/v1beta1/projects/${projectId}/locations/${region}/${path}`;
+      buildVertexApiURL = (model: string, noBeta?: boolean) =>
+        `https://${tld}.googleapis.com/${getVertexGeminiAPIVersion(model, noBeta)}/projects/${projectId}/locations/${region}/${path}`;
+      apiURL = buildVertexApiURL(Config.model);
       headers = async () => ({
         Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
       });
@@ -1919,17 +1967,13 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       headers = async () => ({});
     }
 
-    const Config = {
-      ...axAIGoogleGeminiDefaultConfig(),
-      ...config,
-    };
-
     const aiImpl = new AxAIGoogleGeminiImpl(
       Config,
       isVertex,
       endpointId,
       apiKey,
-      options
+      options,
+      buildVertexApiURL
     );
 
     modelInfo = [...axModelInfoGoogleGemini, ...(modelInfo ?? [])];

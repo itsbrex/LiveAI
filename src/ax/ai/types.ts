@@ -15,6 +15,7 @@ export type AxAIInputModelList<TModel, TEmbedModel, TModelKey> =
     stream?: AxAIServiceOptions['stream'];
     debug?: AxAIServiceOptions['debug'];
     useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
+    noBeta?: AxAIServiceOptions['noBeta'];
   } & ({ model: TModel } | { embedModel: TEmbedModel }))[];
 
 export type AxAIModelListBase<TModelKey> = {
@@ -853,6 +854,14 @@ export type AxAIServiceOptions = {
    */
   useExpensiveModel?: 'yes';
 
+  /**
+   * Provider-specific hint to prefer stable API paths over beta ones when available.
+   *
+   * Currently used by Google Gemini on Vertex AI to force requests onto `v1`
+   * instead of `v1beta1`.
+   */
+  noBeta?: boolean;
+
   /** Internal: Current step index for multi-step operations. */
   stepIndex?: number;
 
@@ -985,7 +994,8 @@ export interface AxAIServiceImpl<
   ): AxChatResponse;
 
   createEmbedReq?(
-    req: Readonly<AxInternalEmbedRequest<TEmbedModel>>
+    req: Readonly<AxInternalEmbedRequest<TEmbedModel>>,
+    config?: Readonly<AxAIServiceOptions>
   ): Promise<[AxAPI, TEmbedRequest]> | [AxAPI, TEmbedRequest];
 
   createEmbedResp?(resp: Readonly<TEmbedResponse>): AxEmbedResponse;
@@ -1037,7 +1047,9 @@ export interface AxAIServiceImpl<
    */
   buildCacheUpdateTTLOp?(
     cacheName: string,
-    ttlSeconds: number
+    ttlSeconds: number,
+    model?: TModel,
+    noBeta?: AxAIServiceOptions['noBeta']
   ): AxContextCacheOperation;
 
   /**

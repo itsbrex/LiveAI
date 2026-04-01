@@ -36,6 +36,7 @@ interface ResponseValidation {
 // API Base Types
 export interface AxAPI {
   name?: string;
+  url?: string | URL;
   headers?: Record<string, string>;
   put?: boolean;
   localCall?: <TRequest, TResponse>(

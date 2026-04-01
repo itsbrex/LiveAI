@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
 import { AxAIGoogleGemini, axAIGoogleGeminiDefaultConfig } from './api.js';
-import { AxAIGoogleGeminiModel } from './types.js';
+import { AxAIGoogleGeminiEmbedModel, AxAIGoogleGeminiModel } from './types.js';
 
 // Utility to create a fake fetch that returns a minimal valid response and captures request body
 function createMockFetch(body: unknown, capture: { lastBody?: any }) {
@@ -49,6 +49,195 @@ function createSequencedMockFetch(
 }
 
 describe('AxAIGoogleGemini model key preset merging', () => {
+  it('routes Vertex chat requests to v1 for pre-3.1 models and v1beta1 for newer models', async () => {
+    const capture: { calls: Array<{ url: string; body?: any }> } = {
+      calls: [],
+    };
+    const fetch = createSequencedMockFetch(
+      [
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'stable ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'preview ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+      ],
+      capture
+    );
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us-central1',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [
+        { key: 'stable', model: AxAIGoogleGeminiModel.Gemini25Flash },
+        { key: 'preview', model: AxAIGoogleGeminiModel.Gemini31Pro },
+      ],
+    });
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        model: 'stable',
+        chatPrompt: [{ role: 'user', content: 'hi stable' }],
+      },
+      { stream: false }
+    );
+
+    await ai.chat(
+      {
+        model: 'preview',
+        chatPrompt: [{ role: 'user', content: 'hi preview' }],
+      },
+      { stream: false }
+    );
+
+    expect(capture.calls[0]?.url).toContain(
+      '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent'
+    );
+    expect(capture.calls[1]?.url).toContain(
+      '/v1beta1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
+    );
+  });
+
+  it('routes Vertex embedding requests for pre-3.1 models to v1', async () => {
+    const capture: { calls: Array<{ url: string; body?: any }> } = {
+      calls: [],
+    };
+    const fetch = createSequencedMockFetch(
+      [
+        {
+          predictions: [
+            {
+              embeddings: {
+                values: [0.1, 0.2, 0.3],
+              },
+            },
+          ],
+        },
+      ],
+      capture
+    );
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us-central1',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+    });
+
+    ai.setOptions({ fetch });
+
+    const res = await ai.embed({
+      embedModel: AxAIGoogleGeminiEmbedModel.GeminiEmbedding001,
+      texts: ['hello world'],
+    });
+
+    expect(res.embeddings).toEqual([[0.1, 0.2, 0.3]]);
+    expect(capture.calls[0]?.url).toContain(
+      '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-embedding-001:predict'
+    );
+  });
+
+  it('honors options.noBeta by forcing Vertex chat requests onto v1', async () => {
+    const capture: { calls: Array<{ url: string; body?: any }> } = {
+      calls: [],
+    };
+    const fetch = createSequencedMockFetch(
+      [
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'forced stable ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+      ],
+      capture
+    );
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us-central1',
+      config: { model: AxAIGoogleGeminiModel.Gemini31Pro },
+      options: { noBeta: true, fetch },
+    });
+
+    await ai.chat(
+      {
+        model: AxAIGoogleGeminiModel.Gemini31Pro,
+        chatPrompt: [{ role: 'user', content: 'hi forced stable' }],
+      },
+      { stream: false }
+    );
+
+    expect(capture.calls[0]?.url).toContain(
+      '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
+    );
+  });
+
+  it('honors models[].noBeta by forcing the selected Vertex model key onto v1', async () => {
+    const capture: { calls: Array<{ url: string; body?: any }> } = {
+      calls: [],
+    };
+    const fetch = createSequencedMockFetch(
+      [
+        {
+          candidates: [
+            {
+              content: { parts: [{ text: 'model preset stable ok' }] },
+              finishReason: 'STOP',
+            },
+          ],
+        },
+      ],
+      capture
+    );
+
+    const ai = new AxAIGoogleGemini({
+      apiKey: async () => 'vertex-token',
+      projectId: 'demo-project',
+      region: 'us-central1',
+      config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
+      models: [
+        {
+          key: 'preview-stable-path',
+          model: AxAIGoogleGeminiModel.Gemini31Pro,
+          description: 'Gemini 3.1 via stable path override',
+          noBeta: true,
+        },
+      ],
+    });
+
+    ai.setOptions({ fetch });
+
+    await ai.chat(
+      {
+        model: 'preview-stable-path',
+        chatPrompt: [{ role: 'user', content: 'hi model preset stable' }],
+      },
+      { stream: false }
+    );
+
+    expect(capture.calls[0]?.url).toContain(
+      '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
+    );
+  });
+
   it('merges model list item modelConfig into effective config', async () => {
     const defaultCfg = axAIGoogleGeminiDefaultConfig();
 
