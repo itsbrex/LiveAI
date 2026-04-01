@@ -70,6 +70,13 @@ await writeFile(
 
 console.log('package.json has been modified and copied to the build folder.');
 
+// Copy package README for npm package pages.
+const readmeSourcePath = path.join(packagePath, 'README.md');
+if (existsSync(readmeSourcePath)) {
+  await copyFile(readmeSourcePath, path.join(buildPath, 'README.md'));
+  console.log('README copied to dist/');
+}
+
 // Copy skills directory with version injection
 const skillsSourcePath = path.join(packagePath, 'skills');
 const skillsDestPath = path.join(buildPath, 'skills');
