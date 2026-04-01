@@ -1440,6 +1440,13 @@ describe('Context field runtime access and prompt inlining', () => {
             }
             return 'ok';
           },
+          inspectGlobals: async () => '{"version":1,"entries":[]}',
+          snapshotGlobals: async () => ({
+            version: 1 as const,
+            entries: [],
+            bindings: {},
+          }),
+          patchGlobals: async () => {},
           close: () => {},
         };
       },
@@ -8836,6 +8843,8 @@ describe('actorTurnCallback', () => {
     expect(callbackResults).toHaveLength(2);
     expect(callbackResults[0]).toMatchObject({
       turn: 1,
+      actionLogEntryCount: 1,
+      guidanceLogEntryCount: 0,
       code: 'console.log("long-output")',
       result: longOutput,
       output: truncateText(longOutput, 3_000),
@@ -8844,6 +8853,8 @@ describe('actorTurnCallback', () => {
     });
     expect(callbackResults[1]).toMatchObject({
       turn: 2,
+      actionLogEntryCount: 2,
+      guidanceLogEntryCount: 0,
       code: 'final("generate output", { data: "done" })',
       result: undefined,
       output: '(no output)',
@@ -8853,6 +8864,154 @@ describe('actorTurnCallback', () => {
     expect(callbackResults[0]?.actorResult).toMatchObject({
       javascriptCode: 'console.log("long-output")',
       thought: 'Inspect runtime state first.',
+    });
+  });
+
+  it('should report live guidance counts in actorTurnCallback after resuming state', async () => {
+    const callbackResults: Array<Record<string, unknown>> = [];
+
+    const guideFn: AxFunction = {
+      name: 'reviewPlan',
+      description: 'Review the current plan and redirect the actor',
+      namespace: 'utils',
+      parameters: {
+        type: 'object',
+        properties: {
+          guidance: { type: 'string', description: 'Guidance text' },
+        },
+        required: ['guidance'],
+      },
+      func: async (
+        { guidance }: { guidance: string },
+        extra?: {
+          protocol?: { guideAgent: (guidance: string) => never };
+        }
+      ) => {
+        extra?.protocol?.guideAgent(guidance);
+        return 'unreachable';
+      },
+    };
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (code === 'GUIDE_ONE') {
+              const utils = globals?.utils as Record<
+                string,
+                (args: Record<string, unknown>) => Promise<unknown>
+              >;
+              await utils.reviewPlan({
+                guidance: 'Use the approved template only.',
+              });
+              return 'after first guidance';
+            }
+            if (code === 'GUIDE_TWO') {
+              const utils = globals?.utils as Record<
+                string,
+                (args: Record<string, unknown>) => Promise<unknown>
+              >;
+              await utils.reviewPlan({
+                guidance: 'Add the customer timeline before replying.',
+              });
+              return 'after second guidance';
+            }
+            if (code.includes('final(') && globals?.final) {
+              (globals.final as (...args: unknown[]) => void)('done', {});
+              return 'after final';
+            }
+            return 'ok';
+          },
+          inspectGlobals: async () => '{"version":1,"entries":[]}',
+          snapshotGlobals: async () => ({
+            version: 1 as const,
+            entries: [],
+            bindings: {},
+          }),
+          patchGlobals: async () => {},
+          close: () => {},
+        };
+      },
+    };
+
+    const testMockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+    });
+
+    const seedAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: { local: [guideFn] },
+    });
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anySeedAgent = seedAgent as any;
+    let seedTurn = 0;
+    anySeedAgent.actorProgram.forward = async () => {
+      seedTurn++;
+      return {
+        javascriptCode:
+          seedTurn === 1 ? 'GUIDE_ONE' : 'final("seeded result", {})',
+      };
+    };
+    anySeedAgent.responderProgram.forward = async (
+      _ai: unknown,
+      values: { contextData: { args: string[] } }
+    ) => ({
+      answer: values.contextData.args[0],
+    });
+
+    await seedAgent.forward(testMockAI, { query: 'seed state' });
+    const savedState = seedAgent.getState();
+    expect(savedState?.guidanceLogEntries).toHaveLength(1);
+
+    const resumedAgent = agent('query:string -> answer:string', {
+      contextFields: [],
+      runtime,
+      functions: { local: [guideFn] },
+      actorTurnCallback: async (turn) => {
+        callbackResults.push(turn as unknown as Record<string, unknown>);
+      },
+    });
+    resumedAgent.setState(savedState);
+
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyResumedAgent = resumedAgent as any;
+    let resumedTurn = 0;
+    anyResumedAgent.actorProgram.forward = async () => {
+      resumedTurn++;
+      return {
+        javascriptCode:
+          resumedTurn === 1 ? 'GUIDE_TWO' : 'final("resumed result", {})',
+      };
+    };
+    anyResumedAgent.responderProgram.forward = async (
+      _ai: unknown,
+      values: { contextData: { args: string[] } }
+    ) => ({
+      answer: values.contextData.args[0],
+    });
+
+    const resumed = await resumedAgent.forward(testMockAI, {
+      query: 'resume state',
+    });
+
+    expect(resumed.answer).toBe('done');
+    expect(callbackResults).toHaveLength(2);
+    expect(callbackResults[0]).toMatchObject({
+      turn: 3,
+      actionLogEntryCount: 3,
+      guidanceLogEntryCount: 2,
+      code: 'GUIDE_TWO',
+      isError: false,
+    });
+    expect(callbackResults[1]).toMatchObject({
+      turn: 4,
+      actionLogEntryCount: 4,
+      guidanceLogEntryCount: 2,
+      code: 'final("resumed result", {})',
+      isError: false,
     });
   });
 

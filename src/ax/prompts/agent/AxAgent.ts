@@ -418,6 +418,10 @@ export type AxAgentInputUpdateCallback<IN extends AxGenIn> = (
 export type AxAgentTurnCallbackArgs = {
   /** 1-based actor turn number. */
   turn: number;
+  /** Number of action log entries recorded after processing this turn. */
+  actionLogEntryCount: number;
+  /** Number of guidance log entries recorded after processing this turn. */
+  guidanceLogEntryCount: number;
   /** Full actor AxGen output for the turn, including javascriptCode and any actor fields. */
   actorResult: Record<string, unknown>;
   /** Normalized JavaScript that was executed for this turn. */
@@ -4942,6 +4946,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             if (rlm.actorTurnCallback) {
               await rlm.actorTurnCallback({
                 turn: entryTurn,
+                actionLogEntryCount: actionLogEntries.length,
+                guidanceLogEntryCount: guidanceState.entries.length,
                 actorResult: actorResult as Record<string, unknown>,
                 code,
                 result: undefined,
@@ -5007,6 +5013,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
             if (rlm.actorTurnCallback) {
               await rlm.actorTurnCallback({
                 turn: actionLogEntries.length + 1,
+                actionLogEntryCount: actionLogEntries.length,
+                guidanceLogEntryCount: guidanceState.entries.length,
                 actorResult: actorResult as Record<string, unknown>,
                 code,
                 result: undefined,
@@ -5086,6 +5094,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (rlm.actorTurnCallback) {
           await rlm.actorTurnCallback({
             turn: entryTurn,
+            actionLogEntryCount: actionLogEntries.length,
+            guidanceLogEntryCount: guidanceState.entries.length,
             actorResult: actorResult as Record<string, unknown>,
             code,
             result,

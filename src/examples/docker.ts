@@ -1,12 +1,4 @@
-import {
-  ai,
-  ax,
-  AxAI,
-  AxAIGoogleGeminiModel,
-  AxDockerSession,
-  AxGen,
-  f,
-} from '@ax-llm/ax';
+import { ai, ax, AxAIGoogleGeminiModel, AxDockerSession, f } from '@ax-llm/ax';
 
 // Initialize Docker session
 const dockerSession = new AxDockerSession();

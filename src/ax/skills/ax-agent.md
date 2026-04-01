@@ -724,6 +724,7 @@ Important:
 - `output` is not raw stdout; it is the formatted replay string used in the action log.
 - `result` is the raw runtime result before Ax applies type-aware serialization and budget-proportional truncation.
 - `thought` is optional and only appears when the underlying `AxGen` call had `showThoughts` enabled and the provider actually returned a thought field.
+- `actionLogEntryCount` and `guidanceLogEntryCount` reflect the live log sizes after the turn is processed, including resumed runs.
 
 Good pattern:
 
@@ -731,9 +732,20 @@ Good pattern:
 const supportAgent = agent('query:string -> answer:string', {
   contextFields: ['query'],
   runtime,
-  actorTurnCallback: ({ turn, code, result, output, thought, isError }) => {
+  actorTurnCallback: ({
+    turn,
+    actionLogEntryCount,
+    guidanceLogEntryCount,
+    code,
+    result,
+    output,
+    thought,
+    isError,
+  }) => {
     console.log({
       turn,
+      actionLogEntryCount,
+      guidanceLogEntryCount,
       isError,
       code,
       rawResult: result,
@@ -1137,6 +1149,8 @@ agentIdentity?: {
   actorFields?: string[];
   actorTurnCallback?: (turn: {
     turn: number;
+    actionLogEntryCount: number;
+    guidanceLogEntryCount: number;
     actorResult: Record<string, unknown>;
     code: string;
     result: unknown;

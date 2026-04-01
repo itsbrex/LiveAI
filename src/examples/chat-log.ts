@@ -1,5 +1,5 @@
 #!/usr/bin/env -S npx tsx
-import { ax, AxAI, AxGen, type AxFunction } from '@ax-llm/ax';
+import { ax, AxAI, type AxFunction } from '@ax-llm/ax';
 
 const ai = new AxAI({
   name: 'openai',

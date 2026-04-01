@@ -1907,7 +1907,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       }
 
       const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
-      apiURL = `https://${tld}.googleapis.com/v1/projects/${projectId}/locations/${region}/${path}`;
+      apiURL = `https://${tld}.googleapis.com/v1beta1/projects/${projectId}/locations/${region}/${path}`;
       headers = async () => ({
         Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,
       });
