@@ -198,6 +198,31 @@ export const axModelInfoOpenAI: AxModelInfo[] = [
     notSupported: { temperature: true, topP: true },
     supported: { structuredOutputs: true },
   },
+  // GPT-5.4 models
+  {
+    name: AxAIOpenAIModel.GPT54,
+    currency: 'usd',
+    promptTokenCostPer1M: 2.5,
+    completionTokenCostPer1M: 15,
+    notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
+  },
+  {
+    name: AxAIOpenAIModel.GPT54Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.75,
+    completionTokenCostPer1M: 4.5,
+    notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
+  },
+  {
+    name: AxAIOpenAIModel.GPT54Nano,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.2,
+    completionTokenCostPer1M: 1.25,
+    notSupported: { temperature: true, topP: true },
+    supported: { structuredOutputs: true },
+  },
   // Reasoning models
   {
     name: AxAIOpenAIModel.O1,
@@ -500,6 +525,43 @@ export const axModelInfoOpenAIResponses: AxModelInfo[] = [
     currency: 'usd',
     promptTokenCostPer1M: 20,
     completionTokenCostPer1M: 160,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  // GPT-5.4 models
+  {
+    name: AxAIOpenAIResponsesModel.GPT54,
+    currency: 'usd',
+    promptTokenCostPer1M: 2.5,
+    completionTokenCostPer1M: 15,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT54Mini,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.75,
+    completionTokenCostPer1M: 4.5,
+    notSupported: { temperature: true, topP: true },
+    supported: {
+      thinkingBudget: true,
+      showThoughts: true,
+      structuredOutputs: true,
+    },
+  },
+  {
+    name: AxAIOpenAIResponsesModel.GPT54Nano,
+    currency: 'usd',
+    promptTokenCostPer1M: 0.2,
+    completionTokenCostPer1M: 1.25,
     notSupported: { temperature: true, topP: true },
     supported: {
       thinkingBudget: true,

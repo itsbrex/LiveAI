@@ -77,6 +77,7 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
     options,
     models,
     modelInfo,
+    chatReqUpdater,
   }: Readonly<Omit<AxAIAzureOpenAIArgs<TModelKey>, 'name'>>) {
     if (!apiKey || apiKey === '') {
       throw new Error('Azure OpenAPI API key not set');
@@ -158,6 +159,7 @@ export class AxAIAzureOpenAI<TModelKey> extends AxAIOpenAIBase<
       models,
       modelInfo,
       supportFor,
+      chatReqUpdater,
     });
 
     const host = resourceName.includes('://')

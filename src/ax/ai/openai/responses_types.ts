@@ -37,6 +37,10 @@ export enum AxAIOpenAIResponsesModel {
   GPT52ChatLatest = 'gpt-5.2-chat-latest',
   GPT52Codex = 'gpt-5.2-codex',
   GPT52Pro = 'gpt-5.2-pro',
+  // GPT-5.4 models
+  GPT54 = 'gpt-5.4',
+  GPT54Mini = 'gpt-5.4-mini',
+  GPT54Nano = 'gpt-5.4-nano',
   // Reasoning models
   O1Pro = 'o1-pro',
   O1 = 'o1',
