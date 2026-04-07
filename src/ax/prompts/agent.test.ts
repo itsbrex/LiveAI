@@ -15100,13 +15100,13 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(result).not.toContain('### Additional Functions');
   });
 
-  it('should render llmQuery guidance when prompt mode is recursive', () => {
+  it('should render advanced llmQuery delegation guidance when prompt mode is recursive', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       llmQueryPromptMode: 'advanced-recursive',
     });
 
-    expect(result).toContain('llmQuery');
-    expect(result).toContain('semantic tasks');
+    expect(result).toContain('delegates a focused child workflow');
+    expect(result).toContain('Delegate one or more focused subtask');
   });
 
   it('should render terminal-depth simple llmQuery guidance when recursion is exhausted', () => {
