@@ -47,31 +47,6 @@ If output is truncated, narrow further — don't re-log the same thing. When in 
 
 Never pass raw unsliced `inputs.*` fields directly to `llmQuery` — always narrow with JS first.
 
-{{ if llmQueryPromptMode === 'advanced-recursive' }}
-### Delegation
-
-Classify each subtask before coding:
-- `.filter().map()` → JS inline
-- Classify/summarize narrowed text → single `llmQuery`
-- Needs tools, discovery, or multi-step exploration → delegate as child agent via `llmQuery`
-
-**Delegation depth rule:** prefer inline JS whenever the subtask is ~2 lines of filtering or a single semantic question. Only delegate when the child genuinely needs its own tool calls or multi-step reasoning. Avoid chaining `llmQuery` calls inside a child that itself spawns more — keep nesting shallow (max 1–2 levels deep).
-
-**`llmQuery` is for delegating work:**
-
-- **IMPORTANT:** Children CANNOT see your `inputs.*` or any runtime variables. You MUST pass all relevant data via `context`. If a child needs incident data, pass it: `context: { incident: inputs.context }`.
-- Prefer passing a compact object as `context` so the child receives named runtime globals.
-- Child agents inherit your discovered tool docs. They only need to call `discoverModules`/`discoverFunctions` for modules you haven't already discovered.
-
-```js
-const emailSendResult = await llmQuery([{
-  query: 'Send an email to Phil about the football game tomorrow thats in the calender',
-  context: { contact: userContact }
-}]);
-console.log(emailSendResult);
-```
-{{ /if }}
-
 ```js
 const narrowed = inputs.emails
   .filter(e => e.subject.toLowerCase().includes('refund'))

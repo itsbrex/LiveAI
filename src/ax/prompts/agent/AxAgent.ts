@@ -437,6 +437,12 @@ export type AxAgentTurnCallbackArgs = {
   isError: boolean;
   /** Thought text returned by the actor AxGen when available. */
   thought?: string;
+  /** Token usage for this turn only. */
+  usage?: AxProgramUsage[];
+  /** Model used for this turn, when explicitly set via actorModelPolicy. */
+  model?: string;
+  /** Raw ChatML conversation for this turn (system, user, assistant). Only populated when actorTurnCallback is set. */
+  chatLogMessages?: ReadonlyArray<{ role: string; content: string }>;
 };
 
 export type AxAgentJudgeOptions = Partial<Omit<AxJudgeOptions, 'ai'>>;
@@ -843,6 +849,23 @@ type AxAgentRecursiveEvalContext = {
   parentNodeId?: string;
   depth: number;
 };
+
+/**
+ * Extract plain {role, content} messages from the actor's chat log,
+ * skipping tool-result entries that can't be serialized cleanly.
+ */
+function snapshotChatLogMessages(
+  chatLog: readonly AxChatLogEntry[]
+): Array<{ role: string; content: string }> {
+  const messages: Array<{ role: string; content: string }> = [];
+  for (const entry of chatLog) {
+    for (const msg of entry.messages) {
+      if (msg.role === 'tool') continue;
+      messages.push({ role: msg.role, content: msg.content });
+    }
+  }
+  return messages;
+}
 
 function renderGuidanceLog(
   entries: readonly AxAgentGuidanceLogEntry[]
@@ -4866,6 +4889,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           debugHideSystemPrompt,
         };
 
+        const usageBefore = this.actorProgram.getUsage()?.length ?? 0;
+
         const actorResult = await this.actorProgram.forward(
           ai,
           buildActorPromptValues(
@@ -4878,6 +4903,20 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         if (!debugHideSystemPrompt) {
           lastDebugLoggedActorInstruction = actorInstruction;
         }
+
+        // Capture per-turn metadata for the callback.
+        const turnUsage = rlm.actorTurnCallback
+          ? (this.actorProgram.getUsage()?.slice(usageBefore) as
+              | AxProgramUsage[]
+              | undefined)
+          : undefined;
+        const turnModel =
+          actorCallOptions.model !== undefined
+            ? String(actorCallOptions.model)
+            : undefined;
+        const turnChatLogMessages = rlm.actorTurnCallback
+          ? snapshotChatLogMessages(this.actorProgram.getChatLog())
+          : undefined;
 
         if (turn === 0) {
           restoreNotice = undefined;
@@ -4957,6 +4996,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                   typeof actorResult.thought === 'string'
                     ? actorResult.thought
                     : undefined,
+                usage: turnUsage,
+                model: turnModel,
+                chatLogMessages: turnChatLogMessages,
               });
             }
 
@@ -5029,6 +5071,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
                   typeof actorResult.thought === 'string'
                     ? actorResult.thought
                     : undefined,
+                usage: turnUsage,
+                model: turnModel,
+                chatLogMessages: turnChatLogMessages,
               });
             }
           }
@@ -5105,6 +5150,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
               typeof actorResult.thought === 'string'
                 ? actorResult.thought
                 : undefined,
+            usage: turnUsage,
+            model: turnModel,
+            chatLogMessages: turnChatLogMessages,
           });
         }
 

@@ -1301,23 +1301,6 @@ export class AxBaseAI<
       }
     }
 
-    // Check for thinkingTokenBudget support
-    if (
-      options?.thinkingTokenBudget &&
-      !this.getFeatures(model).hasThinkingBudget
-    ) {
-      throw new Error(
-        `Model ${model as string} does not support thinkingTokenBudget.`
-      );
-    }
-
-    // Check for showThoughts support
-    if (options?.showThoughts && !this.getFeatures(model).hasShowThoughts) {
-      throw new Error(
-        `Model ${model as string} does not support showThoughts.`
-      );
-    }
-
     // Check for expensive model usage
     const modelInfo = this.modelInfo.find(
       (info) => info.name === (model as string)
