@@ -1,5 +1,17 @@
 # Changelog
 
+## [19.0.42](///compare/19.0.40...19.0.41) (2026-04-07)
+
+### Features
+
+* add GPT-5.4 models + fix: pass chatReqUpdater through Azure OpenAI ([#505](undefined/undefined/undefined/issues/505)) 6cef135
+
+### Bug Fixes
+
+* various fixes d12a683
+* various fixes 5d257d5
+## [19.0.41](///compare/19.0.40...19.0.41) (2026-04-01)
+
 ## [19.0.41](///compare/19.0.39...19.0.40) (2026-04-01)
 ## [19.0.40](///compare/19.0.39...19.0.40) (2026-04-01)
 
