@@ -1,5 +1,13 @@
 # Changelog
 
+## [19.0.43](///compare/19.0.42...19.0.43) (2026-04-10)
+
+### Bug Fixes
+
+* **metrics:** accurate estimated cost metric for all request types ([#508](undefined/undefined/undefined/issues/508)) 07f2ba75
+* **agent:** extract code from anywhere in javascriptCode field ([#507](undefined/undefined/undefined/issues/507)) 2894bcd0
+* fix ollama thinking ([#506](undefined/undefined/undefined/issues/506)) b1fcdf32
+
 ## [19.0.42](///compare/19.0.40...19.0.41) (2026-04-07)
 
 ### Features
