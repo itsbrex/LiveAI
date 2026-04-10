@@ -3,12 +3,84 @@ import {
   axBaseAIDefaultCreativeConfig,
 } from '../base.js';
 import { type AxAIOpenAIArgs, AxAIOpenAIBase } from '../openai/api.js';
-import type { AxAIOpenAIConfig } from '../openai/chat_types.js';
+import type {
+  AxAIOpenAIChatRequest,
+  AxAIOpenAIConfig,
+} from '../openai/chat_types.js';
+import type { AxChatResponse } from '../types.js';
+import type { AxAIServiceOptions } from '../types.js';
+
+/**
+ * Extracts <think>...</think> content from a full (non-streaming) response.
+ * Returns thought and cleaned content separately.
+ */
+function extractThinkTags(content: string): {
+  thought?: string;
+  content?: string;
+} {
+  const match = content.match(/^<think>([\s\S]*?)<\/think>\n?([\s\S]*)$/);
+  if (!match) return { content };
+  return {
+    thought: match[1] || undefined,
+    content: match[2] || undefined,
+  };
+}
+
+type OllamaThinkStreamState = {
+  ollamaInThink?: boolean;
+};
+
+/**
+ * Processes a streaming chunk, routing <think>...</think> content to the
+ * `thought` field and leaving the rest in `content`.
+ */
+function processThinkStreamChunk(
+  content: string | undefined,
+  state: OllamaThinkStreamState
+): { content?: string; thought?: string } {
+  if (!content) return {};
+
+  if (!state.ollamaInThink && !content.includes('<think>')) {
+    return { content };
+  }
+
+  let remaining = content;
+  let thoughtOut = '';
+  let contentOut = '';
+
+  if (!state.ollamaInThink && remaining.includes('<think>')) {
+    const idx = remaining.indexOf('<think>');
+    contentOut += remaining.slice(0, idx);
+    remaining = remaining.slice(idx + '<think>'.length);
+    state.ollamaInThink = true;
+  }
+
+  if (state.ollamaInThink) {
+    if (remaining.includes('</think>')) {
+      const idx = remaining.indexOf('</think>');
+      thoughtOut += remaining.slice(0, idx);
+      remaining = remaining.slice(idx + '</think>'.length).replace(/^\n/, '');
+      state.ollamaInThink = false;
+      contentOut += remaining;
+    } else {
+      thoughtOut += remaining;
+    }
+  }
+
+  return {
+    content: contentOut || undefined,
+    thought: thoughtOut || undefined,
+  };
+}
 
 /**
  * Configuration type for Ollama AI service
  */
 export type AxAIOllamaAIConfig = AxAIOpenAIConfig<string, string>;
+
+type AxAIOllamaChatRequest = AxAIOpenAIChatRequest<string> & {
+  think?: boolean;
+};
 
 /**
  * Creates default configuration for Ollama AI service
@@ -55,7 +127,8 @@ export type AxAIOllamaArgs<TModelKey> = AxAIOpenAIArgs<
 export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
   string,
   string,
-  TModelKey
+  TModelKey,
+  AxAIOllamaChatRequest
 > {
   /**
    * Creates a new Ollama AI service instance
@@ -77,6 +150,48 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       ...axAIOllamaDefaultConfig(),
       ...config,
     };
+
+    const chatReqUpdater = (
+      req: Readonly<AxAIOllamaChatRequest>,
+      serviceOptions: Readonly<AxAIServiceOptions>
+    ): AxAIOllamaChatRequest => {
+      if (!serviceOptions.thinkingTokenBudget) {
+        return req;
+      }
+
+      return {
+        ...req,
+        think: serviceOptions.thinkingTokenBudget !== 'none',
+      };
+    };
+
+    const chatRespProcessor = (resp: AxChatResponse): AxChatResponse => ({
+      ...resp,
+      results: resp.results.map((result) => {
+        if (!result.content) return result;
+        const extracted = extractThinkTags(result.content);
+        return {
+          ...result,
+          thought: extracted.thought ?? result.thought,
+          content: extracted.content,
+        };
+      }),
+    });
+
+    const chatStreamRespProcessor = (
+      resp: AxChatResponse,
+      state: object
+    ): AxChatResponse => ({
+      ...resp,
+      results: resp.results.map((result) => {
+        const { content, thought } = processThinkStreamChunk(
+          result.content,
+          state as OllamaThinkStreamState
+        );
+        return { ...result, content, thought: thought ?? result.thought };
+      }),
+    });
+
     super({
       apiKey,
       options,
@@ -84,11 +199,14 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
       apiURL: url,
       models,
       modelInfo: [],
+      chatReqUpdater,
+      chatRespProcessor,
+      chatStreamRespProcessor,
       supportFor: {
         functions: true,
         streaming: true,
-        hasThinkingBudget: false,
-        hasShowThoughts: false,
+        hasThinkingBudget: true,
+        hasShowThoughts: true,
         media: {
           images: {
             supported: false,
@@ -113,7 +231,7 @@ export class AxAIOllama<TModelKey> extends AxAIOpenAIBase<
           supported: false,
           types: [],
         },
-        thinking: false,
+        thinking: true,
         multiTurn: true,
       },
     });
