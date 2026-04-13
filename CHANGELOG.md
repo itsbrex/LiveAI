@@ -1,5 +1,11 @@
 # Changelog
 
+## [19.0.44](///compare/19.0.43...19.0.44) (2026-04-13)
+
+### Bug Fixes
+
+* **metrics:** use shared model name normalization for cost and config lookups ([#509](undefined/undefined/undefined/issues/509)) 5e885af4
+
 ## [19.0.43](///compare/19.0.42...19.0.43) (2026-04-10)
 
 ### Bug Fixes
