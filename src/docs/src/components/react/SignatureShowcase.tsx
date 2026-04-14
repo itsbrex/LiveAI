@@ -4,7 +4,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
 
-type Tab = 'fluent' | 'string';
+type Tab = 'fluent' | 'string' | 'zod';
 
 /* ─── Code content for each tab ─── */
 
@@ -175,6 +175,135 @@ function StringCode() {
   );
 }
 
+function ZodCode() {
+  return (
+    <pre className="p-5 text-[13px] leading-relaxed overflow-x-auto font-mono">
+      <code>
+        <L>
+          <Kw>import</Kw> {'{ z }'} <Kw>from</Kw> <S>&apos;zod&apos;</S>
+        </L>
+        <L>
+          <Kw>import</Kw> {'{ f, ax }'} <Kw>from</Kw>{' '}
+          <S>&apos;@ax-llm/ax&apos;</S>
+        </L>
+        <L />
+        <L>
+          <Kw>const</Kw> sig = <Fn>f</Fn>()
+        </L>
+        <L>
+          {' '}
+          .<Fn>input</Fn>(z.<Fn>object</Fn>({'{'}
+        </L>
+        <L>
+          {' '}
+          <P>document</P>: z.<Fn>string</Fn>().<Fn>min</Fn>(<N>10</N>),
+        </L>
+        <L> {'}'}))</L>
+        <L>
+          {' '}
+          .<Fn>output</Fn>(z.<Fn>object</Fn>({'{'}
+        </L>
+        <L>
+          {' '}
+          <P>summary</P>: z.<Fn>string</Fn>().<Fn>describe</Fn>(
+        </L>
+        <L>
+          {' '}
+          <S>&apos;Brief summary&apos;</S>),
+        </L>
+        <L>
+          {' '}
+          <P>sentiment</P>: z.<Fn>enum</Fn>([
+        </L>
+        <L>
+          {' '}
+          <S>&apos;positive&apos;</S>, <S>&apos;neutral&apos;</S>,
+        </L>
+        <L>
+          {' '}
+          <S>&apos;negative&apos;</S>]),
+        </L>
+        <L>
+          {' '}
+          <P>score</P>: z.<Fn>number</Fn>().<Fn>min</Fn>(<N>1</N>).<Fn>max</Fn>(
+          <N>10</N>),
+        </L>
+        <L>
+          {' '}
+          <P>keyPoints</P>: z.<Fn>array</Fn>(z.<Fn>string</Fn>()),
+        </L>
+        <L> {'}'}))</L>
+        <L>
+          {' '}
+          .<Fn>build</Fn>()
+        </L>
+        <L />
+        <L>
+          <Kw>const</Kw> gen = <Fn>ax</Fn>(sig)
+        </L>
+        <L>
+          <Kw>const</Kw> result = <Kw>await</Kw> gen.<Fn>forward</Fn>(llm, {'{'}
+        </L>
+        <L>
+          {' '}
+          <P>document</P>: reviewText
+        </L>
+        <L>{'}'})</L>
+      </code>
+    </pre>
+  );
+}
+
+function ZodOutput() {
+  return (
+    <div className="p-5 flex flex-col h-full">
+      <div className="text-[10px] uppercase tracking-wider text-gray-400 dark:text-gray-500 font-semibold mb-3">
+        Typed Output
+      </div>
+      <pre className="text-[13px] leading-relaxed font-mono flex-1">
+        <code>
+          <L>{'{'}</L>
+          <L>
+            {' '}
+            <P>summary</P>: <S>&apos;Exceptional battery life and...&apos;</S>,
+          </L>
+          <L>
+            {' '}
+            <P>sentiment</P>: <S>&apos;positive&apos;</S>,
+          </L>
+          <L>
+            {' '}
+            <P>score</P>: <N>9</N>,
+          </L>
+          <L>
+            {' '}
+            <P>keyPoints</P>: [
+          </L>
+          <L>
+            {' '}
+            <S>&apos;30h battery life&apos;</S>,
+          </L>
+          <L>
+            {' '}
+            <S>&apos;Premium build quality&apos;</S>,
+          </L>
+          <L>
+            {' '}
+            <S>&apos;Ear cushions warm after 2h&apos;</S>
+          </L>
+          <L> ],</L>
+          <L>{'}'}</L>
+        </code>
+      </pre>
+      <div className="mt-4 space-y-2">
+        <Feature color="bg-violet-500" text="Any Standard Schema v1 library" />
+        <Feature color="bg-rose-500" text=".refine() & .transform() run at parse" />
+        <Feature color="bg-teal-500" text="Same retry pipeline as fluent builder" />
+      </div>
+    </div>
+  );
+}
+
 function FluentOutput() {
   return (
     <div className="p-5 flex flex-col h-full">
@@ -317,11 +446,11 @@ export default function SignatureShowcase() {
       >
         <div className="text-center mb-10">
           <h2 className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white tracking-tight mb-4">
-            Two ways to define signatures
+            Three ways to define signatures
           </h2>
           <p className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto">
-            Quick string syntax for simple tasks. Fluent builder for complex
-            structured outputs with validation.
+            Quick string syntax, type-safe fluent builder, or your existing zod
+            schemas — same pipeline, same retries, same type inference.
           </p>
         </div>
 
@@ -338,6 +467,11 @@ export default function SignatureShowcase() {
               onClick={() => setTab('string')}
               label="String Syntax"
             />
+            <TabButton
+              active={tab === 'zod'}
+              onClick={() => setTab('zod')}
+              label="Zod Schema"
+            />
           </div>
         </div>
 
@@ -346,7 +480,7 @@ export default function SignatureShowcase() {
           {/* Left: Code input */}
           <div className="rounded-2xl overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-gray-950">
             <TerminalHeader
-              filename={tab === 'fluent' ? 'analyze.ts' : 'signatures.ts'}
+              filename={tab === 'fluent' ? 'analyze.ts' : tab === 'zod' ? 'zod-schema.ts' : 'signatures.ts'}
             />
             <AnimatePresence mode="wait">
               <motion.div
@@ -356,7 +490,7 @@ export default function SignatureShowcase() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                {tab === 'fluent' ? <FluentCode /> : <StringCode />}
+                {tab === 'fluent' ? <FluentCode /> : tab === 'zod' ? <ZodCode /> : <StringCode />}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -373,7 +507,7 @@ export default function SignatureShowcase() {
                 transition={{ duration: 0.2 }}
                 className="h-[calc(100%-48px)]"
               >
-                {tab === 'fluent' ? <FluentOutput /> : <StringOutput />}
+                {tab === 'fluent' ? <FluentOutput /> : tab === 'zod' ? <ZodOutput /> : <StringOutput />}
               </motion.div>
             </AnimatePresence>
           </div>

@@ -73,6 +73,38 @@ class GoogleSearch {
 ```
 
 
+### Defining tools with zod (or valibot / arktype)
+
+The `fn()` builder accepts any [Standard Schema v1](https://standardschema.dev) validator directly — pass a whole `z.object({...})` to `.arg()` and `.returns()` and the handler's argument type is inferred automatically.
+
+```typescript
+import { z } from 'zod';
+import { fn } from '@ax-llm/ax';
+
+const lookupProduct = fn('lookupProduct')
+  .description('Look up a product by name and return its current details')
+  .arg(
+    z.object({
+      productName: z.string().min(1).describe('Exact product name'),
+      includeSpecs: z.boolean().optional().describe('Include technical specs'),
+    })
+  )
+  .returns(
+    z.object({
+      price: z.number().describe('Current price in USD'),
+      inStock: z.boolean(),
+      rating: z.number().min(1).max(5),
+    })
+  )
+  .handler(async ({ productName, includeSpecs }) => {
+    // productName: string, includeSpecs: boolean | undefined — inferred from zod
+    return { price: 79.99, inStock: true, rating: 4.3 };
+  })
+  .build();
+```
+
+Constraints (`.min()`, `.max()`, `.email()`, `.url()`, `.regex()`) and custom logic (`.refine()`, `.transform()`, `.superRefine()`) execute at parse time on the LLM's tool-call arguments — the same retry pipeline as native `f.*` fields. For per-argument form, use `.arg('name', z.string(), { cache: true })`. Full example: [`src/examples/standard-schema.ts`](https://github.com/ax-llm/ax/blob/main/src/examples/standard-schema.ts).
+
 ### How to use these functions
 
 Just set the function on the prompt

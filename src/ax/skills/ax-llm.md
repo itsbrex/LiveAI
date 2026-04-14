@@ -15,6 +15,7 @@ Ax is a TypeScript library for building LLM-powered applications with type-safe 
 ```typescript
 // Prefer factory functions: ax(), ai(), agent(), flow() — not new AxGen(), new AxAI(), etc.
 import { ax, ai, f, s, fn, agent, flow, AxMemory, AxMCPClient, AxLearn } from '@ax-llm/ax';
+import { z } from 'zod'; // optional — any Standard Schema v1 library works
 
 // AI provider
 const llm = ai({ name: 'openai', apiKey: process.env.OPENAI_APIKEY });
@@ -27,6 +28,14 @@ const gen = ax(
   f()
     .input('question', f.string('User question'))
     .output('answer', f.string('AI response'))
+    .build()
+);
+
+// Generator (from zod — Standard Schema v1, also works with valibot/arktype)
+const zodGen = ax(
+  f()
+    .input(z.object({ question: z.string().describe('User question') }))
+    .output(z.object({ answer: z.string().describe('AI response') }))
     .build()
 );
 
@@ -45,12 +54,23 @@ const wf = flow<{ input: string }, { output: string }>()
   .execute('step1', (state) => ({ input: state.input }))
   .returns((state) => ({ output: state.step1Result.output }));
 
-// Function tool
+// Function tool — native fluent
 const tool = fn('search')
   .description('Search the web')
   .arg('query', f.string('Search query'))
   .returns(f.string('Search results'))
   .handler(({ query }) => searchWeb(query))
+  .build();
+
+// Function tool — zod schema (Standard Schema v1: also works with valibot, arktype)
+const zodTool = fn('calculateTax')
+  .description('Calculate tax for an amount')
+  .arg(z.object({
+    amount: z.number().positive().describe('Pre-tax amount in USD'),
+    region: z.enum(['US', 'EU', 'UK']).describe('Tax region'),
+  }))
+  .returns(z.object({ tax: z.number(), total: z.number() }))
+  .handler(async ({ amount }) => ({ tax: amount * 0.1, total: amount * 1.1 }))
   .build();
 ```
 
@@ -287,6 +307,7 @@ class AxFlow<IN, OUT> {
 
 Fetch these for full working code:
 
+- [Standard Schema (zod)](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/standard-schema.ts) — zod with f() and fn()
 - [Chat](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/chat.ts) — multi-turn conversation
 - [Marketing](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/marketing.ts) — product use case
 - [MCP Integration](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/mcp-client-memory.ts) — MCP integration

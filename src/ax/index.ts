@@ -611,6 +611,7 @@ import {
   f,
   fn,
 } from './dsp/sig.js';
+import type { AxFieldOptions } from './dsp/standardSchema.js';
 import { AxStepContextImpl } from './dsp/stepContext.js';
 import { AxStringUtil } from './dsp/strutil.js';
 import {
@@ -1411,6 +1412,7 @@ export type { AxEvaluateArgs };
 export type { AxExample };
 export type { AxExamples };
 export type { AxField };
+export type { AxFieldOptions };
 export type { AxFieldProcessor };
 export type { AxFieldProcessorProcess };
 export type { AxFieldTemplateFn };

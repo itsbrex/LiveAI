@@ -10,6 +10,7 @@ import {
   createTypeValidationError,
 } from './errors.js';
 import type { AxField, AxSignature } from './sig.js';
+import { validateWithStandardSchema } from './standardSchema.js';
 import type { AxGenOut, GenDeltaOut } from './types.js';
 import { matchesContent, parseMarkdownList } from './util.js';
 import {
@@ -720,6 +721,12 @@ export function validateAndParseFieldValue(
     }
   }
 
+  // Run custom refinements and transforms from the original Standard Schema
+  // (.refine(), .transform(), etc. that cannot be serialised into AxField).
+  if (field.schema && value !== undefined) {
+    value = validateWithStandardSchema(field.schema, field.name, value);
+  }
+
   return value;
 }
 
@@ -808,6 +815,15 @@ export function validateStructuredOutputValues(
           );
         }
       }
+    }
+
+    // Run custom refinements and transforms from the original Standard Schema
+    if (field.schema) {
+      values[field.name] = validateWithStandardSchema(
+        field.schema,
+        field.name,
+        value
+      );
     }
   }
 }

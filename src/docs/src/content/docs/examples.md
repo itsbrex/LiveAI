@@ -23,6 +23,7 @@ This page lists every runnable example in [`src/examples/`](https://github.com/a
 
 - **[structured_output.ts](https://github.com/ax-llm/ax/tree/main/src/examples/structured_output.ts)** - Structured output with validation constraints and nested objects.
 - **[fluent-signature-example.ts](https://github.com/ax-llm/ax/tree/main/src/examples/fluent-signature-example.ts)** - Build signatures with the fluent `f()` API.
+- **[standard-schema.ts](https://github.com/ax-llm/ax/tree/main/src/examples/standard-schema.ts)** - Use zod (or any Standard Schema v1 library) directly with `f()` and `fn()` in all three shapes.
 - **[debug_schema.ts](https://github.com/ax-llm/ax/tree/main/src/examples/debug_schema.ts)** - Inspect generated JSON schema from constrained signatures.
 - **[use-examples.ts](https://github.com/ax-llm/ax/tree/main/src/examples/use-examples.ts)** - Attach few-shot examples to a generator.
 - **[sample-count.ts](https://github.com/ax-llm/ax/tree/main/src/examples/sample-count.ts)** - Generate multiple samples from a single prompt program.

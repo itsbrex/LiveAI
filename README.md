@@ -94,6 +94,61 @@ console.log(result.product.specs.dimensions.width);
 console.log(result.product.reviews[0].comment);
 ```
 
+### Use zod (or valibot / arktype) directly
+
+Ax accepts any [Standard Schema v1](https://standardschema.dev) validator (zod, valibot, arktype) anywhere `f.*` is accepted — same pipeline, same validation retries, same type inference.
+
+```typescript
+import { z } from "zod";
+import { ai, ax, f, fn } from "@ax-llm/ax";
+
+// 1. Per-field zod on f() — mix with f.*() fields freely
+const reviewSentiment = ax(
+  f()
+    .input("productName", z.string().describe("Reviewed product"))
+    .input("reviewText", z.string().min(10).describe("Full review"))
+    .output("sentiment", z.enum(["positive", "neutral", "negative"]))
+    .output("score", z.number().min(1).max(10))
+    .output("keyPoints", z.array(z.string()))
+    .build(),
+);
+
+// 2. Whole-object zod on f() — declare once, decomposed into ordered fields
+const productSummary = ax(
+  f()
+    .input(z.object({
+      productName: z.string(),
+      buyerProfile: z.string(),
+    }))
+    .output(z.object({
+      headline: z.string(),
+      pros: z.array(z.string()),
+      cons: z.array(z.string()),
+      recommendation: z.enum(["buy", "wait", "skip"]),
+    }))
+    .build(),
+);
+
+// 3. Whole-object zod on fn() — AI-SDK-style tool definition
+const lookupProduct = fn("lookupProduct")
+  .description("Look up a product by name")
+  .arg(z.object({
+    productName: z.string().min(1),
+    includeSpecs: z.boolean().optional(),
+  }))
+  .returns(z.object({
+    price: z.number(),
+    inStock: z.boolean(),
+    rating: z.number().min(1).max(5),
+  }))
+  .handler(async ({ productName }) => ({ price: 79.99, inStock: true, rating: 4.3 }))
+  .build();
+```
+
+Constraints (`.min()`, `.max()`, `.email()`, `.url()`, `.regex()`) feed the normal retry pipeline. `.refine()`, `.transform()`, and `.superRefine()` execute at parse time on complete field values — in both non-streaming and streaming (at field boundaries). For prompt-cache breakpoints and internal reasoning fields, pass companion options: `.input('ctx', z.string(), { cache: true })` or `.output('reasoning', z.string(), { internal: true })`. Multimodal inputs (`image`, `audio`, `file`) still use `f.*` — zod has no equivalent.
+
+Full runnable example: [`src/examples/standard-schema.ts`](src/examples/standard-schema.ts).
+
 ### Validation and constraints
 
 ```typescript
@@ -212,6 +267,7 @@ npm install @ax-llm/ax-tools
 
 - **15+ LLM Providers** – OpenAI, Anthropic, Google, Mistral, Ollama, and more
 - **Type-safe** – Full TypeScript support with auto-completion
+- **Standard Schema v1** – First-class zod / valibot / arktype on signatures and tools, no adapter
 - **Streaming** – Real-time responses with validation
 - **Multi-modal** – Images, audio, text in the same signature
 - **Optimization** – Automatic prompt tuning with MiPRO, ACE, GEPA

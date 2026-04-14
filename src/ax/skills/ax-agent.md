@@ -233,6 +233,23 @@ const tools = [
     .handler(async ({ topic }) => [])
     .build(),
 ];
+```
+
+`.arg()` and `.returns()` also accept any [Standard Schema v1](https://standardschema.dev) validator (zod, valibot, arktype) directly — per-argument or a whole `z.object({...})`. The handler's argument type is inferred from the schema:
+
+```typescript
+import { z } from 'zod';
+import { fn } from '@ax-llm/ax';
+
+const lookupUser = fn('lookupUser')
+  .description('Fetch a user record by id')
+  .arg(z.object({
+    userId: z.string().min(1),
+    includeProfile: z.boolean().optional(),
+  }))
+  .returns(z.object({ name: z.string(), email: z.string().email() }))
+  .handler(async ({ userId, includeProfile }) => ({ name: 'Ada', email: 'ada@example.com' }))
+  .build();
 
 const analyst = agent('query:string -> answer:string', {
   functions: {

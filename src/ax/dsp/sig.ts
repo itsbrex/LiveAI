@@ -13,7 +13,25 @@ import {
   type ParsedSignature,
   parseSignature,
 } from './parser.js';
+import {
+  type AxFieldOptions,
+  isExternalStandardSchema,
+  isStandardObjectSchema,
+  type StandardSchemaV1,
+  standardSchemaToAxField,
+  standardSchemaToAxFields,
+  standardSchemaToJsonSchema,
+} from './standardSchema.js';
 import type { ParseSignature } from './types.js';
+import { validateValue } from './util.js';
+
+/**
+ * Narrow a StandardSchemaV1 output type to a record so it satisfies the
+ * builder's `Record<string, any>` constraint. Non-object schemas collapse to
+ * `Record<string, any>` — acceptable because decomposition has already happened
+ * at the value level before this type is reached.
+ */
+type AsRecord<T> = T extends Record<string, any> ? T : Record<string, any>;
 // Interface for programmatically defining field types
 export interface AxFieldType {
   readonly type:
@@ -56,10 +74,26 @@ export class AxSignatureBuilder<
   private desc?: string;
 
   /**
-   * Add an input field to the signature
-   * @param name - Field name
-   * @param fieldInfo - Field type created with f.string(), f.number(), etc.
-   * @param prepend - If true, adds field to the beginning of input fields
+   * Add an input field to the signature. Three shapes:
+   *
+   * 1. **Native fluent field** — `.input('name', f.string())`. Supports every
+   *    LLM-optimized affordance (`.cache()`, `.internal()`, multimodal, etc.).
+   * 2. **Per-field Standard Schema** — `.input('name', z.string().min(3), { cache: true })`.
+   *    Pass any zod/valibot/arktype schema. Companion `opts` adds ax-specific
+   *    hints (`cache`, `internal`) that schema libraries don't represent.
+   * 3. **Whole-object Standard Schema** — `.input(z.object({...}), { fields: { ctx: { cache: true } } })`.
+   *    Decomposed into per-key fields in declaration order.
+   *
+   * @example
+   * ```ts
+   * f()
+   *   .input(z.object({
+   *     context: z.string(),
+   *     question: z.string().describe('User question'),
+   *   }), { fields: { context: { cache: true } } })
+   *   .output('answer', f.string())
+   *   .build();
+   * ```
    */
   public input<
     K extends string,
@@ -69,53 +103,55 @@ export class AxSignatureBuilder<
   >(
     name: K,
     fieldInfo: T,
-    prepend = false
-  ): AxSignatureBuilder<AddFieldToShape<_TInput, K, T>, _TOutput> {
-    const field: AxField = {
-      name,
-      type: {
-        name: fieldInfo.type,
-        isArray: fieldInfo.isArray || undefined,
-        options: fieldInfo.options ? [...fieldInfo.options] : undefined,
-        minLength: fieldInfo.minLength,
-        maxLength: fieldInfo.maxLength,
-        minimum: fieldInfo.minimum,
-        maximum: fieldInfo.maximum,
-        pattern: fieldInfo.pattern,
-        patternDescription: fieldInfo.patternDescription,
-        format: fieldInfo.format,
-        description: fieldInfo.itemDescription,
-        fields: fieldInfo.fields
-          ? Object.fromEntries(
-              Object.entries(fieldInfo.fields).map(([k, v]) => [
-                k,
-                convertFluentToAxFieldType(
-                  v as AxFluentFieldInfo | AxFluentFieldType
-                ),
-              ])
-            )
-          : undefined,
-      },
-      description: fieldInfo.description,
-      isOptional: fieldInfo.isOptional || undefined,
-      isInternal: fieldInfo.isInternal || undefined,
-      isCached: fieldInfo.isCached || undefined,
-    };
-
-    if (prepend) {
-      this.inputFields.unshift(field);
-    } else {
-      this.inputFields.push(field);
+    prepend?: boolean
+  ): AxSignatureBuilder<AddFieldToShape<_TInput, K, T>, _TOutput>;
+  public input<K extends string, T extends StandardSchemaV1>(
+    name: K,
+    schema: T,
+    opts?: AxFieldOptions
+  ): AxSignatureBuilder<
+    _TInput & { [P in K]: StandardSchemaV1.InferOutput<T> },
+    _TOutput
+  >;
+  public input<T extends StandardSchemaV1>(
+    schema: T,
+    opts?: { fields?: Record<string, AxFieldOptions> }
+  ): AxSignatureBuilder<AsRecord<StandardSchemaV1.InferOutput<T>>, _TOutput>;
+  public input(a: unknown, b?: unknown, c?: unknown): any {
+    // Shape 3: whole-object Standard Schema (first arg is not a string)
+    if (typeof a !== 'string') {
+      if (!isExternalStandardSchema(a)) {
+        throw new Error(
+          'input() expects a field name + fluent field, or an external Standard Schema object (zod/valibot/arktype).'
+        );
+      }
+      const fields = standardSchemaToAxFields(
+        a,
+        b as { fields?: Record<string, AxFieldOptions> } | undefined
+      );
+      for (const f of fields) this.inputFields.push(f);
+      return this;
     }
-
-    return this as any;
+    // Shape 2: per-field Standard Schema
+    if (isExternalStandardSchema(b)) {
+      this.inputFields.push(
+        standardSchemaToAxField(a, b, c as AxFieldOptions | undefined)
+      );
+      return this;
+    }
+    // Shape 1: native fluent field (existing behaviour)
+    const fieldInfo = b as
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>;
+    const field = createAxFieldFromFluentField(a, fieldInfo);
+    if (c === true) this.inputFields.unshift(field);
+    else this.inputFields.push(field);
+    return this;
   }
 
   /**
-   * Add an output field to the signature
-   * @param name - Field name
-   * @param fieldInfo - Field type created with f.string(), f.number(), etc.
-   * @param prepend - If true, adds field to the beginning of output fields
+   * Add an output field to the signature. Same three shapes as
+   * {@link AxSignatureBuilder.input}.
    */
   public output<
     K extends string,
@@ -125,45 +161,50 @@ export class AxSignatureBuilder<
   >(
     name: K,
     fieldInfo: T,
-    prepend = false
-  ): AxSignatureBuilder<_TInput, AddFieldToShape<_TOutput, K, T>> {
-    const field: AxField = {
-      name,
-      type: {
-        name: fieldInfo.type,
-        isArray: fieldInfo.isArray || undefined,
-        options: fieldInfo.options ? [...fieldInfo.options] : undefined,
-        minLength: fieldInfo.minLength,
-        maxLength: fieldInfo.maxLength,
-        minimum: fieldInfo.minimum,
-        maximum: fieldInfo.maximum,
-        pattern: fieldInfo.pattern,
-        patternDescription: fieldInfo.patternDescription,
-        format: fieldInfo.format,
-        description: fieldInfo.itemDescription,
-        fields: fieldInfo.fields
-          ? Object.fromEntries(
-              Object.entries(fieldInfo.fields).map(([k, v]) => [
-                k,
-                convertFluentToAxFieldType(
-                  v as AxFluentFieldInfo | AxFluentFieldType
-                ),
-              ])
-            )
-          : undefined,
-      },
-      description: fieldInfo.description,
-      isOptional: fieldInfo.isOptional || undefined,
-      isInternal: fieldInfo.isInternal || undefined,
-    };
-
-    if (prepend) {
-      this.outputFields.unshift(field);
-    } else {
-      this.outputFields.push(field);
+    prepend?: boolean
+  ): AxSignatureBuilder<_TInput, AddFieldToShape<_TOutput, K, T>>;
+  public output<K extends string, T extends StandardSchemaV1>(
+    name: K,
+    schema: T,
+    opts?: AxFieldOptions
+  ): AxSignatureBuilder<
+    _TInput,
+    _TOutput & { [P in K]: StandardSchemaV1.InferOutput<T> }
+  >;
+  public output<T extends StandardSchemaV1>(
+    schema: T,
+    opts?: { fields?: Record<string, AxFieldOptions> }
+  ): AxSignatureBuilder<_TInput, AsRecord<StandardSchemaV1.InferOutput<T>>>;
+  public output(a: unknown, b?: unknown, c?: unknown): any {
+    // Shape 3: whole-object Standard Schema
+    if (typeof a !== 'string') {
+      if (!isExternalStandardSchema(a)) {
+        throw new Error(
+          'output() expects a field name + fluent field, or an external Standard Schema object (zod/valibot/arktype).'
+        );
+      }
+      const fields = standardSchemaToAxFields(
+        a,
+        b as { fields?: Record<string, AxFieldOptions> } | undefined
+      );
+      for (const f of fields) this.outputFields.push(f);
+      return this;
     }
-
-    return this as any;
+    // Shape 2: per-field Standard Schema
+    if (isExternalStandardSchema(b)) {
+      this.outputFields.push(
+        standardSchemaToAxField(a, b, c as AxFieldOptions | undefined)
+      );
+      return this;
+    }
+    // Shape 1: native fluent field (existing behaviour)
+    const fieldInfo = b as
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>;
+    const field = createAxFieldFromFluentField(a, fieldInfo);
+    if (c === true) this.outputFields.unshift(field);
+    else this.outputFields.push(field);
+    return this;
   }
 
   /**
@@ -535,6 +576,45 @@ export class AxFluentFieldType<
       });
     }
     return this;
+  }
+
+  /**
+   * Standard Schema v1 surface — lets ax fields flow through any library that
+   * accepts `StandardSchemaV1` (tRPC, TanStack Form, Vercel AI SDK, etc.).
+   */
+  get '~standard'(): StandardSchemaV1.Props<unknown, unknown> {
+    return {
+      version: 1,
+      vendor: 'ax',
+      validate: (value: unknown) => {
+        try {
+          const synthetic: AxField = {
+            name: 'value',
+            type: {
+              name: this.type,
+              isArray: this.isArray || undefined,
+              options: this.options ? [...this.options] : undefined,
+              minLength: this.minLength,
+              maxLength: this.maxLength,
+              minimum: this.minimum,
+              maximum: this.maximum,
+              pattern: this.pattern,
+              patternDescription: this.patternDescription,
+              format: this.format,
+            },
+            isOptional: this.isOptional || undefined,
+          };
+          if ((value === undefined || value === null) && this.isOptional) {
+            return { value } as StandardSchemaV1.SuccessResult<unknown>;
+          }
+          validateValue(synthetic, value as never);
+          return { value } as StandardSchemaV1.SuccessResult<unknown>;
+        } catch (err) {
+          const message = err instanceof Error ? err.message : String(err);
+          return { issues: [{ message }] };
+        }
+      },
+    };
   }
 }
 
@@ -1232,6 +1312,8 @@ export interface AxField {
   isOptional?: boolean;
   isInternal?: boolean;
   isCached?: boolean;
+  /** Original Standard Schema (zod/valibot/arktype) stored so custom refinements and transforms run at parse time. */
+  schema?: import('./standardSchema.js').StandardSchemaV1;
 }
 
 export type AxIField = Omit<AxField, 'title'> & { title: string };
@@ -1566,6 +1648,7 @@ class AxFunctionBuilder<
     | AxFluentFieldInfo<any, any, any, any, any, any, any>
     | AxFluentFieldType<any, any, any, any, any, any, any>;
   private returnMode?: 'single' | 'fields';
+  private returnJsonSchema?: AxFunctionJSONSchema;
   private fnHandler?: AxTypedFunctionHandler<TArgs, TReturn>;
   private fnExamples: AxFunctionBuilderExample[] = [];
 
@@ -1587,6 +1670,16 @@ class AxFunctionBuilder<
     return this;
   }
 
+  /**
+   * Declare a tool argument. Three shapes:
+   *
+   * 1. **Fluent** — `.arg('name', f.string('desc'))`
+   * 2. **Per-field Standard Schema** — `.arg('name', z.string(), { cache: true })`
+   * 3. **Whole-object Standard Schema** — `.arg(z.object({ topic: z.string(), ... }))`
+   *
+   * Shapes 2 and 3 accept anything implementing Standard Schema v1
+   * (zod / valibot / arktype).
+   */
   public arg<
     K extends string,
     T extends
@@ -1595,11 +1688,52 @@ class AxFunctionBuilder<
   >(
     name: K,
     fieldInfo: T
-  ): AxFunctionBuilder<AddFieldToShape<TArgs, K, T>, TReturn, THasExamples> {
-    this.argFields.push(createAxFieldFromFluentField(name, fieldInfo));
-    return this as any;
+  ): AxFunctionBuilder<AddFieldToShape<TArgs, K, T>, TReturn, THasExamples>;
+  public arg<K extends string, T extends StandardSchemaV1>(
+    name: K,
+    schema: T,
+    opts?: AxFieldOptions
+  ): AxFunctionBuilder<
+    TArgs & { [P in K]: StandardSchemaV1.InferOutput<T> },
+    TReturn,
+    THasExamples
+  >;
+  public arg<T extends StandardSchemaV1>(
+    schema: T,
+    opts?: { fields?: Record<string, AxFieldOptions> }
+  ): AxFunctionBuilder<
+    AsRecord<StandardSchemaV1.InferOutput<T>>,
+    TReturn,
+    THasExamples
+  >;
+  public arg(a: unknown, b?: unknown, c?: unknown): any {
+    if (typeof a !== 'string') {
+      if (!isExternalStandardSchema(a)) {
+        throw new Error(
+          'arg() expects a field name + fluent field, or an external Standard Schema object (zod/valibot/arktype).'
+        );
+      }
+      const fields = standardSchemaToAxFields(
+        a,
+        b as { fields?: Record<string, AxFieldOptions> } | undefined
+      );
+      for (const f of fields) this.argFields.push(f);
+      return this;
+    }
+    if (isExternalStandardSchema(b)) {
+      this.argFields.push(
+        standardSchemaToAxField(a, b, c as AxFieldOptions | undefined)
+      );
+      return this;
+    }
+    const fieldInfo = b as
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>;
+    this.argFields.push(createAxFieldFromFluentField(a, fieldInfo));
+    return this;
   }
 
+  /** @deprecated Alias for {@link AxFunctionBuilder.arg}. */
   public args<
     K extends string,
     T extends
@@ -1612,22 +1746,65 @@ class AxFunctionBuilder<
     return this.arg(name, fieldInfo);
   }
 
+  /**
+   * Declare the tool return shape. Two shapes:
+   *
+   * 1. **Fluent** — `.returns(f.string())` (single return value)
+   * 2. **Standard Schema** — `.returns(z.object({...}))` decomposes into
+   *    named return fields; any non-object zod schema is a single JSON-Schema
+   *    return.
+   *
+   * Mutually exclusive with `.returnsField()`.
+   */
   public returns<
     T extends
       | AxFluentFieldInfo<any, any, any, any, any, any, any>
       | AxFluentFieldType<any, any, any, any, any, any, any>,
-  >(fieldInfo: T): AxFunctionBuilder<TArgs, InferFluentType<T>, THasExamples> {
+  >(fieldInfo: T): AxFunctionBuilder<TArgs, InferFluentType<T>, THasExamples>;
+  public returns<T extends StandardSchemaV1>(
+    schema: T,
+    opts?: { fields?: Record<string, AxFieldOptions> }
+  ): AxFunctionBuilder<TArgs, StandardSchemaV1.InferOutput<T>, THasExamples>;
+  public returns(a: unknown, b?: unknown): any {
+    if (isExternalStandardSchema(a)) {
+      if (this.returnMode) {
+        throw new Error(
+          'Cannot use fn().returns(zodSchema) after fn().returns/returnsField(...); choose exactly one return schema style'
+        );
+      }
+      if (isStandardObjectSchema(a)) {
+        const fields = standardSchemaToAxFields(
+          a,
+          b as { fields?: Record<string, AxFieldOptions> } | undefined
+        );
+        this.returnMode = 'fields';
+        for (const f of fields) this.returnFields.push(f);
+      } else {
+        this.returnMode = 'single';
+        this.returnJsonSchema = standardSchemaToJsonSchema(a);
+      }
+      return this;
+    }
     if (this.returnMode === 'fields') {
       throw new Error(
         'Cannot use fn().returns(...) after fn().returnsField(...); choose exactly one return schema style'
       );
     }
-
     this.returnMode = 'single';
-    this.returnFieldType = fieldInfo;
-    return this as any;
+    this.returnFieldType = a as
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>;
+    return this;
   }
 
+  /**
+   * Declare a single named return field. Two shapes:
+   *
+   * 1. **Fluent** — `.returnsField('answer', f.string())`
+   * 2. **Per-field Standard Schema** — `.returnsField('answer', z.string(), { internal: true })`
+   *
+   * Mutually exclusive with `.returns()`.
+   */
   public returnsField<
     K extends string,
     T extends
@@ -1640,16 +1817,36 @@ class AxFunctionBuilder<
     TArgs,
     AddFieldToShape<TReturn extends Record<string, any> ? TReturn : {}, K, T>,
     THasExamples
-  > {
+  >;
+  public returnsField<K extends string, T extends StandardSchemaV1>(
+    name: K,
+    schema: T,
+    opts?: AxFieldOptions
+  ): AxFunctionBuilder<
+    TArgs,
+    (TReturn extends Record<string, any> ? TReturn : {}) & {
+      [P in K]: StandardSchemaV1.InferOutput<T>;
+    },
+    THasExamples
+  >;
+  public returnsField(name: string, b: unknown, c?: unknown): any {
     if (this.returnMode === 'single') {
       throw new Error(
         'Cannot use fn().returnsField(...) after fn().returns(...); choose exactly one return schema style'
       );
     }
-
     this.returnMode = 'fields';
+    if (isExternalStandardSchema(b)) {
+      this.returnFields.push(
+        standardSchemaToAxField(name, b, c as AxFieldOptions | undefined)
+      );
+      return this;
+    }
+    const fieldInfo = b as
+      | AxFluentFieldInfo<any, any, any, any, any, any, any>
+      | AxFluentFieldType<any, any, any, any, any, any, any>;
     this.returnFields.push(createAxFieldFromFluentField(name, fieldInfo));
-    return this as any;
+    return this;
   }
 
   public example(
@@ -1697,11 +1894,13 @@ class AxFunctionBuilder<
         description,
         ...(namespace ? { namespace } : {}),
         parameters: buildFunctionObjectSchema(this.argFields),
-        ...(this.returnMode === 'single' && this.returnFieldType
-          ? { returns: buildFunctionReturnSchema(this.returnFieldType) }
-          : this.returnMode === 'fields'
-            ? { returns: buildFunctionObjectSchema(this.returnFields) }
-            : {}),
+        ...(this.returnMode === 'single' && this.returnJsonSchema
+          ? { returns: this.returnJsonSchema }
+          : this.returnMode === 'single' && this.returnFieldType
+            ? { returns: buildFunctionReturnSchema(this.returnFieldType) }
+            : this.returnMode === 'fields'
+              ? { returns: buildFunctionObjectSchema(this.returnFields) }
+              : {}),
         ...(this.fnExamples.length > 0
           ? {
               examples: this.fnExamples.map((example) => ({

@@ -37,7 +37,7 @@ version: "__VERSION__"
 'problem:string -> reasoning!:string, solution:string'  // internal with !
 ```
 
-## Three Ways to Create Signatures
+## Four Ways to Create Signatures
 
 ### 1. String-Based (Recommended for simple cases)
 
@@ -61,7 +61,109 @@ const sig = f()
   .build();
 ```
 
-### 3. Hybrid
+### 3. Standard Schema (zod / valibot / arktype)
+
+`.input()` and `.output()` accept any [Standard Schema v1](https://standardschema.dev) compatible library — no wrapper, no adapter. Three shapes work everywhere:
+
+```typescript
+import { z } from 'zod';
+import { f } from '@ax-llm/ax';
+
+// Shape A: per-field schema — name first, then the schema, then optional ax hints
+const sig = f()
+  .input('contextData', z.string().describe('Background context'), { cache: true })
+  .input('userQuestion', z.string().describe('Question to answer'))
+  .output('reasoning', z.string().describe('Step-by-step thinking'), { internal: true })
+  .output('answer', z.string().describe('Final answer'))
+  .build();
+
+// Shape B: whole-object schema — decomposed into fields in declaration order
+const sig2 = f()
+  .description('Answer questions from retrieved context')
+  .input(
+    z.object({
+      contextData: z.string().describe('Background context'),
+      userQuestion: z.string().describe('Question to answer'),
+    }),
+    { fields: { contextData: { cache: true } } }  // companion options map
+  )
+  .output(
+    z.object({
+      reasoning: z.string().describe('Step-by-step thinking'),
+      answer: z.string().describe('Final answer'),
+    }),
+    { fields: { reasoning: { internal: true } } }
+  )
+  .build();
+```
+
+Validation constraints from zod flow into ax's prompt validation:
+
+```typescript
+// String constraints: .email(), .url(), .min(), .max(), .regex()
+// Number constraints: .min(), .max()
+// Arrays: z.array(z.string())
+// Enums: z.enum([...])  — NOTE: enum maps to ax class type, output fields only
+const sig3 = f()
+  .input(z.object({
+    emailAddress: z.string().email().describe('Contact email'),
+    username: z.string().min(3).max(20).describe('Handle'),
+    score: z.number().min(0).max(100).describe('Numeric score'),
+  }))
+  .output(z.object({
+    priority: z.enum(['low', 'medium', 'high']).describe('Priority'),
+    summary: z.string().describe('Result'),
+  }))
+  .build();
+```
+
+**Companion options** (`AxFieldOptions`) carry ax-specific hints that schema libraries don't represent:
+
+| Option | Effect |
+|--------|--------|
+| `{ cache: true }` | Mark input field as a prefix-cache breakpoint |
+| `{ internal: true }` | Mark output field as internal scratchpad (stripped from result) |
+
+The same Standard Schema shapes work on `fn()` tools via `.arg()`, `.returns()`, and `.returnsField()` — argument types are inferred from the schema:
+
+```typescript
+import { z } from 'zod';
+import { fn } from '@ax-llm/ax';
+
+// Whole-object zod on a tool — AI-SDK-style
+const lookupProduct = fn('lookupProduct')
+  .description('Look up a product by name and return its current details')
+  .arg(
+    z.object({
+      productName: z.string().min(1).describe('Exact product name'),
+      includeSpecs: z.boolean().optional(),
+    })
+  )
+  .returns(
+    z.object({
+      price: z.number(),
+      inStock: z.boolean(),
+      rating: z.number().min(1).max(5),
+    })
+  )
+  .handler(async ({ productName, includeSpecs }) => ({
+    price: 79.99,
+    inStock: true,
+    rating: 4.3,
+  }))
+  .build();
+
+// Per-argument form — mix with f.*() args, attach ax hints
+const searchDocs = fn('searchDocs')
+  .description('Search indexed docs')
+  .arg('query', z.string().min(1), { cache: true })
+  .arg('limit', z.number().int().positive().optional())
+  .returnsField('results', z.array(z.string()))
+  .handler(async ({ query }) => [])
+  .build();
+```
+
+### 4. Hybrid
 
 ```typescript
 import { s, f } from '@ax-llm/ax';
@@ -178,15 +280,18 @@ Bad: `text`, `data`, `input`, `output`, `a`, `x`, `val` (too generic), `1field` 
 - Use `f()` fluent builder, NOT nested `f.array(f.string())` -- those are removed.
 - Field names must be descriptive (not generic like `text`, `data`, `input`).
 - Media types are input-only, top-level only.
-- `.internal()` is output-only (for chain-of-thought reasoning).
-- `.cache()` is input-only (for prompt caching).
+- `.internal()` / `{ internal: true }` is output-only (for chain-of-thought reasoning).
+- `.cache()` / `{ cache: true }` is input-only (for prompt caching).
 - Validation errors trigger auto-retry with correction feedback.
 - `f.email()`, `f.url()`, `f.date()`, `f.datetime()` are shorthand for `f.string().email()` etc.
+- `z.enum()` maps to ax's `class` type — only valid on **output** fields.
+- For multimodal inputs (images, audio, files) use `f.image()` / `f.audio()` / `f.file()` — zod has no equivalent.
 
 ## Examples
 
 Fetch these for full working code:
 
-- [Fluent Signature](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fluent-signature-example.ts) — fluent f() API
+- [Standard Schema (zod)](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/standard-schema.ts) — zod with f() and fn(), all three shapes
+- [Fluent Signature](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/fluent-signature-example.ts) — native fluent f() API
 - [Structured Output](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/structured_output.ts) — structured output with validation
 - [Debug Schema](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/debug_schema.ts) — JSON schema validation

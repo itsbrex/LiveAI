@@ -64,7 +64,7 @@ const gen = ax(`
 `);
 ```
 
-## Three Ways to Define Signatures
+## Four Ways to Define Signatures
 
 ### 1. String-based (quick)
 
@@ -93,7 +93,43 @@ const sig = f()
 const gen = new AxGen(sig);
 ```
 
-### 3. Hybrid (extend a string signature with fluent fields)
+### 3. Standard Schema (zod / valibot / arktype)
+
+`.input()` and `.output()` accept any [Standard Schema v1](https://standardschema.dev) validator directly — no adapter, no wrapper.
+
+```typescript
+import { z } from 'zod';
+import { ax, f } from '@ax-llm/ax';
+
+// Per-field: name + schema, with optional ax hints ({ cache }, { internal })
+const perField = ax(
+  f()
+    .input('contextData', z.string().describe('Background context'), { cache: true })
+    .input('userQuestion', z.string().min(1).describe('Question to answer'))
+    .output('reasoning', z.string().describe('Step-by-step thinking'), { internal: true })
+    .output('answer', z.string().describe('Final answer'))
+    .build()
+);
+
+// Whole-object: declare once, decomposed into ordered fields
+const wholeObject = ax(
+  f()
+    .input(z.object({
+      productName: z.string(),
+      buyerProfile: z.string(),
+    }))
+    .output(z.object({
+      headline: z.string(),
+      pros: z.array(z.string()),
+      recommendation: z.enum(['buy', 'wait', 'skip']),
+    }))
+    .build()
+);
+```
+
+The same shapes work on `fn()` tools via `.arg()` / `.returns()` / `.returnsField()`. Multimodal inputs (`image` / `audio` / `file`) still need `f.*` — zod has no native equivalent.
+
+### 4. Hybrid (extend a string signature with fluent fields)
 
 ```typescript
 import { s, f, AxGen } from '@ax-llm/ax';
@@ -136,6 +172,10 @@ const sig = f()
 **String constraints**: `.min(len)`, `.max(len)`, `.email()`, `.url()`, `.date()`, `.datetime()`, `.regex(pattern, description)`
 
 **Number constraints**: `.min(val)`, `.max(val)`
+
+### Validation with zod
+
+Constraints on zod schemas (`.min()`, `.max()`, `.email()`, `.url()`, `.regex()`) feed the same retry pipeline. Custom logic — `.refine()`, `.transform()`, `.superRefine()` — runs at parse time on complete field values, in both non-streaming and streaming (at field boundaries). Mid-chunk validation (while tokens are still arriving for a field) requires `addStreamingAssert`.
 
 ## Assertions
 

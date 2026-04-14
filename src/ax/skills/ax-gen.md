@@ -47,6 +47,57 @@ const result = await gen.forward(llm, { input: 'Hello world' });
 console.log(result.output);
 ```
 
+### Signatures from zod / valibot / arktype
+
+`ax()` accepts any signature built with `f()`, and `f().input()` / `.output()` accept [Standard Schema v1](https://standardschema.dev) validators directly — per-field or a whole `z.object({...})`:
+
+```typescript
+import { z } from 'zod';
+import { ax, f } from '@ax-llm/ax';
+
+const gen = ax(
+  f()
+    .input(z.object({
+      productName: z.string(),
+      buyerProfile: z.string(),
+    }))
+    .output(z.object({
+      headline: z.string(),
+      recommendation: z.enum(['buy', 'wait', 'skip']),
+    }))
+    .build()
+);
+```
+
+Constraints (`.min()`, `.email()`, `.regex()`) and custom logic (`.refine()`, `.transform()`, `.superRefine()`) execute in the normal validation/retry pipeline — at parse time on complete field values, including at field boundaries during streaming. For cache/internal hints pass companion options: `.input('ctx', z.string(), { cache: true })` or `.output('reasoning', z.string(), { internal: true })`.
+
+Define tool functions with zod the same way — `fn().arg()` / `.returns()` accept per-argument or whole-object schemas and infer the handler's argument type:
+
+```typescript
+import { z } from 'zod';
+import { ax, fn } from '@ax-llm/ax';
+
+const lookupProduct = fn('lookupProduct')
+  .description('Look up a product by name')
+  .arg(z.object({
+    productName: z.string().min(1),
+    includeSpecs: z.boolean().optional(),
+  }))
+  .returns(z.object({
+    price: z.number(),
+    inStock: z.boolean(),
+    rating: z.number().min(1).max(5),
+  }))
+  .handler(async ({ productName, includeSpecs }) => ({
+    price: 79.99,
+    inStock: true,
+    rating: 4.3,
+  }))
+  .build();
+
+const result = await gen.forward(llm, { ... }, { functions: [lookupProduct] });
+```
+
 ## Running AxGen
 
 ### `forward()`
