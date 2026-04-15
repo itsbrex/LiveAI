@@ -1,5 +1,16 @@
 # Changelog
 
+## [19.0.45](///compare/19.0.43...19.0.44) (2026-04-15)
+
+### Features
+
+* node thread worker security upgrades 4a29618
+* support for zod / standard-schema/spec 82583ee
+
+### Bug Fixes
+
+* **metrics:** use shared model name normalization for cost and config lookups ([#509](undefined/undefined/undefined/issues/509)) 5e885af
+
 ## [19.0.44](///compare/19.0.43...19.0.44) (2026-04-13)
 
 ### Bug Fixes
