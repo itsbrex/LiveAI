@@ -622,7 +622,13 @@ describe('axWorkerRuntime with Node parentPort', () => {
     expect(messageHandler).not.toBeNull();
 
     // Send init + execute via the Node message handler (data, not {data}).
-    messageHandler!({ type: 'init', outputMode: 'return' });
+    // Disable dynamic-import blocking since the mock getBuiltinModule does
+    // not expose node:vm — the transport is what's under test here.
+    messageHandler!({
+      type: 'init',
+      outputMode: 'return',
+      blockDynamicImport: false,
+    });
     messageHandler!({ type: 'execute', id: 1, code: '10 * 3' });
 
     await new Promise((r) => setTimeout(r, 10));

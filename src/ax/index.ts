@@ -702,8 +702,10 @@ import { type AxDockerContainer, AxDockerSession } from './funcs/docker.js';
 import { AxEmbeddingAdapter } from './funcs/embed.js';
 import {
   AxJSRuntime,
+  type AxJSRuntimeNodePermissionAllowlist,
   type AxJSRuntimeOutputMode,
   AxJSRuntimePermission,
+  type AxJSRuntimeResourceLimits,
   axCreateJSRuntime,
 } from './funcs/jsRuntime.js';
 import {
@@ -1466,7 +1468,9 @@ export type { AxIField };
 export type { AxInputFunctionType };
 export type { AxInternalChatRequest };
 export type { AxInternalEmbedRequest };
+export type { AxJSRuntimeNodePermissionAllowlist };
 export type { AxJSRuntimeOutputMode };
+export type { AxJSRuntimeResourceLimits };
 export type { AxJudgeForwardOptions };
 export type { AxJudgeOptions };
 export type { AxLearnArtifact };

@@ -35,7 +35,10 @@ const lookupProductTool = fn('lookupProduct')
   .arg(
     z.object({
       productName: z.string().min(1).describe('Exact product name to look up'),
-      includeSpecs: z.boolean().optional().describe('Whether to include technical specs'),
+      includeSpecs: z
+        .boolean()
+        .optional()
+        .describe('Whether to include technical specs'),
     })
   )
   .returns(
@@ -95,7 +98,10 @@ const reviewSentimentGen = ax(
     .description('Analyse a product review and extract structured sentiment')
     .input('productName', z.string().describe('Name of the reviewed product'))
     .input('reviewText', z.string().min(10).describe('Full review text'))
-    .output('sentiment', z.enum(['positive', 'neutral', 'negative']).describe('Overall sentiment'))
+    .output(
+      'sentiment',
+      z.enum(['positive', 'neutral', 'negative']).describe('Overall sentiment')
+    )
     .output('score', z.number().min(1).max(10).describe('Sentiment score 1-10'))
     .output('keyPoints', z.array(z.string()).describe('Top 3 takeaway points'))
     .build()
@@ -124,11 +130,15 @@ console.log('\n=== Shape 3: whole-object zod + fn() tool ===\n');
 
 const productSummaryGen = ax(
   f()
-    .description('Summarise a product for a potential buyer using live product data')
+    .description(
+      'Summarise a product for a potential buyer using live product data'
+    )
     .input(
       z.object({
         productName: z.string().describe('Product to summarise'),
-        buyerProfile: z.string().describe('Short description of the target buyer'),
+        buyerProfile: z
+          .string()
+          .describe('Short description of the target buyer'),
       })
     )
     .output(

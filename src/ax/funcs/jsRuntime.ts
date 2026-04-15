@@ -141,14 +141,42 @@ const isNodePoolDebugEnabled = (
  *
  * Default is "none" for a tighter sandbox when running in Deno.
  */
+let _warnedDenoImportUnsupported = false;
+
 const mapRlmPermissionsToDenoPermissions = (
-  permissions: readonly AxJSRuntimePermission[]
+  permissions: readonly AxJSRuntimePermission[],
+  extra?: Readonly<{ allowDenoRemoteImport?: boolean }>
 ): unknown => {
   const granted = new Set(permissions);
   const denoPermissions: Record<string, unknown> = {};
 
   if (granted.has(AxJSRuntimePermission.NETWORK)) {
     denoPermissions.net = true;
+    // Critical: granting --allow-net also enables remote module loading by
+    // default. Explicitly deny remote import unless the caller opts in.
+    if (!extra?.allowDenoRemoteImport) {
+      try {
+        denoPermissions.import = false;
+      } catch {
+        if (!_warnedDenoImportUnsupported) {
+          _warnedDenoImportUnsupported = true;
+          console.warn(
+            '[AxJSRuntime] Deno runtime does not support the `import` permission; ' +
+              'remote module imports via `import("https://...")` are NOT blocked. ' +
+              'Upgrade Deno to a version supporting --deny-import.'
+          );
+        }
+      }
+    }
+  }
+
+  if (granted.has(AxJSRuntimePermission.FILESYSTEM)) {
+    denoPermissions.read = true;
+    denoPermissions.write = true;
+  }
+
+  if (granted.has(AxJSRuntimePermission.CHILD_PROCESS)) {
+    denoPermissions.run = true;
   }
 
   return Object.keys(denoPermissions).length > 0 ? denoPermissions : 'none';
@@ -156,7 +184,8 @@ const mapRlmPermissionsToDenoPermissions = (
 
 const createDenoWorker = (
   url: string,
-  permissions: readonly AxJSRuntimePermission[]
+  permissions: readonly AxJSRuntimePermission[],
+  allowDenoRemoteImport?: boolean
 ): Worker => {
   // WorkerOptions.deno is documented as unstable. Prefer capability probing
   // via try/catch over strict version gating.
@@ -169,7 +198,9 @@ const createDenoWorker = (
       return new Worker(url, {
         type: 'module',
         deno: {
-          permissions: mapRlmPermissionsToDenoPermissions(permissions),
+          permissions: mapRlmPermissionsToDenoPermissions(permissions, {
+            allowDenoRemoteImport,
+          }),
         },
       } as WorkerOptions);
     } catch {
@@ -183,7 +214,8 @@ const createDenoWorker = (
 /** Creates a browser/Deno Web Worker and wraps it with the unified worker facade. */
 const createBrowserWorker = (
   source: string,
-  permissions: readonly AxJSRuntimePermission[]
+  permissions: readonly AxJSRuntimePermission[],
+  allowDenoRemoteImport?: boolean
 ): RLMWorker => {
   const blob = new Blob([source], {
     type: 'application/javascript',
@@ -191,7 +223,7 @@ const createBrowserWorker = (
   const url = URL.createObjectURL(blob);
   // Deno supports module workers only; browsers support both.
   const worker = isDenoRuntime()
-    ? createDenoWorker(url, permissions)
+    ? createDenoWorker(url, permissions, allowDenoRemoteImport)
     : new Worker(url);
   let isRevoked = false;
   const revoke = () => {
@@ -224,16 +256,153 @@ const createBrowserWorker = (
 };
 
 /**
+ * Fine-grained Node Permission Model allowlist. Scopes `--allow-fs-*` and
+ * gates additional `--allow-*` flags that aren't covered by the high-level
+ * permission enum.
+ */
+export type AxJSRuntimeNodePermissionAllowlist = Readonly<{
+  fsRead?: readonly string[];
+  fsWrite?: readonly string[];
+  childProcess?: boolean;
+  addons?: boolean;
+  wasi?: boolean;
+}>;
+
+/**
+ * Node worker_threads resource limits passthrough.
+ */
+export type AxJSRuntimeResourceLimits = Readonly<{
+  maxOldGenerationSizeMb?: number;
+  maxYoungGenerationSizeMb?: number;
+  codeRangeSizeMb?: number;
+  stackSizeMb?: number;
+}>;
+
+/** Parses `process.versions.node` into { major, minor } (null if unavailable). */
+const detectNodeMajorMinor = (): { major: number; minor: number } | null => {
+  const nodeVersion = (
+    globalThis as { process?: { versions?: { node?: string } } }
+  ).process?.versions?.node;
+  if (!nodeVersion) {
+    return null;
+  }
+  const match = /^(\d+)\.(\d+)/.exec(nodeVersion);
+  if (!match) {
+    return null;
+  }
+  const major = Number(match[1]);
+  const minor = Number(match[2]);
+  if (!Number.isFinite(major) || !Number.isFinite(minor)) {
+    return null;
+  }
+  return { major, minor };
+};
+
+/**
+ * Permission Model flavor for the detected Node runtime:
+ *   - 'stable'       → Node ≥ 23.5 (uses `--permission`)
+ *   - 'experimental' → Node ≥ 20 and < 23.5 (uses `--experimental-permission`)
+ *   - null           → not supported (Node < 20, or non-Node runtime)
+ *
+ * The `--allow-*` sub-flags have been present since Node 20.0, so both flavors
+ * accept the same allow-list. `--allow-addons` (20.7) and `--allow-wasi` (20.8)
+ * are also accepted on every supported version.
+ */
+type NodePermissionFlavor = 'stable' | 'experimental';
+
+const nodePermissionFlavor = (): NodePermissionFlavor | null => {
+  const v = detectNodeMajorMinor();
+  if (!v) return null;
+  if (v.major > 23 || (v.major === 23 && v.minor >= 5)) return 'stable';
+  if (v.major >= 20) return 'experimental';
+  return null;
+};
+
+/**
+ * Builds execArgv for the Node Permission Model. Emits `--permission` on
+ * Node 23.5+ (stable flag) and `--experimental-permission` on Node 20–23.4
+ * (experimental flag — same runtime enforcement, just not yet promoted).
+ *
+ * Hard-fails on Node < 20.
+ */
+const buildPermissionExecArgv = (
+  permissions: readonly AxJSRuntimePermission[],
+  flavor: NodePermissionFlavor | null,
+  extra?: Readonly<{
+    nodePermissionAllowlist?: AxJSRuntimeNodePermissionAllowlist;
+  }>
+): string[] => {
+  if (flavor == null) {
+    const v = detectNodeMajorMinor();
+    const detected = v ? `${v.major}.${v.minor}` : 'unknown';
+    throw new Error(
+      `useNodePermissionModel requires Node 20+ (detected ${detected}). ` +
+        `Node 23.5+ uses --permission; Node 20–23.4 uses --experimental-permission.`
+    );
+  }
+  const gate =
+    flavor === 'stable' ? '--permission' : '--experimental-permission';
+  const out: string[] = [gate];
+  const p = new Set(permissions);
+  const allow = extra?.nodePermissionAllowlist;
+
+  if (
+    p.has(AxJSRuntimePermission.FILESYSTEM) ||
+    (allow?.fsRead?.length ?? 0) > 0
+  ) {
+    for (const path of allow?.fsRead ?? ['*']) {
+      out.push(`--allow-fs-read=${path}`);
+    }
+  }
+  if (
+    p.has(AxJSRuntimePermission.FILESYSTEM) ||
+    (allow?.fsWrite?.length ?? 0) > 0
+  ) {
+    for (const path of allow?.fsWrite ?? ['*']) {
+      out.push(`--allow-fs-write=${path}`);
+    }
+  }
+  if (p.has(AxJSRuntimePermission.CHILD_PROCESS) || allow?.childProcess) {
+    out.push('--allow-child-process');
+  }
+  if (p.has(AxJSRuntimePermission.WORKERS)) {
+    out.push('--allow-worker');
+  }
+  if (allow?.addons) {
+    out.push('--allow-addons');
+  }
+  if (allow?.wasi) {
+    out.push('--allow-wasi');
+  }
+  return out;
+};
+
+/**
  * Creates a Node worker_threads worker from inline source.
  * The module specifier is built dynamically to avoid browser bundlers
  * eagerly resolving `node:*` imports.
  */
-const createNodeWorker = async (source: string): Promise<RLMWorker> => {
+const createNodeWorker = async (
+  source: string,
+  execArgv?: readonly string[],
+  resourceLimits?: AxJSRuntimeResourceLimits
+): Promise<RLMWorker> => {
   const nodeWorkerThreadsModule = `node:${'worker_threads'}`;
   const { Worker: NodeWorker } = (await import(
     nodeWorkerThreadsModule
   )) as typeof import('node:worker_threads');
-  const nodeWorker = new NodeWorker(source, { eval: true });
+  const workerOptions: {
+    eval: true;
+    execArgv?: string[];
+    resourceLimits?: AxJSRuntimeResourceLimits;
+  } = { eval: true };
+  if (execArgv && execArgv.length > 0) {
+    workerOptions.execArgv = [...execArgv];
+  }
+  if (resourceLimits) {
+    workerOptions.resourceLimits = resourceLimits;
+  }
+  const nodeWorker = new NodeWorker(source, workerOptions);
 
   // Buffer errors/exit that fire before onerror handler is attached.
   // The worker may crash during initialization (before ensureWorker's .then()
@@ -303,12 +472,21 @@ const createNodeWorker = async (source: string): Promise<RLMWorker> => {
 class AxNodeFreshWorkerPool {
   private readonly source: string;
   private readonly maxSize: number;
+  private readonly execArgv?: readonly string[];
+  private readonly resourceLimits?: AxJSRuntimeResourceLimits;
   private readonly idle: RLMWorker[] = [];
   private pendingCreates = 0;
 
-  constructor(source: string, maxSize: number) {
+  constructor(
+    source: string,
+    maxSize: number,
+    execArgv?: readonly string[],
+    resourceLimits?: AxJSRuntimeResourceLimits
+  ) {
     this.source = source;
     this.maxSize = maxSize;
+    this.execArgv = execArgv;
+    this.resourceLimits = resourceLimits;
   }
 
   /** Best-effort background prewarm up to maxSize idle workers. */
@@ -319,7 +497,7 @@ class AxNodeFreshWorkerPool {
 
     while (this.idle.length + this.pendingCreates < this.maxSize) {
       this.pendingCreates += 1;
-      void createNodeWorker(this.source)
+      void createNodeWorker(this.source, this.execArgv, this.resourceLimits)
         .then((worker) => {
           // Workers in the idle pool are detached from session handlers.
           worker.onmessage = null;
@@ -348,7 +526,7 @@ class AxNodeFreshWorkerPool {
     }
 
     this.warm();
-    return createNodeWorker(this.source);
+    return createNodeWorker(this.source, this.execArgv, this.resourceLimits);
   }
 
   /** Disposes used workers and replenishes the pool asynchronously. */
@@ -362,21 +540,72 @@ class AxNodeFreshWorkerPool {
 
 const nodeWorkerPools = new Map<string, AxNodeFreshWorkerPool>();
 
-const getNodeWorkerPoolKey = (source: string, maxSize: number): string =>
-  `${maxSize}:${source}`;
+/**
+ * Canonicalizes a value for stable hashing. Array elements are sorted to
+ * ensure permutation-equivalent inputs hash identically (required for pool
+ * key correctness — see plan §12).
+ */
+const canonicalizeForHash = (value: unknown): string => {
+  const canon = (v: unknown): unknown => {
+    if (Array.isArray(v)) {
+      const mapped = v.map((el) => canon(el));
+      // Sort by canonical string form so order-insensitive.
+      return [...mapped].sort((a, b) =>
+        JSON.stringify(a) < JSON.stringify(b) ? -1 : 1
+      );
+    }
+    if (v && typeof v === 'object') {
+      const entries = Object.entries(v as Record<string, unknown>)
+        .filter(([, val]) => val !== undefined)
+        .sort(([a], [b]) => (a < b ? -1 : 1));
+      const out: Record<string, unknown> = {};
+      for (const [k, val] of entries) {
+        out[k] = canon(val);
+      }
+      return out;
+    }
+    return v;
+  };
+  return JSON.stringify(canon(value));
+};
+
+const getNodeWorkerPoolKey = (
+  source: string,
+  maxSize: number,
+  securityPostureHash: string,
+  execArgvHash: string,
+  resourceLimitsHash: string
+): string =>
+  `${maxSize}:${securityPostureHash}:${execArgvHash}:${resourceLimitsHash}:${source}`;
 
 /** Returns (or creates) a per-source Node worker pool. */
 const getNodeWorkerPool = (
   source: string,
-  maxSize: number
+  maxSize: number,
+  securityPostureHash: string,
+  execArgv?: readonly string[],
+  resourceLimits?: AxJSRuntimeResourceLimits
 ): AxNodeFreshWorkerPool => {
-  const key = getNodeWorkerPoolKey(source, maxSize);
+  const execArgvHash = canonicalizeForHash(execArgv ?? []);
+  const resourceLimitsHash = canonicalizeForHash(resourceLimits ?? {});
+  const key = getNodeWorkerPoolKey(
+    source,
+    maxSize,
+    securityPostureHash,
+    execArgvHash,
+    resourceLimitsHash
+  );
   const existingPool = nodeWorkerPools.get(key);
   if (existingPool) {
     return existingPool;
   }
 
-  const pool = new AxNodeFreshWorkerPool(source, maxSize);
+  const pool = new AxNodeFreshWorkerPool(
+    source,
+    maxSize,
+    execArgv,
+    resourceLimits
+  );
   nodeWorkerPools.set(key, pool);
   return pool;
 };
@@ -824,6 +1053,10 @@ export enum AxJSRuntimePermission {
    * (e.g. fetch, indexedDB) inside child workers.
    */
   WORKERS = 'workers',
+  /** node:fs and related — gates Node Permission Model --allow-fs-* and Deno read/write */
+  FILESYSTEM = 'filesystem',
+  /** node:child_process — gates --allow-child-process and Deno run */
+  CHILD_PROCESS = 'child-process',
 }
 
 export type AxJSRuntimeOutputMode = 'return' | 'stdout';
@@ -841,6 +1074,16 @@ export class AxJSRuntime implements AxCodeRuntime {
   private readonly debugNodeWorkerPool: boolean;
   private readonly outputMode: AxJSRuntimeOutputMode;
   private readonly captureConsole: boolean;
+  private readonly blockDynamicImport: boolean;
+  private readonly allowedModules: readonly string[];
+  private readonly freezeIntrinsics: boolean;
+  private readonly blockShadowRealm: boolean;
+  private readonly lockWorkerIPC: boolean;
+  private readonly preventGlobalThisExtensions: boolean;
+  private readonly useNodePermissionModel: boolean | 'auto';
+  private readonly nodePermissionAllowlist?: AxJSRuntimeNodePermissionAllowlist;
+  private readonly resourceLimits?: AxJSRuntimeResourceLimits;
+  private readonly allowDenoRemoteImport: boolean;
 
   constructor(
     options?: Readonly<{
@@ -865,6 +1108,70 @@ export class AxJSRuntime implements AxCodeRuntime {
        * Can also be enabled via AX_RLM_DEBUG_NODE_POOL=1.
        */
       debugNodeWorkerPool?: boolean;
+      /**
+       * Block dynamic `import()` at execute time (language-level block on Node
+       * via `node:vm` rejector; Deno relies on permission model).
+       *
+       * Default: true.
+       */
+      blockDynamicImport?: boolean;
+      /**
+       * Module specifier allowlist when `blockDynamicImport` is true.
+       * Default: [].
+       */
+      allowedModules?: readonly string[];
+      /**
+       * Freeze Object.prototype / Array.prototype / Function.prototype and
+       * other intrinsics to prevent prototype pollution.
+       *
+       * Default: true.
+       */
+      freezeIntrinsics?: boolean;
+      /**
+       * Lock `globalThis.ShadowRealm` to undefined. Default: true.
+       */
+      blockShadowRealm?: boolean;
+      /**
+       * Lock `self.postMessage` / `self.onmessage` in browser/Deno workers
+       * to prevent host-function privilege escalation. Default: true.
+       */
+      lockWorkerIPC?: boolean;
+      /**
+       * Call `Object.preventExtensions(globalThis)` in the worker. Breaks
+       * top-level `var/let/const` persistence — opt-in only. Default: false.
+       */
+      preventGlobalThisExtensions?: boolean;
+      /**
+       * Node-only: engage the Node Permission Model at worker spawn for
+       * kernel-enforced defense-in-depth on top of the language-level
+       * lockdown. Emits `--permission` on Node ≥ 23.5 (stable flag) or
+       * `--experimental-permission` on Node 20–23.4 (same runtime
+       * enforcement, pre-stabilization flag name).
+       *
+       * - 'auto' (default): engage unconditionally on any supported Node.
+       *   With no FILESYSTEM/CHILD_PROCESS permission granted, fs and
+       *   child_process are blocked at the OS level. Silently skips on
+       *   Node < 20, Deno, and browsers (language-level defenses still
+       *   apply).
+       * - true: engage unconditionally; hard-fail on Node < 20.
+       * - false: never engage.
+       */
+      useNodePermissionModel?: boolean | 'auto';
+      /**
+       * Fine-grained Node Permission Model allowlist (e.g. fs-read paths).
+       */
+      nodePermissionAllowlist?: AxJSRuntimeNodePermissionAllowlist;
+      /**
+       * Node-only: resource limits passed to `worker_threads.Worker`.
+       */
+      resourceLimits?: AxJSRuntimeResourceLimits;
+      /**
+       * Deno-only: allow remote module imports (`await import('https://...')`).
+       * Default: false — sets `import: false` in the Deno permission set when
+       * NETWORK is granted, so data-plane fetch works but remote module
+       * loading is blocked at the runtime level.
+       */
+      allowDenoRemoteImport?: boolean;
     }>
   ) {
     this.timeout = options?.timeout ?? 900_000;
@@ -878,6 +1185,72 @@ export class AxJSRuntime implements AxCodeRuntime {
       options?.nodeWorkerPoolSize
     );
     this.debugNodeWorkerPool = isNodePoolDebugEnabled(options);
+    this.blockDynamicImport = options?.blockDynamicImport ?? true;
+    this.allowedModules = options?.allowedModules ?? [];
+    this.freezeIntrinsics = options?.freezeIntrinsics ?? true;
+    this.blockShadowRealm = options?.blockShadowRealm ?? true;
+    this.lockWorkerIPC = options?.lockWorkerIPC ?? true;
+    this.preventGlobalThisExtensions =
+      options?.preventGlobalThisExtensions ?? false;
+    this.useNodePermissionModel = options?.useNodePermissionModel ?? 'auto';
+    this.nodePermissionAllowlist = options?.nodePermissionAllowlist;
+    this.resourceLimits = options?.resourceLimits;
+    this.allowDenoRemoteImport = options?.allowDenoRemoteImport ?? false;
+  }
+
+  /**
+   * Computes Node execArgv for the Permission Model when it should engage,
+   * otherwise returns undefined.
+   *
+   * - 'auto': engages on Node 23.5+ when FILESYSTEM or CHILD_PROCESS is in
+   *   permissions; skips silently otherwise.
+   * - true: engages unconditionally; hard-fails on Node < 23.5.
+   * - false: never engages.
+   */
+  private computeNodeExecArgv(): string[] | undefined {
+    const mode = this.useNodePermissionModel;
+    if (mode === false) {
+      return undefined;
+    }
+    const flavor = nodePermissionFlavor();
+    if (mode === true) {
+      if (flavor == null) {
+        const v = detectNodeMajorMinor();
+        const detected = v ? `${v.major}.${v.minor}` : 'unknown';
+        throw new Error(
+          `useNodePermissionModel=true requires Node 20+ (detected ${detected}). ` +
+            `Node 23.5+ uses --permission; Node 20–23.4 uses --experimental-permission.`
+        );
+      }
+      return buildPermissionExecArgv(this.permissions, flavor, {
+        nodePermissionAllowlist: this.nodePermissionAllowlist,
+      });
+    }
+    // 'auto': engage Permission Model unconditionally on any supported Node,
+    // even when no FILESYSTEM/CHILD_PROCESS permission is granted. This gives
+    // defense-in-depth: the OS-level block catches anything that slips past
+    // the language-level lockdown (e.g. a future dynamic-import escape).
+    // Non-supported runtimes (Node < 20, Deno, browser) fall through to the
+    // language-level defenses only.
+    if (flavor == null) {
+      return undefined;
+    }
+    return buildPermissionExecArgv(this.permissions, flavor, {
+      nodePermissionAllowlist: this.nodePermissionAllowlist,
+    });
+  }
+
+  private computeSecurityPostureHash(): string {
+    return canonicalizeForHash({
+      permissions: [...this.permissions],
+      allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
+      blockDynamicImport: this.blockDynamicImport,
+      allowedModules: [...this.allowedModules],
+      freezeIntrinsics: this.freezeIntrinsics,
+      blockShadowRealm: this.blockShadowRealm,
+      lockWorkerIPC: this.lockWorkerIPC,
+      preventGlobalThisExtensions: this.preventGlobalThisExtensions,
+    });
   }
 
   public getUsageInstructions(): string {
@@ -920,8 +1293,20 @@ export class AxJSRuntime implements AxCodeRuntime {
     options?: { shouldBubbleError?: (err: unknown) => boolean }
   ): AxCodeSession {
     const source = getWorkerSource();
+    // Computed up front so any Node-version/permission-model misconfigurations
+    // throw at session creation, not on first execute.
+    const nodeExecArgv = isNodeRuntime()
+      ? this.computeNodeExecArgv()
+      : undefined;
+    const securityPostureHash = this.computeSecurityPostureHash();
     const nodeWorkerPool = isNodeRuntime()
-      ? getNodeWorkerPool(source, this.nodeWorkerPoolSize)
+      ? getNodeWorkerPool(
+          source,
+          this.nodeWorkerPoolSize,
+          securityPostureHash,
+          nodeExecArgv,
+          this.resourceLimits
+        )
       : null;
     if (nodeWorkerPool && this.debugNodeWorkerPool) {
       console.debug(
@@ -1109,11 +1494,21 @@ export class AxJSRuntime implements AxCodeRuntime {
         allowUnsafeNodeHostAccess: this.allowUnsafeNodeHostAccess,
         outputMode: this.outputMode,
         captureConsole: this.captureConsole,
+        blockDynamicImport: this.blockDynamicImport,
+        blockShadowRealm: this.blockShadowRealm,
+        freezeIntrinsics: this.freezeIntrinsics,
+        lockWorkerIPC: this.lockWorkerIPC,
+        preventGlobalThisExtensions: this.preventGlobalThisExtensions,
+        allowedModules: [...this.allowedModules],
       });
     };
 
     if (canUseWebWorker()) {
-      worker = createBrowserWorker(source, this.permissions);
+      worker = createBrowserWorker(
+        source,
+        this.permissions,
+        this.allowDenoRemoteImport
+      );
       workerRuntime = 'browser';
       worker.onmessage = handleWorkerMessage;
       worker.onerror = handleWorkerError;
@@ -1134,7 +1529,11 @@ export class AxJSRuntime implements AxCodeRuntime {
         throw new Error('Session is closed');
       }
       if (canUseWebWorker()) {
-        worker = createBrowserWorker(source, this.permissions);
+        worker = createBrowserWorker(
+          source,
+          this.permissions,
+          this.allowDenoRemoteImport
+        );
         workerRuntime = 'browser';
         worker.onmessage = handleWorkerMessage;
         worker.onerror = handleWorkerError;
@@ -1153,7 +1552,9 @@ export class AxJSRuntime implements AxCodeRuntime {
       }
       if (!workerReady) {
         workerReady = (
-          nodeWorkerPool ? nodeWorkerPool.acquire() : createNodeWorker(source)
+          nodeWorkerPool
+            ? nodeWorkerPool.acquire()
+            : createNodeWorker(source, nodeExecArgv, this.resourceLimits)
         ).then((created) => {
           if (isClosed) {
             if (nodeWorkerPool) {
@@ -1580,6 +1981,16 @@ export function axCreateJSRuntime(
     allowUnsafeNodeHostAccess?: boolean;
     nodeWorkerPoolSize?: number;
     debugNodeWorkerPool?: boolean;
+    blockDynamicImport?: boolean;
+    allowedModules?: readonly string[];
+    freezeIntrinsics?: boolean;
+    blockShadowRealm?: boolean;
+    lockWorkerIPC?: boolean;
+    preventGlobalThisExtensions?: boolean;
+    useNodePermissionModel?: boolean | 'auto';
+    nodePermissionAllowlist?: AxJSRuntimeNodePermissionAllowlist;
+    resourceLimits?: AxJSRuntimeResourceLimits;
+    allowDenoRemoteImport?: boolean;
   }>
 ): AxJSRuntime {
   return new AxJSRuntime(options);

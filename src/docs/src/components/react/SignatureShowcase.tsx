@@ -297,8 +297,14 @@ function ZodOutput() {
       </pre>
       <div className="mt-4 space-y-2">
         <Feature color="bg-violet-500" text="Any Standard Schema v1 library" />
-        <Feature color="bg-rose-500" text=".refine() & .transform() run at parse" />
-        <Feature color="bg-teal-500" text="Same retry pipeline as fluent builder" />
+        <Feature
+          color="bg-rose-500"
+          text=".refine() & .transform() run at parse"
+        />
+        <Feature
+          color="bg-teal-500"
+          text="Same retry pipeline as fluent builder"
+        />
       </div>
     </div>
   );
@@ -480,7 +486,13 @@ export default function SignatureShowcase() {
           {/* Left: Code input */}
           <div className="rounded-2xl overflow-hidden border border-gray-200 dark:border-white/10 bg-gray-50 dark:bg-gray-950">
             <TerminalHeader
-              filename={tab === 'fluent' ? 'analyze.ts' : tab === 'zod' ? 'zod-schema.ts' : 'signatures.ts'}
+              filename={
+                tab === 'fluent'
+                  ? 'analyze.ts'
+                  : tab === 'zod'
+                    ? 'zod-schema.ts'
+                    : 'signatures.ts'
+              }
             />
             <AnimatePresence mode="wait">
               <motion.div
@@ -490,7 +502,13 @@ export default function SignatureShowcase() {
                 exit={{ opacity: 0 }}
                 transition={{ duration: 0.2 }}
               >
-                {tab === 'fluent' ? <FluentCode /> : tab === 'zod' ? <ZodCode /> : <StringCode />}
+                {tab === 'fluent' ? (
+                  <FluentCode />
+                ) : tab === 'zod' ? (
+                  <ZodCode />
+                ) : (
+                  <StringCode />
+                )}
               </motion.div>
             </AnimatePresence>
           </div>
@@ -507,7 +525,13 @@ export default function SignatureShowcase() {
                 transition={{ duration: 0.2 }}
                 className="h-[calc(100%-48px)]"
               >
-                {tab === 'fluent' ? <FluentOutput /> : tab === 'zod' ? <ZodOutput /> : <StringOutput />}
+                {tab === 'fluent' ? (
+                  <FluentOutput />
+                ) : tab === 'zod' ? (
+                  <ZodOutput />
+                ) : (
+                  <StringOutput />
+                )}
               </motion.div>
             </AnimatePresence>
           </div>

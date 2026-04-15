@@ -97,25 +97,10 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     workers: ['Worker', 'SharedWorker'],
   } as const;
 
-  const _detectNodeParentPort = (): {
-    isNodeWorker: boolean;
-    parentPort: NodeParentPort | null;
-  } => {
-    // Obtain a module-loading function that works in the worker context.
-    //
-    // Strategy 1: `process.getBuiltinModule` (Node 22.3+).
-    //   Works in BOTH CJS and ESM workers, and is not rewritten by bundlers.
-    //
-    // Strategy 2: `new Function(...)` to obtain `require` (CJS workers only).
-    //   esbuild replaces both bare `require` AND `globalThis['require']` with
-    //   module-scope polyfill variables that don't exist in the serialized
-    //   worker context. `new Function()` is completely opaque to esbuild.
-    //   However, `require` is NOT available in ESM eval workers (when the
-    //   parent module is ESM, `new Worker(source, {eval:true})` creates an
-    //   ESM worker where `require` does not exist).
-    //
-    // We try strategy 1 first because it covers ESM workers on modern Node.
-
+  // Shared loader captured BEFORE lockdown strips `process`/`require` from
+  // user scope. Used by both the parent-port detector and the vm detector,
+  // and later reused by the import callback to resolve allow-listed modules.
+  const _detectLoadBuiltin = (): ((id: string) => unknown) | undefined => {
     let _loadBuiltin: ((id: string) => unknown) | undefined;
 
     // Strategy 1: process.getBuiltinModule (Node 22.3+, works in ESM workers)
@@ -132,7 +117,10 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       _loadBuiltin = _getBuiltinModule;
     }
 
-    // Strategy 2: new Function to get require (CJS workers, older Node)
+    // Strategy 2: new Function to get require (CJS workers, older Node).
+    // esbuild replaces both bare `require` AND `globalThis['require']` with
+    // module-scope polyfill variables that don't exist in the serialized
+    // worker context. `new Function()` is completely opaque to esbuild.
     if (!_loadBuiltin) {
       try {
         _loadBuiltin = new Function(
@@ -143,6 +131,15 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       }
     }
 
+    return _loadBuiltin;
+  };
+
+  const _loadBuiltin = _detectLoadBuiltin();
+
+  const _detectNodeParentPort = (): {
+    isNodeWorker: boolean;
+    parentPort: NodeParentPort | null;
+  } => {
     const isNodeLike =
       typeof _loadBuiltin === 'function' &&
       typeof process !== 'undefined' &&
@@ -153,7 +150,9 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
 
     try {
-      const workerThreads = _loadBuiltin!('node:worker_threads') as {
+      const workerThreads = (_loadBuiltin as (id: string) => unknown)(
+        'node:worker_threads'
+      ) as {
         parentPort?: NodeParentPort | null;
       };
       return {
@@ -168,8 +167,50 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
   const { isNodeWorker: _isNodeWorker, parentPort: _nodeParentPort } =
     _detectNodeParentPort();
 
+  // Detect node:vm for dynamic import interception. Same two-strategy pattern
+  // as _detectNodeParentPort. Must run BEFORE _applyNodeHostLockdown strips
+  // `process` / `require` from user scope.
+  const _detectNodeVm = (): { vm: unknown | null } => {
+    if (typeof _loadBuiltin !== 'function') {
+      return { vm: null };
+    }
+    try {
+      return { vm: _loadBuiltin('node:vm') };
+    } catch {
+      return { vm: null };
+    }
+  };
+
+  const { vm: _vm } = _detectNodeVm();
+
+  // Module-level lockdown state; populated from the init message with secure
+  // defaults when fields are absent (stale pool workers still get the strong
+  // defaults). See plan §13-§15.
+  let _blockDynamicImport = true;
+  let _blockShadowRealm = true;
+  let _freezeIntrinsicsFlag = true;
+  let _lockWorkerIPC = true;
+  let _preventGlobalThisExtensions = false;
+  let _allowedModules: readonly string[] = [];
+  let _baselineGlobalNamesForReset = new Set<string>();
+  // Import callback built once at init time, reused by every execute and by
+  // the Function-constructor / eval shims.
+  let _cachedImportCallback: unknown;
+  // Hard-fail flag: set when blockDynamicImport is requested but node:vm is
+  // unavailable (non-Node runtime, or older Node without either detection
+  // strategy). First execute throws a clear error; we never silently downgrade.
+  let _dynamicImportBlockingUnavailable = false;
+
   const _createMessageBridge = () => {
-    if (!_nodeParentPort && typeof _scope.postMessage !== 'function') {
+    // Capture postMessage in closure BEFORE any lockdown can strip it, so the
+    // runtime keeps a working channel even after `_lockWorkerIPC` replaces
+    // `_scope.postMessage` with `undefined`. See plan §7.
+    const capturedPostMessage =
+      !_nodeParentPort && typeof _scope.postMessage === 'function'
+        ? (_scope.postMessage as (message: unknown) => void).bind(_scope)
+        : null;
+
+    if (!_nodeParentPort && !capturedPostMessage) {
       throw new Error('Worker transport unavailable: no postMessage channel');
     }
 
@@ -178,7 +219,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         _nodeParentPort.postMessage(message);
         return;
       }
-      _scope.postMessage!(message);
+      (capturedPostMessage as (message: unknown) => void)(message);
     };
 
     const setOnMessage = (handler: (event: WorkerEvent) => void): void => {
@@ -942,6 +983,478 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
   };
 
+  // Node builtin module names without the `node:` prefix. Populated lazily
+  // (the first time the import callback runs). We do not seed from
+  // `module.builtinModules` at module top because the loader is optional and
+  // the list must be frozen for canonicalization regardless — better to
+  // derive it on first use, and fall back to a conservative set otherwise.
+  const _NODE_BUILTIN_NAMES: string[] = [
+    'assert',
+    'async_hooks',
+    'buffer',
+    'child_process',
+    'cluster',
+    'console',
+    'constants',
+    'crypto',
+    'dgram',
+    'diagnostics_channel',
+    'dns',
+    'domain',
+    'events',
+    'fs',
+    'fs/promises',
+    'http',
+    'http2',
+    'https',
+    'inspector',
+    'module',
+    'net',
+    'os',
+    'path',
+    'path/posix',
+    'path/win32',
+    'perf_hooks',
+    'process',
+    'punycode',
+    'querystring',
+    'readline',
+    'readline/promises',
+    'repl',
+    'stream',
+    'stream/consumers',
+    'stream/promises',
+    'stream/web',
+    'string_decoder',
+    'sys',
+    'test',
+    'timers',
+    'timers/promises',
+    'tls',
+    'trace_events',
+    'tty',
+    'url',
+    'util',
+    'util/types',
+    'v8',
+    'vm',
+    'wasi',
+    'worker_threads',
+    'zlib',
+  ];
+  const _NODE_BUILTINS: ReadonlySet<string> = new Set(_NODE_BUILTIN_NAMES);
+
+  type _Canonical =
+    | { kind: 'builtin'; name: string }
+    | { kind: 'userland'; name: string }
+    | { kind: 'url'; name: string };
+
+  const _canonicalizeSpecifier = (spec: string): _Canonical => {
+    const trimmed = String(spec);
+    if (trimmed.startsWith('node:')) {
+      return { kind: 'builtin', name: trimmed.slice(5) };
+    }
+    if (_NODE_BUILTINS.has(trimmed)) {
+      return { kind: 'builtin', name: trimmed };
+    }
+    if (/^(https?:|file:|\.\.?\/|\/)/.test(trimmed)) {
+      return { kind: 'url', name: trimmed };
+    }
+    return { kind: 'userland', name: trimmed };
+  };
+
+  const _buildAllowedSet = (
+    raw: readonly string[]
+  ): {
+    builtins: Set<string>;
+    userland: Set<string>;
+    urls: Set<string>;
+  } => {
+    const builtins = new Set<string>();
+    const userland = new Set<string>();
+    const urls = new Set<string>();
+    for (const entry of raw) {
+      const c = _canonicalizeSpecifier(entry);
+      if (c.kind === 'builtin') {
+        builtins.add(c.name);
+      } else if (c.kind === 'userland') {
+        if (_NODE_BUILTINS.has(c.name)) {
+          throw new Error(
+            `allowedModules entry '${entry}' is ambiguous: it matches a Node builtin. ` +
+              `Use 'node:${c.name}' to allow the builtin, or a different name for a userland package.`
+          );
+        }
+        userland.add(c.name);
+      } else {
+        urls.add(c.name);
+      }
+    }
+    return { builtins, userland, urls };
+  };
+
+  const _makeImportCallback = (): ((
+    specifier: string,
+    referrer: unknown
+  ) => Promise<unknown> | unknown) => {
+    // Canonicalize allowlist once at init time so every dispatch is a simple
+    // set lookup; throws immediately on ambiguous entries.
+    const allowed = _buildAllowedSet(_allowedModules ?? []);
+    return async (specifier: string, _referrer: unknown) => {
+      const c = _canonicalizeSpecifier(String(specifier));
+      if (c.kind === 'builtin' && allowed.builtins.has(c.name)) {
+        if (typeof _loadBuiltin !== 'function') {
+          throw new Error(
+            `Module '${specifier}' cannot be loaded: no module loader`
+          );
+        }
+        return _loadBuiltin(`node:${c.name}`);
+      }
+      if (c.kind === 'userland' && allowed.userland.has(c.name)) {
+        if (typeof _loadBuiltin !== 'function') {
+          throw new Error(
+            `Module '${specifier}' cannot be loaded: no module loader`
+          );
+        }
+        return _loadBuiltin(c.name);
+      }
+      if (c.kind === 'url' && allowed.urls.has(c.name)) {
+        throw new Error(
+          `URL-specifier imports are not yet supported in this sandbox: '${specifier}'`
+        );
+      }
+      throw new Error(
+        `dynamic import of '${specifier}' is not allowed in this sandbox`
+      );
+    };
+  };
+
+  const _installImportBlocker = (vm: unknown): void => {
+    const callback = _cachedImportCallback;
+    const runInThisContext = (
+      vm as {
+        runInThisContext: (code: string, opts?: unknown) => unknown;
+      }
+    ).runInThisContext;
+
+    // Captured native constructors. These are used strictly as
+    // parse-validators (SyntaxError oracles) before we string-template the
+    // wrapper. We never execute functions created by them directly.
+    const OriginalFunction = _scope.Function as FunctionConstructor;
+    const OriginalAsyncFunction = Object.getPrototypeOf(async () => {})
+      .constructor as FunctionConstructor;
+    const OriginalGeneratorFunction = Object.getPrototypeOf(function* () {})
+      .constructor as FunctionConstructor;
+    const OriginalAsyncGeneratorFunction = Object.getPrototypeOf(
+      async function* () {}
+    ).constructor as FunctionConstructor;
+
+    type _Kind = 'sync' | 'async' | 'gen' | 'asyncGen';
+    const VALIDATORS: Record<_Kind, FunctionConstructor> = {
+      sync: OriginalFunction,
+      async: OriginalAsyncFunction,
+      gen: OriginalGeneratorFunction,
+      asyncGen: OriginalAsyncGeneratorFunction,
+    };
+
+    const compileKind = (
+      kind: _Kind,
+      params: string[],
+      body: string
+    ): ((...args: unknown[]) => unknown) => {
+      // 1. Native parse-validation. Throws SyntaxError on any malformed
+      //    input — including parameter-name injection attempts. The
+      //    validator function is discarded; we only rely on its
+      //    SyntaxError behavior.
+      const Validator = VALIDATORS[kind];
+      (Validator as unknown as (...a: unknown[]) => unknown)(...params, body);
+
+      // 2. String-template the wrapper. Inputs are known well-formed.
+      const joinedParams = params.join(', ');
+      const wrapper =
+        kind === 'sync'
+          ? `(function anonymous(${joinedParams}) {\n${body}\n})`
+          : kind === 'async'
+            ? `(async function anonymous(${joinedParams}) {\n${body}\n})`
+            : kind === 'gen'
+              ? `(function* anonymous(${joinedParams}) {\n${body}\n})`
+              : `(async function* anonymous(${joinedParams}) {\n${body}\n})`;
+
+      // 3. Compile in the current realm with the dynamic-import blocker.
+      return runInThisContext(wrapper, {
+        importModuleDynamically: callback,
+      }) as (...a: unknown[]) => unknown;
+    };
+
+    const makeFunctionShim = (kind: _Kind) => {
+      return function (this: unknown, ...args: unknown[]) {
+        const body = args.length > 0 ? String(args[args.length - 1]) : '';
+        const params = args.slice(0, -1).map(String);
+        return compileKind(kind, params, body);
+      };
+    };
+
+    const SyncShim = makeFunctionShim('sync');
+    const AsyncShim = makeFunctionShim('async');
+    const GenShim = makeFunctionShim('gen');
+    const AsyncGenShim = makeFunctionShim('asyncGen');
+
+    try {
+      Object.defineProperty(_scope, 'Function', {
+        value: SyncShim,
+        writable: false,
+        configurable: false,
+      });
+    } catch {
+      // Best-effort: Function may already be locked.
+    }
+    try {
+      Object.defineProperty(OriginalFunction.prototype, 'constructor', {
+        value: SyncShim,
+        writable: false,
+        configurable: false,
+      });
+    } catch {
+      // Best-effort.
+    }
+    try {
+      Object.defineProperty(OriginalAsyncFunction.prototype, 'constructor', {
+        value: AsyncShim,
+        writable: false,
+        configurable: false,
+      });
+    } catch {
+      // Best-effort.
+    }
+    try {
+      Object.defineProperty(
+        OriginalGeneratorFunction.prototype,
+        'constructor',
+        {
+          value: GenShim,
+          writable: false,
+          configurable: false,
+        }
+      );
+    } catch {
+      // Best-effort.
+    }
+    try {
+      Object.defineProperty(
+        OriginalAsyncGeneratorFunction.prototype,
+        'constructor',
+        {
+          value: AsyncGenShim,
+          writable: false,
+          configurable: false,
+        }
+      );
+    } catch {
+      // Best-effort.
+    }
+
+    // eval: route through vm.runInThisContext. Eval takes a whole program
+    // string, not (params, body), so no wrapper templating is involved —
+    // runInThisContext is safe because the string is parsed as a complete
+    // program with no attacker-controlled wrapper around it.
+    const evalShim = (code: unknown) =>
+      runInThisContext(String(code), { importModuleDynamically: callback });
+    try {
+      Object.defineProperty(_scope, 'eval', {
+        value: evalShim,
+        writable: false,
+        configurable: false,
+      });
+    } catch {
+      // Best-effort.
+    }
+  };
+
+  const _freezeIntrinsics = (): void => {
+    // Pin Error.stackTraceLimit BEFORE freezing Error. Otherwise the frozen
+    // value could be whatever the host app previously set (possibly
+    // Infinity, triggering OOM on repeated errors).
+    try {
+      Object.defineProperty(Error, 'stackTraceLimit', {
+        value: 10,
+        writable: false,
+        configurable: false,
+      });
+    } catch {
+      // Best-effort.
+    }
+
+    const intrinsics: unknown[] = [
+      Object,
+      (Object as unknown as { prototype: unknown }).prototype,
+      Function,
+      (Function as unknown as { prototype: unknown }).prototype,
+      Array,
+      (Array as unknown as { prototype: unknown }).prototype,
+      Promise,
+      (Promise as unknown as { prototype: unknown }).prototype,
+      String,
+      (String as unknown as { prototype: unknown }).prototype,
+      Number,
+      (Number as unknown as { prototype: unknown }).prototype,
+      Boolean,
+      (Boolean as unknown as { prototype: unknown }).prototype,
+      Symbol,
+      (Symbol as unknown as { prototype: unknown }).prototype,
+      RegExp,
+      (RegExp as unknown as { prototype: unknown }).prototype,
+      Date,
+      (Date as unknown as { prototype: unknown }).prototype,
+      Map,
+      (Map as unknown as { prototype: unknown }).prototype,
+      Set,
+      (Set as unknown as { prototype: unknown }).prototype,
+      WeakMap,
+      (WeakMap as unknown as { prototype: unknown }).prototype,
+      WeakSet,
+      (WeakSet as unknown as { prototype: unknown }).prototype,
+      // Error constructors are frozen (blocks Error.prepareStackTrace
+      // attacks) but their .prototype is NOT frozen: instance code commonly
+      // does `err.name = 'CustomName'` / `err.message = '...'` which would
+      // silently fail if the prototype's `name`/`message` are non-writable.
+      Error,
+      TypeError,
+      RangeError,
+      SyntaxError,
+      ReferenceError,
+      EvalError,
+      URIError,
+      Reflect,
+      Math,
+      JSON,
+      ArrayBuffer,
+      (ArrayBuffer as unknown as { prototype: unknown }).prototype,
+      DataView,
+      (DataView as unknown as { prototype: unknown }).prototype,
+      Int8Array,
+      (Int8Array as unknown as { prototype: unknown }).prototype,
+      Uint8Array,
+      (Uint8Array as unknown as { prototype: unknown }).prototype,
+      Uint8ClampedArray,
+      (Uint8ClampedArray as unknown as { prototype: unknown }).prototype,
+      Int16Array,
+      (Int16Array as unknown as { prototype: unknown }).prototype,
+      Uint16Array,
+      (Uint16Array as unknown as { prototype: unknown }).prototype,
+      Int32Array,
+      (Int32Array as unknown as { prototype: unknown }).prototype,
+      Uint32Array,
+      (Uint32Array as unknown as { prototype: unknown }).prototype,
+      Float32Array,
+      (Float32Array as unknown as { prototype: unknown }).prototype,
+      Float64Array,
+      (Float64Array as unknown as { prototype: unknown }).prototype,
+    ];
+
+    // Optional intrinsics — guarded because older runtimes may lack them.
+    const optionalNames = [
+      'BigInt',
+      'BigInt64Array',
+      'BigUint64Array',
+      'SharedArrayBuffer',
+      'Atomics',
+      'Proxy',
+      'WeakRef',
+      'FinalizationRegistry',
+      'AggregateError',
+      'URL',
+      'URLSearchParams',
+      'Intl',
+    ];
+    // Error-family prototypes are not frozen (see note above on why).
+    const skipPrototypeFreeze = new Set(['AggregateError']);
+    for (const name of optionalNames) {
+      try {
+        const ctor = (_scope as Record<string, unknown>)[name];
+        if (ctor) {
+          intrinsics.push(ctor);
+          if (!skipPrototypeFreeze.has(name)) {
+            const proto = (ctor as { prototype?: unknown }).prototype;
+            if (proto) intrinsics.push(proto);
+          }
+        }
+      } catch {
+        // Best-effort.
+      }
+    }
+
+    // Iterator prototypes (reachable through standard collection iterators).
+    try {
+      intrinsics.push(Object.getPrototypeOf([][Symbol.iterator]()));
+    } catch {
+      // Best-effort.
+    }
+    try {
+      intrinsics.push(Object.getPrototypeOf(new Map()[Symbol.iterator]()));
+    } catch {
+      // Best-effort.
+    }
+    try {
+      intrinsics.push(Object.getPrototypeOf(new Set()[Symbol.iterator]()));
+    } catch {
+      // Best-effort.
+    }
+    try {
+      intrinsics.push(Object.getPrototypeOf(''[Symbol.iterator]()));
+    } catch {
+      // Best-effort.
+    }
+    try {
+      intrinsics.push(Object.getPrototypeOf(function* () {}).prototype);
+    } catch {
+      // Best-effort.
+    }
+    try {
+      intrinsics.push(Object.getPrototypeOf(async function* () {}).prototype);
+    } catch {
+      // Best-effort.
+    }
+
+    for (const target of intrinsics) {
+      if (!target) continue;
+      try {
+        Object.freeze(target);
+      } catch {
+        // Best-effort: some intrinsics may resist freezing.
+      }
+    }
+  };
+
+  class TaintedWorkerError extends Error {
+    constructor(message: string) {
+      super(message);
+      this.name = 'TaintedWorkerError';
+    }
+  }
+
+  const _resetSessionScope = (): void => {
+    const current = Reflect.ownKeys(_scope) as (string | symbol)[];
+    for (const name of current) {
+      if (typeof name === 'symbol') continue;
+      if (_baselineGlobalNamesForReset.has(name)) continue;
+
+      const desc = Object.getOwnPropertyDescriptor(_scope, name);
+      if (desc && desc.configurable === false) {
+        throw new TaintedWorkerError(
+          `session-boundary reset failed: non-configurable user global '${name}' ` +
+            `cannot be removed; worker is tainted and must be replaced`
+        );
+      }
+      try {
+        delete (_scope as Record<string, unknown>)[name];
+      } catch (e) {
+        throw new TaintedWorkerError(
+          `session-boundary reset failed: delete '${name}' threw (${String(e)}); ` +
+            `worker is tainted and must be replaced`
+        );
+      }
+    }
+  };
+
   const _MAX_ERROR_CAUSE_DEPTH = config.maxErrorCauseDepth;
 
   const _serializeError = (
@@ -1555,6 +2068,16 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
         ? transformedSource
         : fallbackSource;
 
+    if (_vm && _blockDynamicImport) {
+      const wrapped = `(async () => {\n${sourceToRun}\n})()`;
+      return await (
+        _vm as {
+          runInThisContext: (code: string, opts?: unknown) => unknown;
+        }
+      ).runInThisContext(wrapped, {
+        importModuleDynamically: _cachedImportCallback,
+      });
+    }
     const fn = new _AsyncFunction(sourceToRun);
     return await fn();
   };
@@ -1571,6 +2094,16 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     }
     const suffix = _buildPersistenceSuffix(declNames);
     const codeToRun = suffix ? syncCode + suffix : syncCode;
+
+    if (_vm && _blockDynamicImport) {
+      return (
+        _vm as {
+          runInThisContext: (code: string, opts?: unknown) => unknown;
+        }
+      ).runInThisContext(codeToRun, {
+        importModuleDynamically: _cachedImportCallback,
+      });
+    }
 
     // Indirect eval executes in worker global scope.
     // biome-ignore lint/security/noGlobalEval: intentional indirect eval for worker sandbox
@@ -1933,12 +2466,145 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
           : _outputMode === _OUTPUT_MODE_STDOUT;
       const allowUnsafeNodeHostAccess = msg.allowUnsafeNodeHostAccess === true;
 
+      // Read new lockdown fields; absent fields fall back to the *secure*
+      // default so stale workers still get strong protections.
+      _blockDynamicImport =
+        msg.blockDynamicImport === undefined
+          ? true
+          : Boolean(msg.blockDynamicImport);
+      _blockShadowRealm =
+        msg.blockShadowRealm === undefined
+          ? true
+          : Boolean(msg.blockShadowRealm);
+      _freezeIntrinsicsFlag =
+        msg.freezeIntrinsics === undefined
+          ? true
+          : Boolean(msg.freezeIntrinsics);
+      _lockWorkerIPC =
+        msg.lockWorkerIPC === undefined ? true : Boolean(msg.lockWorkerIPC);
+      _preventGlobalThisExtensions =
+        msg.preventGlobalThisExtensions === undefined
+          ? false
+          : Boolean(msg.preventGlobalThisExtensions);
+      _allowedModules = Array.isArray(msg.allowedModules)
+        ? (msg.allowedModules.filter(
+            (v): v is string => typeof v === 'string'
+          ) as readonly string[])
+        : [];
+
       _setGlobalsAndFnProxies(msg);
       _applyPermissionLockdown(msg.permissions);
       _applyNodeHostLockdown(allowUnsafeNodeHostAccess);
+
+      // Lockdown ordering per plan §13:
+      //  5. blockShadowRealm
+      //  6. blockDynamicImport (+ fail-hard flag if vm missing)
+      //  7. freezeIntrinsics
+      //  8. baseline capture + _baselineGlobalNamesForReset
+      //  9. lockWorkerIPC (browser/Deno only)
+      // 10. preventGlobalThisExtensions
+
+      if (_blockShadowRealm) {
+        _lockdownGlobals(['ShadowRealm']);
+      }
+
+      if (_blockDynamicImport) {
+        if (_vm) {
+          try {
+            _cachedImportCallback = _makeImportCallback();
+            _installImportBlocker(_vm);
+          } catch (err) {
+            // If allowlist validation fails at init we surface it on the
+            // first execute; remember the error so it is not lost.
+            _dynamicImportBlockingUnavailable = true;
+            _cachedImportCallback = err;
+          }
+        } else if (_isNodeWorker) {
+          // Node-like runtime without node:vm — record the gap; first
+          // execute fails hard with a clear message. Never silently
+          // downgrade security in Node.
+          _dynamicImportBlockingUnavailable = true;
+        }
+        // Browser / Deno workers: node:vm is intrinsically unavailable.
+        // We rely on the OS-level worker permission sandbox (Deno) or
+        // same-origin module restrictions (browser) as the primary
+        // defense. The shim/vm path is a Node-only extra layer.
+      }
+
+      if (_freezeIntrinsicsFlag) {
+        _freezeIntrinsics();
+      }
+
       // Capture the baseline after lockdown so internally-hidden globals such as
       // SharedWorker/require never leak into snapshots as restorable state.
       _inspectBaselineGlobalNames = Object.getOwnPropertyNames(_scope).sort();
+      _baselineGlobalNamesForReset = new Set(
+        Object.getOwnPropertyNames(_scope)
+      );
+
+      if (_lockWorkerIPC && !_nodeParentPort) {
+        try {
+          Object.defineProperty(_scope, 'postMessage', {
+            value: undefined,
+            writable: false,
+            configurable: false,
+          });
+        } catch {
+          // Best-effort.
+        }
+        try {
+          const currentHandler = _scope.onmessage;
+          Object.defineProperty(_scope, 'onmessage', {
+            value: currentHandler,
+            writable: false,
+            configurable: false,
+          });
+        } catch {
+          // Best-effort.
+        }
+      }
+
+      if (_preventGlobalThisExtensions) {
+        try {
+          Object.preventExtensions(_scope);
+        } catch {
+          // Best-effort.
+        }
+      }
+
+      return;
+    }
+
+    if (msg.type === 'session-reset') {
+      const id = typeof msg.id === 'number' ? msg.id : undefined;
+      try {
+        _resetSessionScope();
+        if (id !== undefined) {
+          _send({ type: 'result', id, value: undefined });
+        }
+      } catch (err) {
+        if (err instanceof TaintedWorkerError) {
+          _send({ type: 'tainted', message: err.message });
+          try {
+            if (
+              typeof process !== 'undefined' &&
+              typeof (process as { exit?: unknown }).exit === 'function'
+            ) {
+              (process as { exit: (code: number) => void }).exit(1);
+            } else if (
+              typeof (_scope as { close?: unknown }).close === 'function'
+            ) {
+              (_scope as { close: () => void }).close();
+            }
+          } catch {
+            // Best-effort exit.
+          }
+          return;
+        }
+        if (id !== undefined) {
+          _send({ type: 'result', id, error: _serializeError(err) });
+        }
+      }
       return;
     }
 
@@ -2032,6 +2698,29 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
     const isAsync = /\bawait\b/.test(code);
     const { output, cleanup } = _setupOutputCapture();
 
+    // Fail-hard guard: dynamic-import blocking was requested but node:vm is
+    // unavailable. Never silently downgrade security.
+    if (_blockDynamicImport && _dynamicImportBlockingUnavailable) {
+      cleanup();
+      const msg =
+        _cachedImportCallback instanceof Error
+          ? _cachedImportCallback.message
+          : 'dynamic import blocking requires node:vm which is unavailable in this runtime';
+      _send({
+        type: 'result',
+        id,
+        error: _serializeError(new Error(msg)),
+      });
+      return;
+    }
+
+    // Which execution path is active decides the line-offset for error
+    // mapping. `vm.runInThisContext` with an async wrapper uses a 1-line
+    // preamble (`(async () => {\n…`); `new AsyncFunction` uses 2. The sync
+    // vm path has no preamble; indirect eval also has none.
+    const usingVmPath = Boolean(_vm) && _blockDynamicImport;
+    const asyncLineOffset = usingVmPath ? 1 : 2;
+
     try {
       _detachedFnErrors.length = 0;
       const result = isAsync
@@ -2054,9 +2743,7 @@ export function axWorkerRuntime(config: AxWorkerRuntimeConfig): void {
       }
     } catch (err) {
       if (_isCodeExecutionError(err)) {
-        // AsyncFunction prepends a 2-line preamble (`async function anonymous(\n) {`)
-        // that shifts stack-trace line numbers. Subtract to align with original source.
-        const lineOffset = isAsync ? 2 : 0;
+        const lineOffset = isAsync ? asyncLineOffset : 0;
         _send({
           type: 'result',
           id,

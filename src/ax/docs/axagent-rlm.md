@@ -652,7 +652,8 @@ flowchart TD
     Layer1 --> Layer2["Layer 2: Permission Lockdown\nDelete/freeze blocked APIs\nin worker scope"]
     Layer2 --> Layer3["Layer 3: Serialization Validation\nOnly structured-cloneable\nvalues pass message boundary"]
     Layer3 --> Layer4["Layer 4: Output Truncation\nLimit output size,\ndepth, array length"]
-    Layer4 --> Safe["Safe result returned\nto main thread"]
+    Layer4 --> Layer5["Layer 5: OS Permission Model (Node 20+)\nKernel-enforced fs/child_process/worker denial"]
+    Layer5 --> Safe["Safe result returned\nto main thread"]
 ```
 
 ### Blocked Global Names
@@ -669,6 +670,8 @@ Storage:                 indexedDB  caches
 Built-in constructors:   Array  Object  String  Number  Promise  ...
 ```
 
+In addition to name-level blocks, dynamic `import()` is blocked by default at the vm layer and through installed `Function`/`AsyncFunction`/`GeneratorFunction`/`AsyncGeneratorFunction`/`eval` shims, and `ShadowRealm` is locked to `undefined`. These defenses are opt-out-able via `blockDynamicImport: false` and `blockShadowRealm: false` on `AxJSRuntime` — both are `true` by default and should stay that way unless the caller has a specific, well-understood reason to relax them. The `allowedModules` option provides a whitelist path for specifiers that should pass through while `blockDynamicImport` remains on.
+
 ### Permission System
 
 Specific capabilities can be **explicitly granted**:
@@ -681,10 +684,33 @@ enum AxJSRuntimePermission {
   COMMUNICATION = 'communication',  // BroadcastChannel
   TIMING        = 'timing',         // performance
   WORKERS       = 'workers',        // Worker, SharedWorker
+  FILESYSTEM    = 'filesystem',     // node:fs, node:fs/promises, node:path
+  CHILD_PROCESS = 'child-process',  // node:child_process
 }
 ```
 
 Default: **deny all**. Each permission must be explicitly opted in.
+
+### Node Permission Model (OS-level)
+
+When running on Node 20+, `AxJSRuntime` can engage Node's Permission Model as a second defense layer that is enforced by the runtime itself rather than the language sandbox. The model was introduced in Node 20 under `--experimental-permission` and promoted to stable `--permission` in Node 23.5; `AxJSRuntime` emits the right flag for the detected runtime automatically. Controlled by `useNodePermissionModel`:
+
+- `'auto'` (default): engage unconditionally on any supported Node (20+), regardless of which `permissions` are granted — so even a fully default `new AxJSRuntime()` gets kernel-enforced fs/child_process/worker denial. Silently skips on Node < 20, Deno, and browsers (language-level blocks still defend).
+- `true`: engage unconditionally; hard-fail on Node < 20.
+- `false`: never engage.
+
+When engaged, the worker is spawned with `execArgv` including `--permission` (Node 23.5+) or `--experimental-permission` (Node 20–23.4), and per-capability flags are derived from `permissions` and `nodePermissionAllowlist`:
+
+| Capability source | Derived flag(s) |
+|---|---|
+| `FILESYSTEM` in permissions, or `nodePermissionAllowlist.fsRead` | `--allow-fs-read=<path>` (defaults to `*` if permission granted without paths) |
+| `FILESYSTEM` in permissions, or `nodePermissionAllowlist.fsWrite` | `--allow-fs-write=<path>` (defaults to `*` if permission granted without paths) |
+| `CHILD_PROCESS` in permissions, or `nodePermissionAllowlist.childProcess` | `--allow-child-process` |
+| `WORKERS` in permissions | `--allow-worker` |
+| `nodePermissionAllowlist.addons` | `--allow-addons` |
+| `nodePermissionAllowlist.wasi` | `--allow-wasi` |
+
+The OS-level layer means that even if a language-level block is bypassed (for example through a VM escape or future API), kernel-enforced denial still prevents the worker from touching paths, spawning processes, or opening workers that were not explicitly allowed.
 
 ### Reserved Namespaces
 

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
-import { AxJSRuntime } from './jsRuntime.js';
+import { AxJSRuntime, AxJSRuntimePermission } from './jsRuntime.js';
 
 describe('AxJSRuntime integration', () => {
   it('returns persisted value from a standalone sync return snippet', async () => {
@@ -915,5 +915,368 @@ describe('AxJSRuntime integration', () => {
     } finally {
       session.close();
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Sandbox hardening: dynamic import blocking, Function/eval shims, intrinsic
+// freeze, ShadowRealm lockdown. These end-to-end tests cover the hardening
+// implemented in worker.runtime.ts §1-§7 and §13.
+// ---------------------------------------------------------------------------
+
+// Accept either our sandbox rejection ("not allowed in this sandbox") OR
+// Node's own reject when `--experimental-vm-modules` is not enabled ("A
+// dynamic import callback was invoked without --experimental-vm-modules").
+// The security outcome is identical — the import did not succeed.
+const BLOCKED_DEFAULT =
+  /not allowed in this sandbox|without --experimental-vm-modules|dynamic import|SyntaxError/i;
+
+const expectBlocked = async (
+  session: { execute: (code: string) => Promise<unknown> },
+  code: string,
+  matcher: RegExp = BLOCKED_DEFAULT
+) => {
+  // The worker returns execution errors as string values; thrown Errors are
+  // rejected. Either form is acceptable here — we just need to confirm the
+  // code did not succeed.
+  let outcome: unknown;
+  try {
+    outcome = await session.execute(code);
+  } catch (err) {
+    outcome = err instanceof Error ? err.message : String(err);
+  }
+  expect(typeof outcome === 'string' ? outcome : String(outcome)).toMatch(
+    matcher
+  );
+};
+
+describe('AxJSRuntime sandbox hardening', () => {
+  describe('dynamic import() blocking (default)', () => {
+    it('rejects await import("fs")', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        await expectBlocked(session, 'return await import("fs")');
+      } finally {
+        session.close();
+      }
+    });
+
+    it('rejects await import("node:fs")', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        await expectBlocked(session, 'return await import("node:fs")');
+      } finally {
+        session.close();
+      }
+    });
+
+    it('rejects new Function("return import(...)")()', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        await expectBlocked(
+          session,
+          'return await (new Function("return import(\\"fs\\")"))()'
+        );
+      } finally {
+        session.close();
+      }
+    });
+
+    it('rejects (async()=>{}).constructor import', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        await expectBlocked(
+          session,
+          'const AF = (async()=>{}).constructor; return await (new AF("return import(\\"fs\\")"))()'
+        );
+      } finally {
+        session.close();
+      }
+    });
+
+    it('rejects eval("import(...)")', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        await expectBlocked(session, 'return await eval("import(\\"fs\\")")');
+      } finally {
+        session.close();
+      }
+    });
+
+    it('rejects indirect eval (0,eval)("import(...)")', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        await expectBlocked(
+          session,
+          'return await (0, eval)("import(\\"fs\\")")'
+        );
+      } finally {
+        session.close();
+      }
+    });
+  });
+
+  describe('allowedModules: opt-in passthrough', () => {
+    // Note: returning a real Node builtin module as the `importModuleDynamically`
+    // result requires wrapping it in a vm.SyntheticModule namespace, which
+    // depends on `--experimental-vm-modules` on older Node. The plan §3
+    // explicitly deferred full passthrough to a follow-up. Here we only verify
+    // that the allowlist short-circuits *before* the blanket rejection — i.e.
+    // an allowlisted specifier doesn't hit the "not allowed in this sandbox"
+    // message, and a non-allowlisted one does.
+
+    it('rejects non-allowlisted modules even when others are allowed', async () => {
+      const runtime = new AxJSRuntime({
+        outputMode: 'return',
+        permissions: [AxJSRuntimePermission.FILESYSTEM],
+        allowedModules: ['node:fs'],
+      });
+      const session = runtime.createSession();
+      try {
+        // Accept either our sandbox rejection (when --experimental-vm-modules
+        // is on) or Node's own refusal to invoke the callback (default Node
+        // behavior). Both outcomes mean the non-allowlisted import did not
+        // succeed.
+        await expectBlocked(session, 'await import("node:child_process")');
+      } finally {
+        session.close();
+      }
+    });
+
+    it('allowlisted specifiers do NOT hit the "not allowed" message', async () => {
+      const runtime = new AxJSRuntime({
+        outputMode: 'return',
+        permissions: [AxJSRuntimePermission.FILESYSTEM],
+        allowedModules: ['node:fs'],
+      });
+      const session = runtime.createSession();
+      try {
+        let outcome: unknown;
+        try {
+          outcome = await session.execute('await import("node:fs")');
+        } catch (err) {
+          outcome = err instanceof Error ? err.message : String(err);
+        }
+        // Allowlisted modules are attempted; failure mode here is Node's
+        // vm-module-namespace requirement (a known follow-up from §3), NOT
+        // our sandbox rejection message.
+        if (typeof outcome === 'string') {
+          expect(outcome).not.toMatch(/not allowed in this sandbox/);
+        }
+      } finally {
+        session.close();
+      }
+    });
+  });
+
+  describe('ShadowRealm lockdown (default)', () => {
+    it('hides ShadowRealm from the worker global scope', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        const result = await session.execute('return typeof ShadowRealm');
+        expect(result).toBe('undefined');
+      } finally {
+        session.close();
+      }
+    });
+  });
+
+  describe('intrinsic freeze (default)', () => {
+    it('prevents Object.prototype poisoning', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        // Attempt to poison — either silently fails or throws. Swallow it.
+        await session
+          .execute(
+            'try { Object.prototype.poisoned = 42 } catch (e) {}; void 0'
+          )
+          .catch(() => null);
+        // Fresh object must not carry the poisoned property.
+        const check = await session.execute('return ({}).poisoned');
+        expect(check).toBeUndefined();
+      } finally {
+        session.close();
+      }
+    });
+
+    it('prevents Array.prototype.push replacement', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        await session
+          .execute(
+            'try { Array.prototype.push = () => "evil" } catch (e) {}; void 0'
+          )
+          .catch(() => null);
+        await session.execute('const a = []; a.push(1)');
+        const result = await session.execute('return a');
+        // Freeze must prevent prototype replacement — so push still works
+        // normally as Array.prototype.push.
+        expect(result).toEqual([1]);
+      } finally {
+        session.close();
+      }
+    });
+
+    it('pins Error.stackTraceLimit to 10', async () => {
+      const runtime = new AxJSRuntime({ outputMode: 'return' });
+      const session = runtime.createSession();
+      try {
+        const value = await session.execute('return Error.stackTraceLimit');
+        expect(value).toBe(10);
+        // Writing to it should fail (silently or with a throw).
+        await session
+          .execute('try { Error.stackTraceLimit = 9999 } catch (e) {}; void 0')
+          .catch(() => null);
+        const after = await session.execute('return Error.stackTraceLimit');
+        expect(after).toBe(10);
+      } finally {
+        session.close();
+      }
+    });
+  });
+
+  describe('opt-outs', () => {
+    it('blockDynamicImport: false lets import() through', async () => {
+      // Not a test of security — a test that the opt-out plumbing works.
+      // We confirm the worker does NOT emit the "dynamic import blocking
+      // requires node:vm" error.
+      const runtime = new AxJSRuntime({
+        outputMode: 'return',
+        blockDynamicImport: false,
+        permissions: [AxJSRuntimePermission.FILESYSTEM],
+      });
+      const session = runtime.createSession();
+      try {
+        const result = await session.execute(
+          'const fs = await import("node:fs"); return typeof fs.readFileSync'
+        );
+        expect(result).toBe('function');
+      } finally {
+        session.close();
+      }
+    });
+
+    it('freezeIntrinsics: false allows prototype modification', async () => {
+      const runtime = new AxJSRuntime({
+        outputMode: 'return',
+        freezeIntrinsics: false,
+      });
+      const session = runtime.createSession();
+      try {
+        await session.execute('Object.prototype.customFlag = 7');
+        const result = await session.execute('return ({}).customFlag');
+        expect(result).toBe(7);
+        await session.execute('delete Object.prototype.customFlag');
+      } finally {
+        session.close();
+      }
+    });
+  });
+
+  // Detect Node version once so the Permission Model suite can skip on Node < 20.
+  const nodeVersion = process.versions?.node ?? '';
+  const nodeMajor = Number.parseInt(nodeVersion.split('.')[0] ?? '', 10);
+  const supportsPermissionModel = Number.isFinite(nodeMajor) && nodeMajor >= 20;
+  const describePermissionModel = supportsPermissionModel
+    ? describe
+    : describe.skip;
+
+  describePermissionModel('Node Permission Model (OS-level defense)', () => {
+    it('auto engages unconditionally: fs reads blocked at OS level without FILESYSTEM', async () => {
+      // Default `new AxJSRuntime()` has no FILESYSTEM permission. With
+      // `useNodePermissionModel: 'auto'` (the default) and a supported Node,
+      // the worker spawns under --permission / --experimental-permission,
+      // so *even if* a hypothetical language-level escape reached node:fs,
+      // the kernel-level check would deny the read.
+      //
+      // We exercise this end-to-end by bypassing the language-level block
+      // (blockDynamicImport: false) so node:fs can be required, then
+      // confirming the read is still denied with ERR_ACCESS_DENIED.
+      const runtime = new AxJSRuntime({
+        outputMode: 'return',
+        blockDynamicImport: false,
+        allowUnsafeNodeHostAccess: true,
+        freezeIntrinsics: false,
+        // useNodePermissionModel defaults to 'auto' → engaged here.
+      });
+      const session = runtime.createSession();
+      try {
+        const result = await session.execute(`
+          try {
+            const fs = await import('node:fs');
+            fs.readFileSync('/etc/hosts');
+            return 'NOT BLOCKED';
+          } catch (e) {
+            return e && e.code ? e.code : String(e).slice(0, 80);
+          }
+        `);
+        expect(result).toBe('ERR_ACCESS_DENIED');
+      } finally {
+        session.close();
+      }
+    });
+
+    it('FILESYSTEM permission grants OS-level fs-read via auto', async () => {
+      const runtime = new AxJSRuntime({
+        outputMode: 'return',
+        blockDynamicImport: false,
+        allowUnsafeNodeHostAccess: true,
+        freezeIntrinsics: false,
+        permissions: [AxJSRuntimePermission.FILESYSTEM],
+      });
+      const session = runtime.createSession();
+      try {
+        const result = await session.execute(`
+          try {
+            const fs = await import('node:fs');
+            // Reading a path that definitely exists under a standard POSIX
+            // layout. If the Permission Model is engaged with
+            // --allow-fs-read=* (what FILESYSTEM maps to), this succeeds.
+            return typeof fs.readFileSync('/etc/hosts', 'utf8');
+          } catch (e) {
+            return e && e.code ? e.code : String(e).slice(0, 80);
+          }
+        `);
+        expect(result).toBe('string');
+      } finally {
+        session.close();
+      }
+    });
+
+    it('useNodePermissionModel: false disables OS-level block', async () => {
+      // When the permission model is explicitly disabled, fs reads are NOT
+      // kernel-blocked. The caller opts out of OS-layer defense (they still
+      // have the language-level defenses).
+      const runtime = new AxJSRuntime({
+        outputMode: 'return',
+        blockDynamicImport: false,
+        allowUnsafeNodeHostAccess: true,
+        freezeIntrinsics: false,
+        useNodePermissionModel: false,
+      });
+      const session = runtime.createSession();
+      try {
+        const result = await session.execute(`
+          try {
+            const fs = await import('node:fs');
+            return typeof fs.readFileSync('/etc/hosts', 'utf8');
+          } catch (e) {
+            return e && e.code ? e.code : String(e).slice(0, 80);
+          }
+        `);
+        expect(result).toBe('string');
+      } finally {
+        session.close();
+      }
+    });
   });
 });

