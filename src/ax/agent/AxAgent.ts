@@ -678,6 +678,24 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
    * `contextFields` and tools are configured. Defaults to false (single-agent path).
    */
   enableContextDistillation?: boolean;
+  /**
+   * Options forwarded exclusively to the context-distillation stage (ctxAgent) when
+   * `enableContextDistillation` is true. Use this to cap the ctx stage independently
+   * from the task stage — e.g. `contextOptions: { maxTurns: 3 }` while `maxTurns`
+   * (on the task stage) stays at the default. Ignored when Case A is not active.
+   */
+  contextOptions?: Partial<
+    Pick<
+      AxAgentOptions<any>,
+      | 'maxTurns'
+      | 'maxRuntimeChars'
+      | 'promptLevel'
+      | 'actorOptions'
+      | 'responderOptions'
+      | 'contextPolicy'
+      | 'summarizerOptions'
+    >
+  >;
 };
 
 export type AxAgentJudgeInput = {
@@ -5978,18 +5996,19 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         )
         .build();
 
+      const ctxOpts = options.contextOptions ?? {};
       this.ctxAgent = new AxAgentInternal(
         { ...init, signature: ctxSig },
         {
           contextFields: [...ctxFieldInputs],
           runtime: options.runtime,
-          promptLevel: options.promptLevel,
-          maxTurns: options.maxTurns,
-          maxRuntimeChars: options.maxRuntimeChars,
-          contextPolicy: options.contextPolicy,
-          summarizerOptions: options.summarizerOptions,
-          actorOptions: options.actorOptions,
-          responderOptions: options.responderOptions,
+          promptLevel: ctxOpts.promptLevel ?? options.promptLevel,
+          maxTurns: ctxOpts.maxTurns ?? options.maxTurns,
+          maxRuntimeChars: ctxOpts.maxRuntimeChars ?? options.maxRuntimeChars,
+          contextPolicy: ctxOpts.contextPolicy ?? options.contextPolicy,
+          summarizerOptions: ctxOpts.summarizerOptions ?? options.summarizerOptions,
+          actorOptions: ctxOpts.actorOptions ?? options.actorOptions,
+          responderOptions: ctxOpts.responderOptions ?? options.responderOptions,
           bubbleErrors: options.bubbleErrors,
           actorTemplateVariant: 'context',
         }
