@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
 import { GlowCard } from './GlowCard';
-import { Bot, Brain, GitBranch } from 'lucide-react';
+import { Bot, Brain, Zap } from 'lucide-react';
 
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
 
@@ -9,324 +9,185 @@ const containerVariants = {
   visible: { opacity: 1, transition: { staggerChildren: 0.1 } },
 };
 
-/* ─── Animated Agent Tree SVG ─── */
+/* ─── Context growth comparison chart ─── */
 
-function AgentTreeVisualization() {
+function ContextGrowthChart() {
+  const padL = 38;
+  const padR = 50;
+  const padT = 20;
+  const padB = 28;
+  const chartW = 260;
+  const chartH = 130;
+  const svgW = padL + chartW + padR;
+  const svgH = padT + chartH + padB;
+
+  const turns = 8;
+  const xStep = chartW / (turns - 1);
+
+  // simulated prompt-context tokens (0–1000 scale)
+  const naive = [80, 220, 400, 570, 720, 840, 910, 960];
+  const axagent = [80, 88, 85, 91, 86, 90, 87, 89];
+
+  const toX = (i: number) => padL + i * xStep;
+  const toY = (v: number) => padT + chartH - (v / 1000) * chartH;
+
+  const naivePath = naive
+    .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
+    .join(' ');
+  const axPath = axagent
+    .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
+    .join(' ');
+  const naiveArea = `${naivePath} L${toX(turns - 1).toFixed(1)},${toY(0).toFixed(1)} L${toX(0).toFixed(1)},${toY(0).toFixed(1)} Z`;
+  const axArea = `${axPath} L${toX(turns - 1).toFixed(1)},${toY(0).toFixed(1)} L${toX(0).toFixed(1)},${toY(0).toFixed(1)} Z`;
+
   return (
-    <svg
-      viewBox="0 0 400 200"
-      className="w-full h-auto max-w-md mx-auto"
-      aria-hidden="true"
-    >
-      {/* Animated pulse along connections */}
-      <defs>
-        <linearGradient id="ag-pulse" x1="0%" y1="0%" x2="100%" y2="0%">
-          <stop offset="0%" stopColor="rgb(52, 211, 153)" stopOpacity="0" />
-          <stop offset="50%" stopColor="rgb(52, 211, 153)" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="rgb(52, 211, 153)" stopOpacity="0" />
-        </linearGradient>
-        <linearGradient id="ag-pulse-v" x1="0%" y1="0%" x2="0%" y2="100%">
-          <stop offset="0%" stopColor="rgb(167, 139, 250)" stopOpacity="0" />
-          <stop offset="50%" stopColor="rgb(167, 139, 250)" stopOpacity="0.8" />
-          <stop offset="100%" stopColor="rgb(167, 139, 250)" stopOpacity="0" />
-        </linearGradient>
-      </defs>
-
-      {/* Connection lines */}
-      <line
-        x1="200"
-        y1="55"
-        x2="80"
-        y2="120"
-        className="stroke-gray-300 dark:stroke-white/10"
-        strokeWidth="1.5"
-      />
-      <line
-        x1="200"
-        y1="55"
-        x2="200"
-        y2="120"
-        className="stroke-gray-300 dark:stroke-white/10"
-        strokeWidth="1.5"
-      />
-      <line
-        x1="200"
-        y1="55"
-        x2="320"
-        y2="120"
-        className="stroke-gray-300 dark:stroke-white/10"
-        strokeWidth="1.5"
-      />
-
-      {/* Leaf connections */}
-      <line
-        x1="80"
-        y1="140"
-        x2="40"
-        y2="180"
-        className="stroke-gray-300 dark:stroke-white/10"
-        strokeWidth="1"
-      />
-      <line
-        x1="80"
-        y1="140"
-        x2="120"
-        y2="180"
-        className="stroke-gray-300 dark:stroke-white/10"
-        strokeWidth="1"
-      />
-      <line
-        x1="320"
-        y1="140"
-        x2="320"
-        y2="180"
-        className="stroke-gray-300 dark:stroke-white/10"
-        strokeWidth="1"
-      />
-
-      {/* Animated pulses on connections */}
-      <circle r="3" className="fill-emerald-400" opacity="0.8">
-        <animateMotion
-          dur="2s"
-          repeatCount="indefinite"
-          path="M200,55 L80,120"
-        />
-      </circle>
-      <circle r="3" className="fill-violet-400" opacity="0.8">
-        <animateMotion
-          dur="2.5s"
-          repeatCount="indefinite"
-          path="M200,55 L200,120"
-        />
-      </circle>
-      <circle r="3" className="fill-emerald-400" opacity="0.8">
-        <animateMotion
-          dur="3s"
-          repeatCount="indefinite"
-          path="M200,55 L320,120"
-        />
-      </circle>
-
-      {/* Root Agent node */}
-      <g>
-        <rect
-          x="160"
-          y="20"
-          width="80"
-          height="36"
-          rx="10"
-          className="fill-emerald-500"
-          opacity="0.9"
-        />
-        <text
-          x="200"
-          y="43"
-          textAnchor="middle"
-          className="fill-white"
-          fontSize="12"
-          fontWeight="600"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          AxAgent
-        </text>
-      </g>
-
-      {/* Child: Research Agent */}
-      <g>
-        <rect
-          x="40"
-          y="112"
-          width="80"
-          height="32"
-          rx="8"
-          className="fill-emerald-400"
-          opacity="0.8"
-        />
-        <text
-          x="80"
-          y="133"
-          textAnchor="middle"
-          className="fill-white"
-          fontSize="10"
-          fontWeight="500"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          Researcher
-        </text>
-      </g>
-
-      {/* Child: RLM Runtime */}
-      <g>
-        <rect
-          x="158"
-          y="112"
-          width="84"
-          height="32"
-          rx="8"
-          className="fill-violet-500"
-          opacity="0.85"
-        />
-        <text
-          x="200"
-          y="133"
-          textAnchor="middle"
-          className="fill-white"
-          fontSize="10"
-          fontWeight="500"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          RLM Runtime
-        </text>
-      </g>
-
-      {/* Child: Writer Agent */}
-      <g>
-        <rect
-          x="280"
-          y="112"
-          width="80"
-          height="32"
-          rx="8"
-          className="fill-emerald-400"
-          opacity="0.8"
-        />
-        <text
-          x="320"
-          y="133"
-          textAnchor="middle"
-          className="fill-white"
-          fontSize="10"
-          fontWeight="500"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          Writer
-        </text>
-      </g>
-
-      {/* Leaf: search function */}
-      <g>
-        <rect
-          x="12"
-          y="172"
-          width="56"
-          height="24"
-          rx="6"
-          className="fill-amber-500"
-          opacity="0.7"
-        />
-        <text
-          x="40"
-          y="188"
-          textAnchor="middle"
-          className="fill-white"
-          fontSize="9"
-          fontWeight="500"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          search
-        </text>
-      </g>
-
-      {/* Leaf: scrape function */}
-      <g>
-        <rect
-          x="92"
-          y="172"
-          width="56"
-          height="24"
-          rx="6"
-          className="fill-amber-500"
-          opacity="0.7"
-        />
-        <text
-          x="120"
-          y="188"
-          textAnchor="middle"
-          className="fill-white"
-          fontSize="9"
-          fontWeight="500"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          scrape
-        </text>
-      </g>
-
-      {/* Leaf: publish function */}
-      <g>
-        <rect
-          x="292"
-          y="172"
-          width="56"
-          height="24"
-          rx="6"
-          className="fill-amber-500"
-          opacity="0.7"
-        />
-        <text
-          x="320"
-          y="188"
-          textAnchor="middle"
-          className="fill-white"
-          fontSize="9"
-          fontWeight="500"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          publish
-        </text>
-      </g>
-
-      {/* Legend */}
-      <g transform="translate(0, 0)">
-        <circle
-          cx="10"
-          cy="10"
-          r="4"
-          className="fill-emerald-500"
-          opacity="0.8"
-        />
-        <text
-          x="18"
-          y="14"
-          className="fill-gray-400 dark:fill-gray-500"
-          fontSize="9"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
-          Agent
-        </text>
-        <circle
-          cx="60"
-          cy="10"
-          r="4"
-          className="fill-violet-500"
-          opacity="0.8"
-        />
-        <text
-          x="68"
-          y="14"
-          className="fill-gray-400 dark:fill-gray-500"
-          fontSize="9"
-          fontFamily="Inter, system-ui, sans-serif"
-        >
+    <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-white dark:bg-slate-900/80 p-5 shadow-xl">
+      <div className="flex items-start justify-between mb-3">
+        <div>
+          <h4 className="text-sm font-bold text-gray-900 dark:text-white">
+            Prompt stays lean — across every turn
+          </h4>
+          <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+            State lives in the JS runtime, not the LLM context
+          </p>
+        </div>
+        <div className="flex-shrink-0 ml-4 rounded-lg bg-emerald-500/10 px-2.5 py-1 text-xs font-bold text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
           RLM
-        </text>
+        </div>
+      </div>
+
+      <svg
+        viewBox={`0 0 ${svgW} ${svgH}`}
+        className="w-full"
+        aria-hidden="true"
+      >
+        {/* Grid lines */}
+        {[0, 250, 500, 750, 1000].map((v) => (
+          <line
+            key={v}
+            x1={padL}
+            y1={toY(v)}
+            x2={padL + chartW}
+            y2={toY(v)}
+            stroke="currentColor"
+            strokeOpacity="0.06"
+            strokeDasharray="2 3"
+          />
+        ))}
+        {/* Y axis labels */}
+        {[0, 500, 1000].map((v) => (
+          <text
+            key={v}
+            x={padL - 5}
+            y={toY(v) + 4}
+            textAnchor="end"
+            fontSize="8"
+            fill="currentColor"
+            opacity="0.35"
+            fontFamily="Inter, monospace"
+          >
+            {v === 1000 ? '1k' : v === 500 ? '500' : '0'}
+          </text>
+        ))}
+        {/* X axis: turn numbers */}
+        {naive.map((_, i) => (
+          <text
+            key={i}
+            x={toX(i)}
+            y={svgH - 6}
+            textAnchor="middle"
+            fontSize="8"
+            fill="currentColor"
+            opacity="0.3"
+            fontFamily="Inter, monospace"
+          >
+            {i + 1}
+          </text>
+        ))}
+
+        {/* Naive area + line */}
+        <path d={naiveArea} fill="rgb(239,68,68)" opacity="0.07" />
+        <path
+          d={naivePath}
+          fill="none"
+          stroke="rgb(239,68,68)"
+          strokeWidth="1.5"
+          strokeOpacity="0.5"
+        />
+
+        {/* Ax Agent area + line */}
+        <path d={axArea} fill="rgb(52,211,153)" opacity="0.1" />
+        <path
+          d={axPath}
+          fill="none"
+          stroke="rgb(52,211,153)"
+          strokeWidth="2.5"
+        />
+
+        {/* End-of-line dots + labels */}
         <circle
-          cx="100"
-          cy="10"
-          r="4"
-          className="fill-amber-500"
-          opacity="0.7"
+          cx={toX(turns - 1)}
+          cy={toY(naive[turns - 1])}
+          r="3"
+          fill="rgb(239,68,68)"
+          opacity="0.65"
         />
         <text
-          x="108"
-          y="14"
-          className="fill-gray-400 dark:fill-gray-500"
-          fontSize="9"
-          fontFamily="Inter, system-ui, sans-serif"
+          x={toX(turns - 1) + 6}
+          y={toY(naive[turns - 1]) + 4}
+          fontSize="8.5"
+          fill="rgb(239,68,68)"
+          opacity="0.7"
+          fontFamily="Inter, sans-serif"
         >
-          Function
+          naive
         </text>
-      </g>
-    </svg>
+        <circle
+          cx={toX(turns - 1)}
+          cy={toY(axagent[turns - 1])}
+          r="3.5"
+          fill="rgb(52,211,153)"
+        />
+        <text
+          x={toX(turns - 1) + 6}
+          y={toY(axagent[turns - 1]) + 4}
+          fontSize="8.5"
+          fill="rgb(52,211,153)"
+          fontFamily="Inter, sans-serif"
+          fontWeight="600"
+        >
+          ax
+        </text>
+
+        {/* Y axis label */}
+        <text
+          x={10}
+          y={padT + chartH / 2}
+          textAnchor="middle"
+          fontSize="7.5"
+          fill="currentColor"
+          opacity="0.25"
+          fontFamily="Inter, sans-serif"
+          transform={`rotate(-90, 10, ${padT + chartH / 2})`}
+        >
+          ctx tokens
+        </text>
+      </svg>
+
+      <div className="flex items-center gap-4 mt-1 pt-2 border-t border-gray-100 dark:border-white/5">
+        <div className="flex items-center gap-1.5">
+          <div className="w-5 h-px bg-red-400 opacity-60" />
+          <span className="text-[10px] text-gray-400">Naive agent</span>
+        </div>
+        <div className="flex items-center gap-1.5">
+          <div className="w-5 h-0.5 bg-emerald-400" />
+          <span className="text-[10px] text-gray-400">Ax Agent (RLM)</span>
+        </div>
+        <span className="ml-auto text-[10px] font-bold text-emerald-600 dark:text-emerald-400">
+          ≈10× less tokens
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -335,94 +196,86 @@ function AgentTreeVisualization() {
 function AgentCodeBlock() {
   return (
     <div className="rounded-xl border border-gray-200 dark:border-white/10 bg-[#1a1b26] overflow-hidden shadow-2xl">
-      {/* Terminal header */}
       <div className="flex items-center gap-2 px-4 py-2.5 border-b border-white/5">
         <div className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
         <div className="w-2.5 h-2.5 rounded-full bg-amber-400/80" />
         <div className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
-        <span className="ml-2 text-xs text-gray-500 font-mono">agent.ts</span>
+        <span className="ml-2 text-xs text-gray-500 font-mono">researcher.ts</span>
       </div>
 
-      <div className="p-5 font-mono text-[13px] leading-[1.8] text-gray-300">
-        <div className="text-gray-500">
-          {'// Define an autonomous research agent'}
-        </div>
+      <div className="p-5 font-mono text-[12.5px] leading-[1.85] text-gray-300">
         <div>
-          <span className="text-purple-400">const</span>{' '}
-          <span className="text-white">researcher</span>{' '}
-          <span className="text-gray-500">=</span>{' '}
-          <span className="text-blue-400">agent</span>
-          <span className="text-gray-500">{'({'}</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-300">name</span>
-          <span className="text-gray-500">: </span>
-          <span className="text-emerald-400">{"'researcher'"}</span>
-          <span className="text-gray-500">,</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-300">description</span>
-          <span className="text-gray-500">: </span>
-          <span className="text-emerald-400">{"'Deep research agent'"}</span>
-          <span className="text-gray-500">,</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-300">signature</span>
-          <span className="text-gray-500">: </span>
-          <span className="text-emerald-400">{"'query -> report'"}</span>
-          <span className="text-gray-500">,</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-300">functions</span>
-          <span className="text-gray-500">: [</span>
-          <span className="text-white">search</span>
-          <span className="text-gray-500">, </span>
-          <span className="text-white">scrape</span>
-          <span className="text-gray-500">, </span>
-          <span className="text-white">summarize</span>
-          <span className="text-gray-500">],</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-300">agents</span>
-          <span className="text-gray-500">: [</span>
-          <span className="text-white">factChecker</span>
-          <span className="text-gray-500">, </span>
-          <span className="text-white">writer</span>
-          <span className="text-gray-500">],</span>
-        </div>
-        <div className="pl-4">
-          <span className="text-gray-300">contextPolicy</span>
-          <span className="text-gray-500">: </span>
-          <span className="text-emerald-400">{"'adaptive'"}</span>
-          <span className="text-gray-500">,</span>
-        </div>
-        <div>
-          <span className="text-gray-500">{'})'}</span>
+          <span className="text-purple-400">import</span>
+          <span className="text-gray-500">{' { '}</span>
+          <span className="text-blue-300">AxAgent</span>
+          <span className="text-gray-500">{', '}</span>
+          <span className="text-blue-300">AxJSRuntime</span>
+          <span className="text-gray-500">{' } '}</span>
+          <span className="text-purple-400">from</span>
+          <span className="text-emerald-400">{" '@ax-llm/ax'"}</span>
         </div>
 
-        <div className="mt-3 text-gray-500">
-          {'// Agent runs autonomously with RLM'}
-        </div>
+        <div className="mt-3 text-gray-600">{'// Typed DSPy signature'}</div>
         <div>
-          <span className="text-purple-400">const</span>{' '}
-          <span className="text-white">result</span>{' '}
-          <span className="text-gray-500">=</span>{' '}
-          <span className="text-purple-400">await</span>{' '}
-          <span className="text-white">researcher.</span>
-          <span className="text-blue-400">forward</span>
-          <span className="text-gray-500">(</span>
-          <span className="text-white">llm</span>
-          <span className="text-gray-500">, {'{'}</span>
+          <span className="text-purple-400">const</span>
+          <span className="text-white">{' researcher '}</span>
+          <span className="text-gray-500">{'= '}</span>
+          <span className="text-purple-400">new </span>
+          <span className="text-blue-400">AxAgent</span>
+          <span className="text-gray-500">{'('}</span>
         </div>
         <div className="pl-4">
-          <span className="text-gray-300">query</span>
-          <span className="text-gray-500">: </span>
           <span className="text-emerald-400">
-            {"'Compare React vs Vue in 2025'"}
+            {"'topic:string, largeDocument:string -> report:string'"}
           </span>
+          <span className="text-gray-500">,</span>
+        </div>
+        <div className="pl-4">
+          <span className="text-gray-500">{'{'}</span>
+        </div>
+        <div className="pl-8">
+          <span className="text-sky-300">runtime</span>
+          <span className="text-gray-500">{': '}</span>
+          <span className="text-purple-400">new </span>
+          <span className="text-blue-400">AxJSRuntime</span>
+          <span className="text-gray-500">{'(),'}</span>
+          <span className="text-gray-600">{' // state in JS'}</span>
+        </div>
+        <div className="pl-8">
+          <span className="text-sky-300">contextFields</span>
+          <span className="text-gray-500">{': ['}</span>
+          <span className="text-white">largeDocument</span>
+          <span className="text-gray-500">{'],'}</span>
+        </div>
+        <div className="pl-8">
+          <span className="text-sky-300">functions</span>
+          <span className="text-gray-500">{': ['}</span>
+          <span className="text-white">search</span>
+          <span className="text-gray-500">{', '}</span>
+          <span className="text-white">scrape</span>
+          <span className="text-gray-500">{'],'}</span>
+        </div>
+        <div className="pl-4">
+          <span className="text-gray-500">{'}'}</span>
         </div>
         <div>
-          <span className="text-gray-500">{'})'}</span>
+          <span className="text-gray-500">{')'}</span>
+        </div>
+
+        <div className="mt-3 text-gray-600">{'// Typed output — report: string ✓'}</div>
+        <div>
+          <span className="text-purple-400">const</span>
+          <span className="text-gray-500">{' { '}</span>
+          <span className="text-white">report</span>
+          <span className="text-gray-500">{' } = '}</span>
+          <span className="text-purple-400">await </span>
+          <span className="text-white">researcher.</span>
+          <span className="text-blue-400">forward</span>
+          <span className="text-gray-500">{'(ai, { '}</span>
+          <span className="text-sky-300">topic</span>
+          <span className="text-gray-500">{': '}</span>
+          <span className="text-emerald-400">{"'…'"}</span>
+          <span className="text-gray-500">{' })'}</span>
         </div>
       </div>
     </div>
@@ -434,27 +287,27 @@ function AgentCodeBlock() {
 const features = [
   {
     Icon: Bot,
-    title: 'ReAct Loops & RLM',
+    title: 'State in runtime, not the prompt',
     description:
-      'Multi-turn autonomous reasoning with a persistent JavaScript sandbox. State survives across turns — long context stays out of the root prompt.',
+      'The JS sandbox keeps your objects alive across turns. The LLM only sees a compact current-state summary — token cost stays flat no matter how long the loop runs.',
     color: 'emerald' as const,
-    badges: ['Multi-turn', 'Persistent state', 'Sandboxed JS'],
+    badges: ['RLM loop', 'Bounded context', 'JS sandbox'],
   },
   {
-    Icon: GitBranch,
-    title: 'Hierarchical Agents',
+    Icon: Zap,
+    title: 'Typed signatures — end to end',
     description:
-      'Delegate subtasks to child agents with shared state and namespaced functions. Discover tools at runtime — the agent picks what it needs.',
+      "Declare agents as 'topic:string → report:string'. Inputs and outputs are TypeScript types — shape mismatches surface at compile time, not in production.",
     color: 'violet' as const,
-    badges: ['Child agents', 'Shared state', 'Namespaces'],
+    badges: ['DSPy-style', 'TypeScript safe', 'Schema validated'],
   },
   {
     Icon: Brain,
-    title: 'Adaptive Context',
+    title: 'Auto-optimized with DSPy + GEPA',
     description:
-      'Choose full, adaptive, or lean memory policies. Old context compresses into checkpoint summaries automatically, keeping prompts focused.',
+      'Few-shot examples are tuned automatically. GEPA finds the instruction set that maximizes accuracy across your evals — no manual prompt engineering required.',
     color: 'blue' as const,
-    badges: ['3 policies', 'Auto-compress', 'Checkpoints'],
+    badges: ['GEPA', 'DSPy', 'Few-shot tuning'],
   },
 ];
 
@@ -487,20 +340,31 @@ const colorMap = {
 export default function AgentSection() {
   return (
     <section className="relative py-24 overflow-hidden">
-      {/* Subtle background */}
       <div className="absolute inset-0 bg-gradient-to-b from-transparent via-emerald-500/[0.02] dark:via-emerald-500/[0.03] to-transparent pointer-events-none" />
 
       <div className="relative max-w-6xl mx-auto px-6">
         {/* Header */}
         <div className="text-center mb-16">
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            whileInView={{ opacity: 1, y: 0 }}
+            viewport={{ once: true }}
+            transition={{ duration: 0.6, ease: EASE }}
+            className="inline-flex items-center gap-2 rounded-full border border-emerald-500/20 bg-emerald-500/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-[0.22em] text-emerald-700 dark:text-emerald-300 mb-5"
+          >
+            Ax Agent
+          </motion.div>
           <motion.h2
             initial={{ opacity: 0, y: 20 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
             transition={{ duration: 0.6, ease: EASE }}
-            className="text-3xl md:text-4xl font-bold text-gray-900 dark:text-white tracking-tight mb-4"
+            className="text-3xl md:text-5xl font-black text-gray-900 dark:text-white tracking-tight mb-4"
           >
-            Autonomous agents, built in
+            DSPy + RLM agents that{' '}
+            <span className="bg-gradient-to-r from-emerald-500 to-cyan-500 bg-clip-text text-transparent">
+              actually work
+            </span>
           </motion.h2>
           <motion.p
             initial={{ opacity: 0, y: 20 }}
@@ -509,15 +373,14 @@ export default function AgentSection() {
             transition={{ duration: 0.6, delay: 0.1, ease: EASE }}
             className="text-lg text-gray-600 dark:text-gray-400 max-w-2xl mx-auto"
           >
-            AxAgent combines ReAct reasoning with a recursive language model — a
-            persistent JavaScript sandbox that keeps long context out of the
-            root prompt.
+            Typed DSPy signatures, a secure JS runtime, and checkpointed context
+            management — a full agent harness that keeps long-running loops
+            stable without prompt bloat.
           </motion.p>
         </div>
 
-        {/* Two-panel: code left, visualization right */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-center mb-16">
-          {/* Left — dark code block */}
+        {/* Two-panel: code left, chart right */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-stretch mb-16">
           <motion.div
             initial={{ opacity: 0, x: -20 }}
             whileInView={{ opacity: 1, x: 0 }}
@@ -527,15 +390,13 @@ export default function AgentSection() {
             <AgentCodeBlock />
           </motion.div>
 
-          {/* Right — agent tree visualization */}
           <motion.div
             initial={{ opacity: 0, x: 20 }}
             whileInView={{ opacity: 1, x: 0 }}
             viewport={{ once: true, margin: '-80px' }}
             transition={{ duration: 0.6, delay: 0.15, ease: EASE }}
-            className="flex flex-col items-center"
           >
-            <AgentTreeVisualization />
+            <ContextGrowthChart />
           </motion.div>
         </div>
 
@@ -579,32 +440,21 @@ export default function AgentSection() {
           })}
         </motion.div>
 
-        {/* Link to guide */}
+        {/* CTAs */}
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           whileInView={{ opacity: 1, y: 0 }}
           viewport={{ once: true }}
           transition={{ duration: 0.5, delay: 0.3, ease: EASE }}
-          className="text-center mt-12"
+          className="mt-12 flex flex-col items-center gap-4"
         >
           <a
-            href="https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+            href="/ax-agent"
+            className="inline-flex items-center gap-2.5 rounded-2xl bg-gray-900 dark:bg-emerald-600 px-8 py-4 text-base font-bold text-white shadow-lg transition-all duration-200 hover:-translate-y-0.5 hover:bg-gray-700 dark:hover:bg-emerald-500 hover:shadow-xl"
           >
-            Read the AxAgent Guide
-          </a>
-          <span className="mx-3 text-slate-300 dark:text-slate-600">|</span>
-          <a
-            href="https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent-optimize.md"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="inline-flex items-center gap-2 text-sm font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
-          >
-            Read the AxAgent Optimize Guide
+            Explore Ax Agent — The Best DSPy + RLM Harness
             <svg
-              className="w-4 h-4"
+              className="w-5 h-5 shrink-0"
               fill="none"
               stroke="currentColor"
               viewBox="0 0 24 24"
@@ -619,6 +469,25 @@ export default function AgentSection() {
               />
             </svg>
           </a>
+          <div className="flex items-center gap-3 text-sm">
+            <a
+              href="https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+            >
+              Read the guide
+            </a>
+            <span className="text-slate-300 dark:text-slate-600">|</span>
+            <a
+              href="https://github.com/ax-llm/ax/blob/main/src/ax/skills/ax-agent-optimize.md"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-medium text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 dark:hover:text-emerald-300 transition-colors"
+            >
+              Optimization guide
+            </a>
+          </div>
         </motion.div>
       </div>
     </section>
