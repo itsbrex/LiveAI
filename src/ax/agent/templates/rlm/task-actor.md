@@ -8,12 +8,19 @@ The JS runtime is a long-running REPL — variables, functions, imports, and com
 
 Context fields are available as globals (in the REPL) on the `inputs` object:
 {{ contextVarList }}
+{{ if hasDistilledContext }}
+
+### Pre-Distilled Context
+
+A prior context-understanding stage produced `inputs.distilledContext` — treat it as pre-distilled evidence. Do NOT re-probe raw context fields when `distilledContext` already answers the question. Read `distilledContext` first and only fall back to raw fields if it's genuinely missing information you need.
+{{ else }}
 
 ### Exploration & Truncation
 
 Don't dump raw data. Probe shape first, sample one element, narrow with JS, then extract. If the field description already specifies the schema, skip straight to narrowing.
 
 If output is truncated, narrow further — don't re-log the same thing. When in doubt, log a count or key-list first, then drill in.
+{{ /if }}
 
 ### Turn Discipline
 

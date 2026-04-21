@@ -4,26 +4,26 @@ import type {
   AxFunction,
   AxFunctionHandler,
   AxFunctionJSONSchema,
-} from '../../ai/types.js';
+} from '../ai/types.js';
 import type {
   AxMetricFn,
   AxOptimizationProgress,
   AxOptimizationStats,
   AxOptimizerArgs,
   AxTypedExample,
-} from '../../dsp/common_types.js';
-import { AxGen } from '../../dsp/generate.js';
-import type { AxJudgeOptions } from '../../dsp/judgeTypes.js';
-import { AxGEPA } from '../../dsp/optimizers/gepa.js';
+} from '../dsp/common_types.js';
+import { AxGen } from '../dsp/generate.js';
+import type { AxJudgeOptions } from '../dsp/judgeTypes.js';
+import { AxGEPA } from '../dsp/optimizers/gepa.js';
 import {
   AxOptimizedProgramImpl,
   type AxOptimizedProgram,
   type AxParetoResult,
-} from '../../dsp/optimizer.js';
-import type { AxOptimizerLoggerFunction } from '../../dsp/optimizerTypes.js';
-import type { AxIField, AxSignatureConfig } from '../../dsp/sig.js';
-import { AxSignature, f } from '../../dsp/sig.js';
-import type { ParseSignature } from '../../dsp/sigtypes.js';
+} from '../dsp/optimizer.js';
+import type { AxOptimizerLoggerFunction } from '../dsp/optimizerTypes.js';
+import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
+import { AxSignature, f } from '../dsp/sig.js';
+import type { ParseSignature } from '../dsp/sigtypes.js';
 import type {
   AxAgentUsage,
   AxChatLogEntry,
@@ -42,13 +42,14 @@ import type {
   AxProgramStreamingForwardOptionsWithModels,
   AxTunable,
   AxUsable,
-} from '../../dsp/types.js';
-import { AxJSRuntime } from '../../funcs/jsRuntime.js';
-import { mergeAbortSignals } from '../../util/abort.js';
-import { AxAIServiceAbortedError } from '../../util/apicall.js';
+} from '../dsp/types.js';
+import { AxJSRuntime } from '../funcs/jsRuntime.js';
+import { mergeAbortSignals } from '../util/abort.js';
+import { AxAIServiceAbortedError } from '../util/apicall.js';
 import type { ActionLogEntry } from './contextManager.js';
 import {
   buildActionEvidenceSummary,
+  buildActionLogParts,
   buildActionLogReplayPlan,
   buildActionLogWithPolicy,
   buildInspectRuntimeBaselineCode,
@@ -69,7 +70,12 @@ import type {
   AxContextPolicyPreset,
   AxRLMConfig,
 } from './rlm.js';
-import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
+import {
+  axBuildActorDefinition,
+  axBuildContextActorDefinition,
+  axBuildResponderDefinition,
+  axBuildTaskActorDefinition,
+} from './rlm.js';
 import {
   AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
   AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
@@ -135,7 +141,6 @@ import {
   buildContextFieldPromptInlineValue,
   buildInternalSummaryRequestOptions,
   buildRLMVariablesInfo,
-  type DiscoveryCallableMeta,
   DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
   DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
   formatBootstrapContextSummary,
@@ -150,27 +155,30 @@ import {
   isSessionClosedError,
   isTransientError,
   looksLikePromisePlaceholder,
-  normalizeAgentFunctionCollection,
-  normalizeAgentModuleNamespace,
   normalizeContextFields,
-  normalizeDiscoveryCallableIdentifier,
-  normalizeDiscoveryStringInput,
-  resolveDiscoveryCallableNamespaces,
   parseRuntimeStateSnapshot,
-  compareCanonicalDiscoveryStrings,
-  renderDiscoveryFunctionDefinitionsMarkdown,
-  renderDiscoveryModuleListMarkdown,
   RUNTIME_RESTART_NOTICE,
   runWithConcurrency,
-  sortDiscoveryModules,
   shouldEnforceIncrementalConsoleTurns,
-  stripSchemaProperties,
-  normalizeAndSortDiscoveryFunctionIdentifiers,
   TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR,
-  toCamelCase,
   truncateText,
   validateActorTurnCodePolicy,
 } from './runtime.js';
+import {
+  compareCanonicalDiscoveryStrings,
+  type DiscoveryCallableMeta,
+  normalizeAgentFunctionCollection,
+  normalizeAgentModuleNamespace,
+  normalizeAndSortDiscoveryFunctionIdentifiers,
+  normalizeDiscoveryCallableIdentifier,
+  normalizeDiscoveryStringInput,
+  renderDiscoveryFunctionDefinitionsMarkdown,
+  renderDiscoveryModuleListMarkdown,
+  resolveDiscoveryCallableNamespaces,
+  sortDiscoveryModules,
+  stripSchemaProperties,
+  toCamelCase,
+} from './runtimeDiscovery.js';
 import {
   buildRuntimeRestoreNotice,
   cloneAgentState,
@@ -650,6 +658,26 @@ export type AxAgentOptions<IN extends AxGenIn = AxGenIn> = Omit<
   judgeOptions?: AxAgentJudgeOptions;
   /** Error classes that should bubble up instead of being caught and returned to the LLM. */
   bubbleErrors?: ReadonlyArray<new (...args: any[]) => Error>;
+  /**
+   * Selects which actor prompt template this internal agent uses.
+   * - `'combined'` (default): monolithic actor.md — context exploration + task execution.
+   * - `'context'`: context-actor.md — Y-RLM distiller; no tools, no discovery.
+   * - `'task'`: task-actor.md — tool executor; optionally consumes pre-distilled contextData.
+   * Set automatically by the AxAgent coordinator; external callers can set it on AxAgentInternal directly.
+   */
+  actorTemplateVariant?: 'combined' | 'context' | 'task';
+  /**
+   * When true, a prior context-understanding stage has produced `inputs.contextData`.
+   * The task-actor template surfaces a hint telling the actor to consume it instead of
+   * re-probing raw context fields. Only meaningful when `actorTemplateVariant === 'task'`.
+   */
+  hasDistilledContext?: boolean;
+  /**
+   * When true, the AxAgent coordinator will split execution into a context-distillation
+   * stage (ctxAgent) followed by a tool-execution stage (taskAgent) when both
+   * `contextFields` and tools are configured. Defaults to false (single-agent path).
+   */
+  enableContextDistillation?: boolean;
 };
 
 export type AxAgentJudgeInput = {
@@ -1143,10 +1171,10 @@ function materializeRecursiveTraceNode(
   };
 }
 
-// ----- AxAgent Class -----
+// ----- AxAgentInternal Class -----
 
 /**
- * A split-architecture AI agent that uses two AxGen programs:
+ * Reusable building block: a split-architecture AI agent with two AxGen programs:
  * - **Actor**: generates code to gather information (inputs, guidanceLog, actionLog -> code)
  * - **Responder**: synthesizes the final answer from actorResult payload (inputs, actorResult -> outputs)
  *
@@ -1154,8 +1182,29 @@ function materializeRecursiveTraceNode(
  * 1. Actor generates code → executed in runtime → result appended to actionLog
  * 2. Loop until Actor calls final(...) / askClarification(...) or maxTurns reached
  * 3. Responder synthesizes final answer from actorResult payload
+ *
+ * The outer `AxAgent` coordinator wires one or two `AxAgentInternal` instances.
+ * Use `AxAgentInternal` directly when you need precise per-instance configuration.
  */
-export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
+
+/**
+ * Unwrap a coordinator (`AxAgent`) to its underlying `AxAgentInternal`.
+ * Returns the agent unchanged if it is already an `AxAgentInternal`.
+ * Used in propagation loops so shared fields/agents/functions reach
+ * coordinator-wrapped children.
+ */
+function resolveToInternal(
+  agent: AxAnyAgentic
+): AxAgentInternal<any, any> | undefined {
+  if (agent instanceof AxAgentInternal) return agent;
+  const maybeCoord = agent as any;
+  if (maybeCoord?.primaryAgent instanceof AxAgentInternal) {
+    return maybeCoord.primaryAgent as AxAgentInternal<any, any>;
+  }
+  return undefined;
+}
+
+export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
   private ai?: AxAIService;
@@ -1408,16 +1457,36 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       return this.baseActorDefinition;
     }
 
+    const buildOptions = {
+      ...this.actorDefinitionBuildOptions,
+      discoveredDocsMarkdown: renderDiscoveryPromptMarkdown(
+        this.currentDiscoveryPromptState
+      ),
+    };
+    const variant = this.options?.actorTemplateVariant ?? 'combined';
+    if (variant === 'context') {
+      return axBuildContextActorDefinition(
+        this.actorDefinitionBaseDescription,
+        this.actorDefinitionContextFields,
+        buildOptions
+      );
+    }
+    if (variant === 'task') {
+      return axBuildTaskActorDefinition(
+        this.actorDefinitionBaseDescription,
+        this.actorDefinitionContextFields,
+        this.actorDefinitionResponderOutputFields,
+        {
+          ...buildOptions,
+          hasDistilledContext: this.options?.hasDistilledContext ?? false,
+        }
+      );
+    }
     return axBuildActorDefinition(
       this.actorDefinitionBaseDescription,
       this.actorDefinitionContextFields,
       this.actorDefinitionResponderOutputFields,
-      {
-        ...this.actorDefinitionBuildOptions,
-        discoveredDocsMarkdown: renderDiscoveryPromptMarkdown(
-          this.currentDiscoveryPromptState
-        ),
-      }
+      buildOptions
     );
   }
 
@@ -1447,7 +1516,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   private _copyRecursiveOptimizationStateTo(
-    target: AxAgent<any, { answer: AxFieldValue }>
+    target: AxAgentInternal<any, { answer: AxFieldValue }>
   ): void {
     target.recursiveInstructionSlots = {
       ...this.recursiveInstructionSlots,
@@ -1697,16 +1766,17 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         sharedFieldNames.includes(fld.name)
       );
       for (const childAgent of agents) {
-        if (!(childAgent instanceof AxAgent)) continue;
+        const internal = resolveToInternal(childAgent);
+        if (!internal) continue;
 
         // Filter out fields the child has excluded
-        const excluded = new Set(childAgent.getExcludedSharedFields());
+        const excluded = new Set(internal.getExcludedSharedFields());
         const applicableFields = sharedFieldMeta.filter(
           (fld) => !excluded.has(fld.name)
         );
         if (applicableFields.length === 0) continue;
 
-        childAgent._extendForSharedFields(
+        internal._extendForSharedFields(
           applicableFields,
           this.rlmConfig.contextFields
         );
@@ -1716,8 +1786,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Propagate shared agents to direct child agents (one level)
     if (sharedAgentsList.length > 0 && agents) {
       for (const childAgent of agents) {
-        if (!(childAgent instanceof AxAgent)) continue;
-        childAgent._extendForSharedAgents(sharedAgentsList);
+        const internal = resolveToInternal(childAgent);
+        if (!internal) continue;
+        internal._extendForSharedAgents(sharedAgentsList);
       }
     }
 
@@ -1727,15 +1798,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         globalSharedFieldNames.includes(fld.name)
       );
       for (const childAgent of agents) {
-        if (!(childAgent instanceof AxAgent)) continue;
+        const internal = resolveToInternal(childAgent);
+        if (!internal) continue;
 
-        const excluded = new Set(childAgent.getExcludedSharedFields());
+        const excluded = new Set(internal.getExcludedSharedFields());
         const applicableFields = globalSharedFieldMeta.filter(
           (fld) => !excluded.has(fld.name)
         );
         if (applicableFields.length === 0) continue;
 
-        childAgent._extendForGlobalSharedFields(
+        internal._extendForGlobalSharedFields(
           applicableFields,
           this.rlmConfig.contextFields
         );
@@ -1745,24 +1817,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Propagate global shared agents to ALL descendants (recursive)
     if (globalSharedAgentsList.length > 0 && agents) {
       for (const childAgent of agents) {
-        if (!(childAgent instanceof AxAgent)) continue;
-        childAgent._extendForGlobalSharedAgents(globalSharedAgentsList);
+        const internal = resolveToInternal(childAgent);
+        if (!internal) continue;
+        internal._extendForGlobalSharedAgents(globalSharedAgentsList);
       }
     }
 
     // Propagate shared agent functions to direct child agents (one level)
     if (sharedAgentFnList.length > 0 && agents) {
       for (const childAgent of agents) {
-        if (!(childAgent instanceof AxAgent)) continue;
-        childAgent._extendForSharedAgentFunctions(sharedAgentFnBundle);
+        const internal = resolveToInternal(childAgent);
+        if (!internal) continue;
+        internal._extendForSharedAgentFunctions(sharedAgentFnBundle);
       }
     }
 
     // Propagate global shared agent functions to ALL descendants (recursive)
     if (globalSharedAgentFnList.length > 0 && agents) {
       for (const childAgent of agents) {
-        if (!(childAgent instanceof AxAgent)) continue;
-        childAgent._extendForGlobalSharedAgentFunctions(
+        const internal = resolveToInternal(childAgent);
+        if (!internal) continue;
+        internal._extendForGlobalSharedAgentFunctions(
           globalSharedAgentFnBundle
         );
       }
@@ -1835,6 +1910,15 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           .string(
             'Trusted runtime guidance for the actor loop. Chronological, newest entry last. Follow the latest relevant guidance while continuing from the current runtime state.'
           )
+          .optional()
+      )
+      .input(
+        'summarizedActorLog',
+        f
+          .string(
+            'Stable compacted context from prior turns (restore notice, delegated context summary, and checkpoint summary). Changes only at compaction boundaries — carries a prompt-cache breakpoint so the preceding prefix can be reused across turns.'
+          )
+          .cache()
           .optional()
       )
       .input(
@@ -1959,12 +2043,32 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       agentFunctions: agentFunctionMeta,
     };
 
-    const actorDef = axBuildActorDefinition(
-      actorDefinitionBaseDescription,
-      contextFieldMeta,
-      responderOutputFields,
-      actorDefinitionBuildOptions
-    );
+    const variant = this.options?.actorTemplateVariant ?? 'combined';
+    let actorDef: string;
+    if (variant === 'context') {
+      actorDef = axBuildContextActorDefinition(
+        actorDefinitionBaseDescription,
+        contextFieldMeta,
+        actorDefinitionBuildOptions
+      );
+    } else if (variant === 'task') {
+      actorDef = axBuildTaskActorDefinition(
+        actorDefinitionBaseDescription,
+        contextFieldMeta,
+        responderOutputFields,
+        {
+          ...actorDefinitionBuildOptions,
+          hasDistilledContext: this.options?.hasDistilledContext ?? false,
+        }
+      );
+    } else {
+      actorDef = axBuildActorDefinition(
+        actorDefinitionBaseDescription,
+        contextFieldMeta,
+        responderOutputFields,
+        actorDefinitionBuildOptions
+      );
+    }
     this.baseActorDefinition = actorDef;
     this.actorDefinitionBaseDescription = actorDefinitionBaseDescription;
     this.actorDefinitionContextFields = contextFieldMeta;
@@ -2068,6 +2172,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     for (const agent of newAgents) {
       if (agent === this) continue;
+      // Also skip if agent is a coordinator whose primaryAgent is this very internal
+      if (resolveToInternal(agent) === this) continue;
       const name = agent.getFunction().name;
       if (excluded.has(name)) continue;
       if (existingNames.has(name)) {
@@ -2162,13 +2268,14 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     // Recursively propagate to this agent's own children
     if (this.agents) {
       for (const childAgent of this.agents) {
-        if (!(childAgent instanceof AxAgent)) continue;
-        const excluded = new Set(childAgent.getExcludedSharedFields());
+        const internal = resolveToInternal(childAgent);
+        if (!internal) continue;
+        const excluded = new Set(internal.getExcludedSharedFields());
         const applicableFields = fields.filter(
           (fld) => !excluded.has(fld.name)
         );
         if (applicableFields.length === 0) continue;
-        childAgent._extendForGlobalSharedFields(
+        internal._extendForGlobalSharedFields(
           applicableFields,
           parentContextFieldNames
         );
@@ -2186,9 +2293,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   ): void {
     // Collect children to recurse into BEFORE extending (to avoid recursing
     // into the newly added agents themselves, which could cause infinite loops).
-    const childrenToRecurse = this.agents
-      ? this.agents.filter((a): a is AxAgent<any, any> => a instanceof AxAgent)
-      : [];
+    const childrenToRecurse = (this.agents ?? [])
+      .map(resolveToInternal)
+      .filter((a): a is AxAgentInternal<any, any> => a !== undefined);
 
     // Extend THIS agent
     this._extendForSharedAgents(newAgents);
@@ -2250,9 +2357,9 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     bundle: Readonly<NormalizedAgentFunctionCollection>
   ): void {
     // Collect children BEFORE extending to avoid recursing into newly added items
-    const childrenToRecurse = this.agents
-      ? this.agents.filter((a): a is AxAgent<any, any> => a instanceof AxAgent)
-      : [];
+    const childrenToRecurse = (this.agents ?? [])
+      .map(resolveToInternal)
+      .filter((a): a is AxAgentInternal<any, any> => a !== undefined);
 
     this._extendForSharedAgentFunctions(bundle);
 
@@ -3183,7 +3290,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       localMax: maxSubAgentCalls, // fallback uses globalMax (root behavior)
     };
     const activeRecursiveSubAgents = new Set<
-      AxAgent<any, { answer: AxFieldValue }>
+      AxAgentInternal<any, { answer: AxFieldValue }>
     >();
 
     const llmCallWarnThreshold = Math.floor(llmQueryBudgetState.localMax * 0.8);
@@ -3218,7 +3325,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const createRecursiveSubAgent = () =>
       (() => {
-        const recursiveSubAgent = new AxAgent<any, { answer: AxFieldValue }>(
+        const recursiveSubAgent = new AxAgentInternal<any, { answer: AxFieldValue }>(
           {
             agentModuleNamespace: this.agentModuleNamespace,
             signature: recursiveChildSignature,
@@ -3251,7 +3358,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       })();
 
     const wireRecursiveSubAgent = (
-      recursiveSubAgent: AxAgent<any, { answer: AxFieldValue }>
+      recursiveSubAgent: AxAgentInternal<any, { answer: AxFieldValue }>
     ) => {
       // Child gets a fresh local budget but shares the parent's global counter
       recursiveSubAgent.llmQueryBudgetState = {
@@ -4605,7 +4712,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     const buildActorPromptValues = (
       actionLog: string,
       guidanceLog: string | undefined,
-      liveRuntimeState?: string
+      liveRuntimeState?: string,
+      summarizedActorLog?: string
     ) => {
       const values: Record<string, unknown> = {
         ...inputState.getNonContextValues(),
@@ -4622,18 +4730,27 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       if (liveRuntimeState) {
         values.liveRuntimeState = liveRuntimeState;
       }
+      if (summarizedActorLog) {
+        values.summarizedActorLog = summarizedActorLog;
+      }
       return values;
     };
 
     const measureActorPromptChars = (
       actionLog: string,
       guidanceLog?: string,
-      liveRuntimeState?: string
+      liveRuntimeState?: string,
+      summarizedActorLog?: string
     ) => {
       refreshActorInstruction();
       return this.actorProgram._measurePromptCharsForInternalUse(
         ai,
-        buildActorPromptValues(actionLog, guidanceLog, liveRuntimeState),
+        buildActorPromptValues(
+          actionLog,
+          guidanceLog,
+          liveRuntimeState,
+          summarizedActorLog
+        ),
         actorMergedOptions
       );
     };
@@ -4655,6 +4772,28 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
 
     const renderActionLog = () =>
       renderActionLogWithReplayMode(
+        runtimeContext.effectiveContextConfig.actionReplay,
+        checkpointState?.summary,
+        checkpointState?.turns
+      );
+
+    const renderActionLogPartsWithReplayMode = (
+      actionReplay: AxResolvedContextPolicy['actionReplay'],
+      checkpointSummary?: string,
+      checkpointTurns?: readonly number[]
+    ) =>
+      buildActionLogParts(getPromptFacingEntries(), {
+        actionReplay,
+        recentFullActions:
+          runtimeContext.effectiveContextConfig.recentFullActions,
+        restoreNotice,
+        delegatedContextSummary,
+        checkpointSummary,
+        checkpointTurns,
+      });
+
+    const renderActionLogParts = () =>
+      renderActionLogPartsWithReplayMode(
         runtimeContext.effectiveContextConfig.actionReplay,
         checkpointState?.summary,
         checkpointState?.turns
@@ -4846,13 +4985,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           resetActorModelErrorState();
         }
 
-        const baseActionLogText = renderActionLog();
-        let actionLogText = baseActionLogText;
+        const { summary: baseSummarizedActorLog, history: baseHistoryText } =
+          renderActionLogParts();
+        const summarizedActorLogText = baseSummarizedActorLog || undefined;
+        let actionLogText = baseHistoryText || '(no actions yet)';
         const guidanceLogText = renderGuidanceLog(guidanceState.entries);
         const inspectMetrics = await measureActorPromptChars(
           actionLogText,
           guidanceLogText,
-          runtimeStateSummary
+          runtimeStateSummary,
+          summarizedActorLogText
         );
         const inspectFixedOverhead =
           inspectMetrics.systemPromptCharacters +
@@ -4898,7 +5040,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
           buildActorPromptValues(
             actionLogText,
             guidanceLogText,
-            runtimeStateSummary
+            runtimeStateSummary,
+            summarizedActorLogText
           ),
           actorCallOptions
         );
@@ -5496,7 +5639,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       typeof sharedFieldValues !== 'function' &&
       (!sharedFieldValues || Object.keys(sharedFieldValues).length === 0)
     ) {
-      return AxAgent.wrapFunction(
+      return AxAgentInternal.wrapFunction(
         fn,
         abortSignal,
         ai,
@@ -5613,7 +5756,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       }
       const qualifiedName = `${ns}.${agentFn.name}`;
       (globals[ns] as Record<string, unknown>)[agentFn.name] =
-        AxAgent.wrapFunction(
+        AxAgentInternal.wrapFunction(
           agentFn,
           abortSignal,
           ai,
@@ -5655,7 +5798,7 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
         };
 
         const qualifiedName = `${this.agentModuleNamespace}.${fn.name}`;
-        agentsObj[fn.name] = AxAgent.wrapFunctionWithSharedFields(
+        agentsObj[fn.name] = AxAgentInternal.wrapFunctionWithSharedFields(
           fn,
           abortSignal,
           getApplicableSharedFields,
@@ -5751,6 +5894,417 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
     return this._parentSharedFields.size > 0
       ? stripSchemaProperties(schema, this._parentSharedFields)
       : schema;
+  }
+}
+
+// ----- AxAgent Coordinator Class -----
+
+/**
+ * Coordinator that wires one or two `AxAgentInternal` instances based on the
+ * user's declared `contextFields` and tools:
+ *
+ * - **Case A** (`contextFields` + tools): ctx stage distils long-context inputs into
+ *   `contextData`; task stage runs tool-dispatch with that pre-distilled payload.
+ * - **Case B** (`contextFields`, no tools): single ctx stage whose responder emits
+ *   the user's output signature directly.
+ * - **Case C/D** (no `contextFields`, with or without tools): single task stage,
+ *   behaviorally equivalent to the pre-split `AxAgent`.
+ *
+ * This is the primary user-facing class. `AxAgentInternal` is exported for callers
+ * that need direct per-instance control.
+ */
+export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
+  implements AxAgentic<IN, OUT>
+{
+  private readonly ctxAgent?: AxAgentInternal<any, any>;
+  private readonly taskAgent?: AxAgentInternal<any, any>;
+  private readonly primaryAgent: AxAgentInternal<any, any>;
+  private readonly contextFieldNames: Set<string>;
+  private readonly fullSignature: AxSignature<IN, OUT>;
+  private func?: AxFunction;
+
+  constructor(
+    init: Readonly<{
+      ai?: Readonly<AxAIService>;
+      judgeAI?: Readonly<AxAIService>;
+      agentIdentity?: Readonly<AxAgentIdentity>;
+      agentModuleNamespace?: string;
+      signature:
+        | string
+        | Readonly<AxSignatureConfig>
+        | Readonly<AxSignature<IN, OUT>>;
+    }>,
+    options: Readonly<AxAgentOptions<IN>>
+  ) {
+    this.fullSignature =
+      typeof init.signature === 'string'
+        ? (AxSignature.create(init.signature) as AxSignature<IN, OUT>)
+        : init.signature instanceof AxSignature
+          ? (init.signature as AxSignature<IN, OUT>)
+          : (new AxSignature(init.signature) as AxSignature<IN, OUT>);
+
+    const ctxFieldInputs = options.contextFields ?? [];
+    this.contextFieldNames = new Set(
+      ctxFieldInputs.map((cf) => (typeof cf === 'string' ? cf : cf.field))
+    );
+
+    const hasContextFields = this.contextFieldNames.size > 0;
+    const hasLocalAgents = (options.agents?.local?.length ?? 0) > 0;
+    const hasLocalFunctions = (options.functions?.local?.length ?? 0) > 0;
+    const hasDiscovery = Boolean(options.functions?.discovery);
+    const hasTools = hasLocalAgents || hasLocalFunctions || hasDiscovery;
+
+    if (hasContextFields && hasTools && options.enableContextDistillation) {
+      // Case A: ctx distils context, task executes with tools (opt-in only)
+      const allInputFields = this.fullSignature.getInputFields();
+      const allOutputFields = this.fullSignature.getOutputFields();
+
+      const ctxInputFields = allInputFields.filter((fld) =>
+        this.contextFieldNames.has(fld.name)
+      );
+      const nonCtxInputFields = allInputFields.filter(
+        (fld) => !this.contextFieldNames.has(fld.name)
+      );
+
+      // Use `distilledContext` — not `contextData` — so it doesn't collide with
+      // the internal `contextData` responder field used by both internal agents.
+      const ctxSig = f()
+        .addInputFields(ctxInputFields)
+        .output(
+          'distilledContext',
+          f
+            .json('Pre-distilled context evidence for the task stage.')
+            .optional()
+        )
+        .build();
+
+      this.ctxAgent = new AxAgentInternal(
+        { ...init, signature: ctxSig },
+        {
+          contextFields: [...ctxFieldInputs],
+          runtime: options.runtime,
+          promptLevel: options.promptLevel,
+          maxTurns: options.maxTurns,
+          maxRuntimeChars: options.maxRuntimeChars,
+          contextPolicy: options.contextPolicy,
+          summarizerOptions: options.summarizerOptions,
+          actorOptions: options.actorOptions,
+          responderOptions: options.responderOptions,
+          bubbleErrors: options.bubbleErrors,
+          actorTemplateVariant: 'context',
+        }
+      );
+
+      const taskSig = f()
+        .addInputFields(nonCtxInputFields)
+        .input(
+          'distilledContext',
+          f
+            .json(
+              'Pre-distilled context evidence from the context-understanding stage.'
+            )
+            .optional()
+        )
+        .addOutputFields(allOutputFields)
+        .build();
+
+      // Strip contextField names from shared-field lists so the taskAgent
+      // doesn't try to validate/inject fields that belong to the ctxAgent.
+      const taskOptions = {
+        ...options,
+        contextFields: [],
+        fields: options.fields
+          ? {
+              ...options.fields,
+              shared: options.fields.shared?.filter(
+                (f) => !this.contextFieldNames.has(f)
+              ),
+              globallyShared: options.fields.globallyShared?.filter(
+                (f) => !this.contextFieldNames.has(f)
+              ),
+            }
+          : options.fields,
+        actorTemplateVariant: 'task' as const,
+        hasDistilledContext: true,
+      };
+
+      this.taskAgent = new AxAgentInternal(
+        { ...init, signature: taskSig },
+        taskOptions as any
+      );
+
+      this.primaryAgent = this.taskAgent;
+    } else {
+      // Cases B, C, D: single internal agent — matches pre-split behavior.
+      // Context-only (B) and no-split (C/D) all use the combined actor template
+      // so existing behavior and tests are preserved. The split only activates
+      // when both contextFields AND tools are present (Case A).
+      this.taskAgent = new AxAgentInternal(init as any, options);
+      this.primaryAgent = this.taskAgent;
+    }
+
+    if (init.agentIdentity) {
+      const coordForward = this.forward.bind(this);
+      const coordSig = this.fullSignature;
+      const coordFuncName = init.agentIdentity.namespace
+        ? `${init.agentIdentity.namespace}.${toCamelCase(init.agentIdentity.name)}`
+        : toCamelCase(init.agentIdentity.name);
+      this.func = {
+        name: coordFuncName,
+        description: init.agentIdentity.description,
+        parameters: this.fullSignature.toInputJSONSchema(),
+        func: async (funcValues: any, funcOptions?: any): Promise<string> => {
+          const ai = funcOptions?.ai;
+          if (!ai) {
+            throw new Error('AI service is required to run the agent');
+          }
+          const ret = await coordForward(ai, funcValues, funcOptions);
+          const outFields = coordSig.getOutputFields();
+          return Object.keys(ret as Record<string, unknown>)
+            .map((k) => {
+              const field = outFields.find((fld) => fld.name === k);
+              return field
+                ? `${field.title}: ${(ret as Record<string, unknown>)[k]}`
+                : `${k}: ${(ret as Record<string, unknown>)[k]}`;
+            })
+            .join('\n');
+        },
+      };
+    }
+  }
+
+  public async forward<T extends Readonly<AxAIService>>(
+    ai: T,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
+  ): Promise<OUT> {
+    if (this.ctxAgent && this.taskAgent) {
+      const rawValues: Record<string, unknown> = Array.isArray(values)
+        ? values
+            .filter((m) => m.role === 'user')
+            .reduce<Record<string, unknown>>(
+              (acc, m) => ({ ...acc, ...(m.values as Record<string, unknown>) }),
+              {}
+            )
+        : (values as Record<string, unknown>);
+
+      const ctxValues: Record<string, unknown> = {};
+      const nonCtxValues: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rawValues)) {
+        if (this.contextFieldNames.has(k)) {
+          ctxValues[k] = v;
+        } else {
+          nonCtxValues[k] = v;
+        }
+      }
+
+      const ctxOut = await this.ctxAgent.forward(
+        ai,
+        ctxValues as any,
+        options as any
+      );
+      return this.taskAgent.forward(
+        ai,
+        { ...nonCtxValues, distilledContext: (ctxOut as any).distilledContext } as any,
+        options as any
+      ) as Promise<OUT>;
+    }
+    return this.primaryAgent.forward(
+      ai,
+      values as any,
+      options as any
+    ) as Promise<OUT>;
+  }
+
+  public async *streamingForward<T extends Readonly<AxAIService>>(
+    ai: T,
+    values: IN | AxMessage<IN>[],
+    options?: Readonly<AxProgramStreamingForwardOptionsWithModels<T>>
+  ): AxGenStreamingOut<OUT> {
+    if (this.ctxAgent && this.taskAgent) {
+      const rawValues: Record<string, unknown> = Array.isArray(values)
+        ? values
+            .filter((m) => m.role === 'user')
+            .reduce<Record<string, unknown>>(
+              (acc, m) => ({ ...acc, ...(m.values as Record<string, unknown>) }),
+              {}
+            )
+        : (values as Record<string, unknown>);
+
+      const ctxValues: Record<string, unknown> = {};
+      const nonCtxValues: Record<string, unknown> = {};
+      for (const [k, v] of Object.entries(rawValues)) {
+        if (this.contextFieldNames.has(k)) {
+          ctxValues[k] = v;
+        } else {
+          nonCtxValues[k] = v;
+        }
+      }
+
+      // ctx runs non-streaming; only the final task stage streams
+      const ctxOut = await this.ctxAgent.forward(
+        ai,
+        ctxValues as any,
+        options as any
+      );
+      yield* this.taskAgent.streamingForward(
+        ai,
+        {
+          ...nonCtxValues,
+          distilledContext: (ctxOut as any).distilledContext,
+        } as any,
+        options as any
+      ) as AxGenStreamingOut<OUT>;
+      return;
+    }
+    yield* this.primaryAgent.streamingForward(
+      ai,
+      values as any,
+      options as any
+    ) as AxGenStreamingOut<OUT>;
+  }
+
+  public getFunction(): AxFunction {
+    if (!this.func) {
+      throw new Error(
+        'getFunction() requires agentIdentity to be set in the constructor'
+      );
+    }
+    return this.func;
+  }
+
+  public getSignature(): AxSignature {
+    // Delegate to primaryAgent so shared-field propagation mutations are visible.
+    return this.primaryAgent.getSignature();
+  }
+
+  public stop(): void {
+    this.ctxAgent?.stop();
+    this.taskAgent?.stop();
+  }
+
+  public getId(): string {
+    return this.primaryAgent.getId();
+  }
+
+  public setId(id: string): void {
+    this.primaryAgent.setId(id);
+  }
+
+  public namedPrograms(): Array<{ id: string; signature?: string }> {
+    return this.primaryAgent.namedPrograms();
+  }
+
+  public namedProgramInstances(): AxNamedProgramInstance<IN, OUT>[] {
+    return this.primaryAgent.namedProgramInstances() as AxNamedProgramInstance<
+      IN,
+      OUT
+    >[];
+  }
+
+  public getTraces(): AxProgramTrace<IN, OUT>[] {
+    return this.primaryAgent.getTraces() as AxProgramTrace<IN, OUT>[];
+  }
+
+  public setDemos(
+    demos: readonly (AxAgentDemos<IN, OUT> | AxProgramDemos<IN, OUT>)[],
+    options?: { modelConfig?: Record<string, unknown> }
+  ): void {
+    this.primaryAgent.setDemos(demos as any, options);
+  }
+
+  public getUsage(): AxAgentUsage {
+    const primaryUsage = this.primaryAgent.getUsage();
+    if (!this.ctxAgent) {
+      return primaryUsage as AxAgentUsage;
+    }
+    const ctxUsage = this.ctxAgent.getUsage() as AxAgentUsage;
+    const taskUsage = primaryUsage as AxAgentUsage;
+    return {
+      actor: [...ctxUsage.actor, ...taskUsage.actor],
+      responder: [...ctxUsage.responder, ...taskUsage.responder],
+    };
+  }
+
+  public getChatLog(): {
+    actor: readonly AxChatLogEntry[];
+    responder: readonly AxChatLogEntry[];
+  } {
+    const primaryLog = this.primaryAgent.getChatLog();
+    if (!this.ctxAgent) {
+      return primaryLog;
+    }
+    const ctxLog = this.ctxAgent.getChatLog();
+    return {
+      actor: [...ctxLog.actor, ...primaryLog.actor],
+      responder: [...ctxLog.responder, ...primaryLog.responder],
+    };
+  }
+
+  public resetUsage(): void {
+    this.ctxAgent?.resetUsage();
+    this.taskAgent?.resetUsage();
+  }
+
+  public getState(): AxAgentState | undefined {
+    return this.primaryAgent.getState();
+  }
+
+  public setState(state?: AxAgentState): void {
+    this.primaryAgent.setState(state);
+  }
+
+  public setSignature(
+    signature: NonNullable<ConstructorParameters<typeof AxSignature>[0]>
+  ): void {
+    this.primaryAgent.setSignature(signature);
+    if (this.func) {
+      this.func.parameters = new AxSignature(signature).toInputJSONSchema();
+    }
+  }
+
+  public applyOptimization(optimizedProgram: any): void {
+    this.primaryAgent.applyOptimization(optimizedProgram);
+  }
+
+  public async optimize(
+    dataset: Readonly<AxAgentEvalDataset<IN>>,
+    options?: Readonly<AxAgentOptimizeOptions<IN, OUT>>
+  ): Promise<AxAgentOptimizeResult<OUT>> {
+    // Delegate the heavy lifting to primaryAgent but suppress auto-apply so
+    // the coordinator's own applyOptimization() is called (allowing spies to fire).
+    const result = await this.primaryAgent.optimize(dataset, {
+      ...options,
+      apply: false,
+    });
+    if (options?.apply !== false && result.optimizedProgram) {
+      this.applyOptimization(result.optimizedProgram);
+    }
+    return result;
+  }
+
+  public getExcludedSharedFields(): readonly string[] {
+    return this.primaryAgent.getExcludedSharedFields();
+  }
+
+  public getExcludedAgents(): readonly string[] {
+    return this.primaryAgent.getExcludedAgents();
+  }
+
+  public getExcludedAgentFunctions(): readonly string[] {
+    return this.primaryAgent.getExcludedAgentFunctions();
+  }
+
+  public async test(
+    code: string,
+    values?: Partial<IN>,
+    options?: Readonly<{
+      ai?: AxAIService;
+      abortSignal?: AbortSignal;
+      debug?: boolean;
+    }>
+  ): Promise<AxAgentTestResult> {
+    return this.primaryAgent.test(code, values, options);
   }
 }
 

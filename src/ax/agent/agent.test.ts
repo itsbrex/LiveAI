@@ -23,21 +23,30 @@ import {
   AxAgentClarificationError,
   type AxAgentState,
   agent,
-} from './agent.js';
+} from './index.js';
 import {
   AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
   AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
   AX_AGENT_RECURSIVE_TARGET_IDS,
 } from './agentRecursiveOptimize.js';
-import { truncateText, validateActorTurnCodePolicy } from './agent/runtime.js';
+import { truncateText, validateActorTurnCodePolicy } from './runtime.js';
 import {
   AxAgentProtocolCompletionSignal,
   createCompletionBindings,
-} from './agent/completion.js';
+} from './completion.js';
 import type { AxCodeRuntime } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
 
 // ----- Helpers -----
+
+/**
+ * Returns the primary AxAgentInternal instance from an AxAgent coordinator or
+ * the agent itself when it is already an AxAgentInternal.
+ * Use this to access private fields (actorProgram, _runActorLoop, etc.) in tests.
+ */
+function getInternal(agent: any): any {
+  return agent.primaryAgent ?? agent;
+}
 
 const makeModelUsage = () => ({
   ai: 'mock-ai',
@@ -691,7 +700,7 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (a as any).actorProgram
+    const actorDesc = getInternal(a).actorProgram
       .getSignature()
       .getDescription() as string;
     // Should contain the base RLM prompt
@@ -711,7 +720,7 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (a as any).actorProgram
+    const actorDesc = getInternal(a).actorProgram
       .getSignature()
       .getDescription() as string;
 
@@ -731,7 +740,7 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (a as any).actorProgram
+    const actorDesc = getInternal(a).actorProgram
       .getSignature()
       .getDescription() as string;
 
@@ -750,7 +759,7 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (a as any).actorProgram.getSignature();
+    const actorSig = getInternal(a).actorProgram.getSignature();
     const actorDesc = actorSig.getDescription() as string;
     const actorInputs = actorSig.getInputFields() as AxIField[];
     const guidanceField = actorInputs.find((f) => f.name === 'guidanceLog');
@@ -798,7 +807,7 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderDesc = (a as any).responderProgram
+    const responderDesc = getInternal(a).responderProgram
       .getSignature()
       .getDescription() as string;
     // Should contain the base RLM prompt
@@ -820,11 +829,11 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (a as any).actorProgram
+    const actorDesc = getInternal(a).actorProgram
       .getSignature()
       .getDescription() as string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderDesc = (a as any).responderProgram
+    const responderDesc = getInternal(a).responderProgram
       .getSignature()
       .getDescription() as string;
 
@@ -853,7 +862,7 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const inputs = actorSig.getInputFields();
     const outputs = actorSig.getOutputFields();
 
@@ -920,7 +929,7 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const inputs = actorSig.getInputFields();
     const contextField = inputs.find((f: AxIField) => f.name === 'context');
 
@@ -937,7 +946,7 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const inputs = actorSig.getInputFields();
     const contextField = inputs.find((f: AxIField) => f.name === 'context');
 
@@ -953,7 +962,7 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const outputs = actorSig.getOutputFields();
 
     // contextPolicy does not affect the signature -- still just javascriptCode
@@ -988,7 +997,7 @@ describe('Split-architecture signature derivation', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderSig = (testAgent as any).responderProgram.getSignature();
+    const responderSig = getInternal(testAgent).responderProgram.getSignature();
     const inputs = responderSig.getInputFields();
     const outputs = responderSig.getOutputFields();
 
@@ -1013,7 +1022,7 @@ describe('Split-architecture signature derivation', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const inputs = actorSig.getInputFields();
 
     // All original inputs preserved (none removed as context)
@@ -1035,9 +1044,9 @@ describe('Split-architecture signature derivation', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderSig = (testAgent as any).responderProgram.getSignature();
+    const responderSig = getInternal(testAgent).responderProgram.getSignature();
     const actorInputs = actorSig.getInputFields();
     const responderInputs = responderSig.getInputFields();
     const responderOutputs = responderSig.getOutputFields();
@@ -2655,7 +2664,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const definition = actorSig.getDescription();
 
     expect(definition).toContain('inspect_runtime');
@@ -3115,7 +3124,7 @@ describe('Actor/Responder execution loop', () => {
       features: { functions: false, streaming: false },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
       values: { actionLog: string }
@@ -4643,7 +4652,7 @@ describe('Actor/Responder execution loop', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const definition = actorSig.getDescription();
 
     expect(definition).not.toContain('- `await inspect_runtime(): string`');
@@ -5169,19 +5178,8 @@ describe('final()/askClarification() as runtime globals', () => {
       maxTurns: 2,
     });
 
-    const loopResult = await (
-      testAgent as unknown as {
-        _runActorLoop: (
-          ai: unknown,
-          values: { query: string },
-          options: undefined,
-          signal: AbortSignal
-        ) => Promise<{
-          actionLog: string;
-          actorResult: { type: string; args: unknown[] };
-        }>;
-      }
-    )._runActorLoop(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loopResult = await (getInternal(testAgent) as any)._runActorLoop(
       testMockAI,
       { query: 'test' },
       undefined,
@@ -5211,7 +5209,7 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => {
       actorCallCount++;
       return {
@@ -5219,19 +5217,8 @@ describe('final()/askClarification() as runtime globals', () => {
       };
     };
 
-    const loopResult = await (
-      testAgent as unknown as {
-        _runActorLoop: (
-          ai: unknown,
-          values: { query: string },
-          options: undefined,
-          signal: AbortSignal
-        ) => Promise<{
-          actionLog: string;
-          actorResult: { type: string; args: unknown[] };
-        }>;
-      }
-    )._runActorLoop(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loopResult = await (getInternal(testAgent) as any)._runActorLoop(
       ai,
       { query: 'test' },
       undefined,
@@ -5288,7 +5275,7 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => {
       actorCallCount++;
       return actorCallCount === 1
@@ -5301,19 +5288,8 @@ describe('final()/askClarification() as runtime globals', () => {
           };
     };
 
-    const loopResult = await (
-      testAgent as unknown as {
-        _runActorLoop: (
-          ai: unknown,
-          values: { query: string },
-          options: undefined,
-          signal: AbortSignal
-        ) => Promise<{
-          actionLog: string;
-          actorResult: { type: string; args: unknown[] };
-        }>;
-      }
-    )._runActorLoop(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const loopResult = await (getInternal(testAgent) as any)._runActorLoop(
       ai,
       { query: 'test' },
       undefined,
@@ -5343,7 +5319,7 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode:
         'const draft = "Lisbon itinerary"; askClarification({ question: "Which route should I use?", type: "multiple_choice", choices: ["Fastest", "Scenic"] })',
@@ -5387,7 +5363,7 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode: 'askClarification("What dates should I use?")',
     });
@@ -5414,6 +5390,7 @@ describe('final()/askClarification() as runtime globals', () => {
 
   it('should round-trip runtime state with getState()/setState() and show restored prompt context', async () => {
     const actorActionLogs: string[] = [];
+    const actorSummarizedLogs: (string | undefined)[] = [];
     const actorRuntimeStates: (string | undefined)[] = [];
     let actorCallCount = 0;
 
@@ -5427,12 +5404,17 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
-      values: { actionLog: string; liveRuntimeState?: string }
+      values: {
+        actionLog: string;
+        liveRuntimeState?: string;
+        summarizedActorLog?: string;
+      }
     ) => {
       actorActionLogs.push(values.actionLog);
+      actorSummarizedLogs.push(values.summarizedActorLog);
       actorRuntimeStates.push(values.liveRuntimeState);
       actorCallCount++;
 
@@ -5489,8 +5471,9 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     expect(resumed.reply).toBe('Trip to Lisbon on June 1-5 under $1200');
-    expect(actorActionLogs[1]).toContain('Runtime Restore:');
-    expect(actorActionLogs[1]).not.toContain('Live Runtime State:');
+    expect(actorSummarizedLogs[1]).toContain('Runtime Restore:');
+    expect(actorSummarizedLogs[1]).not.toContain('Live Runtime State:');
+    expect(actorActionLogs[1]).not.toContain('Runtime Restore:');
     expect(actorRuntimeStates[1]).toBeDefined();
     expect(actorRuntimeStates[1]).toContain('budget: number = 1200');
     expect(actorRuntimeStates[1]).toContain('draftReply');
@@ -5584,7 +5567,7 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => {
       actorTurn++;
       return {
@@ -5621,7 +5604,7 @@ describe('final()/askClarification() as runtime globals', () => {
     resumedAgent.setState(savedState);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyResumedAgent = resumedAgent as any;
+    const anyResumedAgent = getInternal(resumedAgent) as any;
     anyResumedAgent.actorProgram.forward = async (
       _ai: unknown,
       values: { actionLog: string; guidanceLog: string }
@@ -5696,7 +5679,7 @@ describe('final()/askClarification() as runtime globals', () => {
     } as AxAgentState);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
       values: { actionLog: string; guidanceLog: string }
@@ -5738,6 +5721,7 @@ describe('final()/askClarification() as runtime globals', () => {
 
   it('should not render restored live runtime state when using full replay', async () => {
     const actorActionLogs: string[] = [];
+    const actorSummarizedLogs: (string | undefined)[] = [];
     let actorCallCount = 0;
 
     const ai = new AxMockAIService({
@@ -5750,12 +5734,13 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
-      values: { actionLog: string }
+      values: { actionLog: string; summarizedActorLog?: string }
     ) => {
       actorActionLogs.push(values.actionLog);
+      actorSummarizedLogs.push(values.summarizedActorLog);
       actorCallCount++;
 
       return actorCallCount === 1
@@ -5801,7 +5786,8 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     expect(resumed.reply).toBe('Trip to Lisbon on June 1-5 under $1200');
-    expect(actorActionLogs[1]).toContain('Runtime Restore:');
+    expect(actorSummarizedLogs[1]).toContain('Runtime Restore:');
+    expect(actorActionLogs[1]).not.toContain('Runtime Restore:');
     expect(actorActionLogs[1]).not.toContain('Live Runtime State:');
     expect(actorActionLogs[1]).not.toContain('liveRuntimeState');
   });
@@ -5835,7 +5821,7 @@ describe('final()/askClarification() as runtime globals', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode: 'const answer = "done"; final(answer)',
     });
@@ -8631,7 +8617,7 @@ describe('actorFields', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (testAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(testAgent).actorProgram.getSignature();
     const actorOutputs = actorSig.getOutputFields();
 
     // Actor should have javascriptCode + reasoning
@@ -8644,7 +8630,7 @@ describe('actorFields', () => {
     expect(actorOutputs).toHaveLength(2);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderSig = (testAgent as any).responderProgram.getSignature();
+    const responderSig = getInternal(testAgent).responderProgram.getSignature();
     const responderOutputs = responderSig.getOutputFields();
 
     // Responder should have answer + confidence (not reasoning)
@@ -8678,7 +8664,7 @@ describe('actorFields', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (testAgent as any).actorProgram
+    const actorDesc = getInternal(testAgent).actorProgram
       .getSignature()
       .getDescription() as string;
 
@@ -8946,7 +8932,7 @@ describe('actorTurnCallback', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anySeedAgent = seedAgent as any;
+    const anySeedAgent = getInternal(seedAgent) as any;
     let seedTurn = 0;
     anySeedAgent.actorProgram.forward = async () => {
       seedTurn++;
@@ -8977,7 +8963,7 @@ describe('actorTurnCallback', () => {
     resumedAgent.setState(savedState);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyResumedAgent = resumedAgent as any;
+    const anyResumedAgent = getInternal(resumedAgent) as any;
     let resumedTurn = 0;
     anyResumedAgent.actorProgram.forward = async () => {
       resumedTurn++;
@@ -9325,7 +9311,7 @@ describe('inputUpdateCallback', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderProgram = (testAgent as any).responderProgram;
+    const responderProgram = getInternal(testAgent).responderProgram;
     const originalResponderForward =
       responderProgram.forward.bind(responderProgram);
     responderProgram.forward = async (
@@ -9698,7 +9684,7 @@ describe('inputUpdateCallback', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode: 'final(inputs.query)',
     });
@@ -9767,7 +9753,7 @@ describe('inputUpdateCallback', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode: 'final(inputs.query, {})',
     });
@@ -9832,7 +9818,7 @@ describe('inputUpdateCallback', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     let actorTurn = 0;
     anyAgent.actorProgram.forward = async () => {
       actorTurn++;
@@ -9904,7 +9890,7 @@ describe('inputUpdateCallback', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     let actorTurn = 0;
     anyAgent.actorProgram.forward = async () => {
       actorTurn++;
@@ -11545,7 +11531,7 @@ describe('judgeOptions / optimize', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode:
         'askClarification({ question: "Which date should I use?", type: "date" })',
@@ -11647,7 +11633,7 @@ describe('judgeOptions / optimize', () => {
     testAgent.setState(savedState);
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
       values: { query: string }
@@ -11744,7 +11730,7 @@ describe('judgeOptions / optimize', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode:
         'askClarification({ question: "Which date should I use?", type: "date" })',
@@ -11797,7 +11783,7 @@ describe('judgeOptions / optimize', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => {
       actorCallCount += 1;
       return {
@@ -12008,7 +11994,7 @@ describe('judgeOptions / optimize', () => {
       })
     );
 
-    const prediction = await (testAgent as any)._forwardForEvaluation(
+    const prediction = await getInternal(testAgent)._forwardForEvaluation(
       studentAI,
       makeTask({
         input: { query: 'Use one recursive subtask, then answer.' },
@@ -12102,7 +12088,7 @@ describe('judgeOptions / optimize', () => {
       maxTurns: 2,
     });
 
-    const prediction = await (testAgent as any)._forwardForEvaluation(
+    const prediction = await getInternal(testAgent)._forwardForEvaluation(
       studentAI,
       makeTask({
         input: { query: 'Simple question: answer directly.' },
@@ -14037,7 +14023,7 @@ describe('Shared Fields', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
     const actorInputNames = actorSig
       .getInputFields()
       .map((f: { name: string }) => f.name);
@@ -14050,7 +14036,7 @@ describe('Shared Fields', () => {
     expect(actorInputNames).not.toContain('context');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderSig = (parentAgent as any).responderProgram.getSignature();
+    const responderSig = getInternal(parentAgent).responderProgram.getSignature();
     const responderInputNames = responderSig
       .getInputFields()
       .map((f: { name: string }) => f.name);
@@ -14070,7 +14056,7 @@ describe('Shared Fields', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
     const actorInputNames = actorSig
       .getInputFields()
       .map((f: { name: string }) => f.name);
@@ -14080,7 +14066,7 @@ describe('Shared Fields', () => {
     expect(actorInputNames).not.toContain('context');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderSig = (parentAgent as any).responderProgram.getSignature();
+    const responderSig = getInternal(parentAgent).responderProgram.getSignature();
     const responderInputNames = responderSig
       .getInputFields()
       .map((f: { name: string }) => f.name);
@@ -14137,7 +14123,7 @@ describe('Shared Fields', () => {
 
     // Child should now have 'context' in its contextFields
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childContextFields = (childAgent as any).rlmConfig.contextFields;
+    const childContextFields = getInternal(childAgent).rlmConfig.contextFields;
     expect(childContextFields).toContain('context');
 
     // Child signature should include 'context'
@@ -14322,7 +14308,7 @@ describe('Shared Fields', () => {
 
     // Parent's Actor should not include 'context' (it's a context field)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorInputs = (parentAgent as any).actorProgram
+    const actorInputs = getInternal(parentAgent).actorProgram
       .getSignature()
       .getInputFields()
       .map((f: { name: string }) => f.name);
@@ -14336,7 +14322,7 @@ describe('Shared Fields', () => {
     expect(childInputs).toContain('context');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childContextFields = (childAgent as any).rlmConfig.contextFields;
+    const childContextFields = getInternal(childAgent).rlmConfig.contextFields;
     expect(childContextFields).toContain('context');
   });
 });
@@ -14371,7 +14357,7 @@ describe('Shared Agents', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = (childAgent as any).agents as any[];
+    const childAgents = getInternal(childAgent).agents as any[];
     const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
     expect(childAgentNames).toContain('utility');
   });
@@ -14404,13 +14390,13 @@ describe('Shared Agents', () => {
 
     // Child should have the utility agent
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = (child as any).agents as any[];
+    const childAgents = getInternal(child).agents as any[];
     const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
     expect(childAgentNames).toContain('utility');
 
     // Grandchild should NOT have the utility agent
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildAgents = (grandchild as any).agents;
+    const grandchildAgents = getInternal(grandchild).agents;
     expect(grandchildAgents).toBeUndefined();
   });
 
@@ -14435,7 +14421,7 @@ describe('Shared Agents', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = (childAgent as any).agents as any[];
+    const childAgents = getInternal(childAgent).agents as any[];
     const utilityCount = childAgents.filter(
       (a: any) => a.getFunction().name === 'utility'
     ).length;
@@ -14457,7 +14443,7 @@ describe('Shared Agents', () => {
 
     // childAgent's own agents list must not contain itself
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = (childAgent as any).agents as any[] | undefined;
+    const childAgents = getInternal(childAgent).agents as any[] | undefined;
     const selfRefs = (childAgents ?? []).filter((a: any) => a === childAgent);
     expect(selfRefs).toHaveLength(0);
   });
@@ -14501,13 +14487,13 @@ describe('Global Shared Agents', () => {
 
     // Child should have the utility agent
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = (child as any).agents as any[];
+    const childAgents = getInternal(child).agents as any[];
     const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
     expect(childAgentNames).toContain('utility');
 
     // Grandchild should ALSO have the utility agent
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildAgents = (grandchild as any).agents as any[];
+    const grandchildAgents = getInternal(grandchild).agents as any[];
     const grandchildAgentNames = grandchildAgents.map(
       (a: any) => a.getFunction().name
     );
@@ -14543,7 +14529,7 @@ describe('Global Shared Agents', () => {
 
     // Grandchild already had utility; should not be duplicated
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildAgents = (grandchild as any).agents as any[];
+    const grandchildAgents = getInternal(grandchild).agents as any[];
     const utilityCount = grandchildAgents.filter(
       (a: any) => a.getFunction().name === 'utility'
     ).length;
@@ -14565,7 +14551,7 @@ describe('Global Shared Agents', () => {
 
     // childAgent's own agents list must not contain itself
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = (childAgent as any).agents as any[] | undefined;
+    const childAgents = getInternal(childAgent).agents as any[] | undefined;
     const selfRefs = (childAgents ?? []).filter((a: any) => a === childAgent);
     expect(selfRefs).toHaveLength(0);
   });
@@ -14612,7 +14598,7 @@ describe('Global Shared Fields', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
     const actorInputNames = actorSig
       .getInputFields()
       .map((f: { name: string }) => f.name);
@@ -14635,7 +14621,7 @@ describe('Global Shared Fields', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = (parentAgent as any).actorProgram.getSignature();
+    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
     const actorInputNames = actorSig
       .getInputFields()
       .map((f: { name: string }) => f.name);
@@ -14741,7 +14727,7 @@ describe('Global Shared Fields', () => {
 
     // Child's sharedFieldNames should include 'userId' (for value chaining)
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childSharedFields = (child as any).sharedFieldNames as string[];
+    const childSharedFields = getInternal(child).sharedFieldNames as string[];
     expect(childSharedFields).toContain('userId');
   });
 
@@ -14805,12 +14791,12 @@ describe('Global Shared Fields', () => {
 
     // Child should have 'context' in its contextFields
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childContextFields = (child as any).rlmConfig.contextFields;
+    const childContextFields = getInternal(child).rlmConfig.contextFields;
     expect(childContextFields).toContain('context');
 
     // Grandchild should also have 'context' in its contextFields
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildContextFields = (grandchild as any).rlmConfig.contextFields;
+    const grandchildContextFields = getInternal(grandchild).rlmConfig.contextFields;
     expect(grandchildContextFields).toContain('context');
   });
 
@@ -15100,21 +15086,21 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(result).not.toContain('### Additional Functions');
   });
 
-  it('should render advanced llmQuery delegation guidance when prompt mode is recursive', () => {
-    const result = axBuildActorDefinition(undefined, [], [], {
+  it('should render unified llmQuery guidance covering interpretation and delegation in all modes', () => {
+    const recursive = axBuildActorDefinition(undefined, [], [], {
       llmQueryPromptMode: 'advanced-recursive',
     });
-
-    expect(result).toContain('delegates a focused child workflow');
-    expect(result).toContain('Delegate one or more focused subtask');
-  });
-
-  it('should render terminal-depth simple llmQuery guidance when recursion is exhausted', () => {
-    const result = axBuildActorDefinition(undefined, [], [], {
+    const terminal = axBuildActorDefinition(undefined, [], [], {
       llmQueryPromptMode: 'simple-at-terminal-depth',
     });
+    const simple = axBuildActorDefinition(undefined, [], [], {
+      llmQueryPromptMode: 'simple',
+    });
 
-    expect(result).toContain('llmQuery');
+    for (const result of [recursive, terminal, simple]) {
+      expect(result).toContain('interprets or delegates');
+      expect(result).toContain('delegate focused subtasks');
+    }
   });
 
   it('should render modules only in discovery mode', () => {
@@ -15392,7 +15378,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDescription = (parentAgent as any).actorProgram
+    const actorDescription = getInternal(parentAgent).actorProgram
       .getSignature()
       .getDescription();
 
@@ -15424,7 +15410,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDescription = (parentAgent as any).actorProgram
+    const actorDescription = getInternal(parentAgent).actorProgram
       .getSignature()
       .getDescription();
 
@@ -15453,7 +15439,7 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDescription = (parentAgent as any).actorProgram
+    const actorDescription = getInternal(parentAgent).actorProgram
       .getSignature()
       .getDescription();
 
@@ -15546,7 +15532,7 @@ describe('AxFunction', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (myAgent as any).buildRuntimeGlobals();
+    const globals = getInternal(myAgent).buildRuntimeGlobals();
     expect(globals).toHaveProperty('utils');
     expect(globals.utils).toHaveProperty('fetchData');
     expect(typeof globals.utils.fetchData).toBe('function');
@@ -15577,7 +15563,7 @@ describe('AxFunction', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (myAgent as any).buildRuntimeGlobals();
+    const globals = getInternal(myAgent).buildRuntimeGlobals();
     expect(globals).toHaveProperty('media');
     expect(globals.media).toHaveProperty('processImage');
     expect(globals).not.toHaveProperty('utils');
@@ -15615,7 +15601,7 @@ describe('AxFunction', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (myAgent as any).buildRuntimeGlobals();
+    const globals = getInternal(myAgent).buildRuntimeGlobals();
     expect(globals).toHaveProperty('media');
     expect(globals.media).toHaveProperty('processImage');
     expect(typeof globals.media.processImage).toBe('function');
@@ -15635,7 +15621,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (parent as any).buildRuntimeGlobals();
+    const globals = getInternal(parent).buildRuntimeGlobals();
     expect(globals).toHaveProperty('agents');
     expect(globals.agents).toHaveProperty('child');
   });
@@ -15659,7 +15645,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (parent as any).buildRuntimeGlobals();
+    const globals = getInternal(parent).buildRuntimeGlobals();
     expect(globals).toHaveProperty('teamNamespace');
     expect(globals.teamNamespace).toHaveProperty('child');
     expect(globals).not.toHaveProperty('agents');
@@ -15685,7 +15671,7 @@ describe('AxFunction', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (parent as any).buildRuntimeGlobals();
+    const globals = getInternal(parent).buildRuntimeGlobals();
     expect(globals).toHaveProperty('teamNamespace');
     expect(globals).not.toHaveProperty('teamnamespace');
   });
@@ -16022,7 +16008,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globals = (parent as any).buildRuntimeGlobals() as Record<
+    const globals = getInternal(parent).buildRuntimeGlobals() as Record<
       string,
       unknown
     >;
@@ -16032,7 +16018,7 @@ describe('AxFunction', () => {
     const discoveredModules: Record<string, string> = {};
     const discoveredFunctions: Record<string, string> = {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const globalsWithCallbacks = (parent as any).buildRuntimeGlobals(
+    const globalsWithCallbacks = getInternal(parent).buildRuntimeGlobals(
       undefined,
       undefined,
       undefined,
@@ -16193,7 +16179,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (myAgent as any).actorProgram
+    const actorDesc = getInternal(myAgent).actorProgram
       .getSignature()
       .getDescription();
 
@@ -16248,7 +16234,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (myAgent as any).actorProgram
+    const actorDesc = getInternal(myAgent).actorProgram
       .getSignature()
       .getDescription();
     expect(actorDesc).toContain('### Available Modules');
@@ -16297,7 +16283,7 @@ describe('AxFunction', () => {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const discoveredModules: Record<string, string> = {};
     const discoveredFunctions: Record<string, string> = {};
-    const globals = (myAgent as any).buildRuntimeGlobals(
+    const globals = getInternal(myAgent).buildRuntimeGlobals(
       undefined,
       undefined,
       undefined,
@@ -16347,7 +16333,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = (myAgent as any).actorProgram
+    const actorDesc = getInternal(myAgent).actorProgram
       .getSignature()
       .getDescription();
 
@@ -16382,7 +16368,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxFunction[];
+    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
   });
 
@@ -16420,13 +16406,12 @@ describe('AxFunction', () => {
 
     // Child should have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxFunction[];
+    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
 
     // Grandchild should NOT have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildFunctions = (grandchild as any)
-      .agentFunctions as AxFunction[];
+    const grandchildFunctions = getInternal(grandchild).agentFunctions as AxFunction[];
     expect(grandchildFunctions.map((f) => f.name)).not.toContain('sharedUtil');
   });
 
@@ -16464,13 +16449,12 @@ describe('AxFunction', () => {
 
     // Child should have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxFunction[];
+    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).toContain('globalUtil');
 
     // Grandchild should ALSO have it
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildFunctions = (grandchild as any)
-      .agentFunctions as AxFunction[];
+    const grandchildFunctions = getInternal(grandchild).agentFunctions as AxFunction[];
     expect(grandchildFunctions.map((f) => f.name)).toContain('globalUtil');
   });
 
@@ -16501,7 +16485,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxFunction[];
+    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
     expect(childFunctions.map((f) => f.name)).not.toContain('blockedFn');
   });
 
@@ -16568,7 +16552,7 @@ describe('AxFunction', () => {
 
     // Child should still have its own version
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxFunction[];
+    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
     const myFn = childFunctions.find((f) => f.name === 'myFn');
     expect(myFn?.description).toBe('Child version');
   });
@@ -16594,7 +16578,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = (child as any).agents as any[] | undefined;
+    const childAgents = getInternal(child).agents as any[] | undefined;
     const childAgentNames = (childAgents ?? []).map(
       (a: any) => a.getFunction().name
     );
@@ -16633,7 +16617,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = (child as any).agentFunctions as AxFunction[];
+    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
     expect(childFunctions).toHaveLength(2);
     expect(childFunctions.map((f) => `${f.namespace}.${f.name}`)).toEqual(
       expect.arrayContaining(['utils.process', 'media.process'])
@@ -16768,7 +16752,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorState = await (testAgent as any)._runActorLoop(
+    const actorState = await getInternal(testAgent)._runActorLoop(
       testMockAI,
       { query: 'root' },
       undefined,
@@ -16816,7 +16800,7 @@ describe('AxFunction', () => {
       features: { functions: false, streaming: false },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode: 'RUNTIME_FINAL',
     });
@@ -16919,7 +16903,7 @@ describe('AxFunction', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorState = await (testAgent as any)._runActorLoop(
+    const actorState = await getInternal(testAgent)._runActorLoop(
       testMockAI,
       { query: 'root' },
       undefined,
@@ -16969,7 +16953,7 @@ describe('AxFunction', () => {
       features: { functions: false, streaming: false },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async () => ({
       javascriptCode: 'RUNTIME_ASK',
     });
@@ -17075,7 +17059,7 @@ describe('AxFunction', () => {
       features: { functions: false, streaming: false },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
       values: { actionLog: string; guidanceLog: string }
@@ -17233,7 +17217,7 @@ describe('AxFunction', () => {
       features: { functions: false, streaming: false },
     });
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const anyAgent = testAgent as any;
+    const anyAgent = getInternal(testAgent) as any;
     anyAgent.actorProgram.forward = async (
       _ai: unknown,
       values: { actionLog: string; guidanceLog: string }
@@ -17338,7 +17322,7 @@ describe('AxFunction', () => {
     const chatSpy = vi.spyOn(testMockAI, 'chat');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorState = await (testAgent as any)._runActorLoop(
+    const actorState = await getInternal(testAgent)._runActorLoop(
       testMockAI,
       { query: 'root' },
       { debug: true, logger: () => {} },
@@ -17415,7 +17399,7 @@ describe('AxFunction', () => {
     const chatSpy = vi.spyOn(testMockAI, 'chat');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorState = await (testAgent as any)._runActorLoop(
+    const actorState = await getInternal(testAgent)._runActorLoop(
       testMockAI,
       { query: 'root' },
       {
@@ -17520,7 +17504,7 @@ describe('AxFunction', () => {
     const chatSpy = vi.spyOn(testMockAI, 'chat');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorState = await (testAgent as any)._runActorLoop(
+    const actorState = await getInternal(testAgent)._runActorLoop(
       testMockAI,
       { query: 'root' },
       { debug: true, logger: () => {} },
@@ -17640,7 +17624,7 @@ describe('AxFunction', () => {
     const chatSpy = vi.spyOn(testMockAI, 'chat');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorState = await (testAgent as any)._runActorLoop(
+    const actorState = await getInternal(testAgent)._runActorLoop(
       testMockAI,
       { query: 'root' },
       { debug: true, logger: () => {} },
@@ -17772,7 +17756,7 @@ describe('AxFunction', () => {
     const chatSpy = vi.spyOn(testMockAI, 'chat');
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorState = await (testAgent as any)._runActorLoop(
+    const actorState = await getInternal(testAgent)._runActorLoop(
       testMockAI,
       { query: 'root' },
       { debug: true, logger: () => {} },

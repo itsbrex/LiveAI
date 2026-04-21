@@ -4,7 +4,7 @@ import { AxMockAIService } from '../ai/mock/api.js';
 import type { AxChatResponse } from '../ai/types.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
 
-import { AxAgent } from './agent.js';
+import { AxAgent } from './index.js';
 import type { AxCodeRuntime } from './rlm.js';
 
 const makeModelUsage = () => ({
