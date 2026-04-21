@@ -388,7 +388,8 @@ const globalPrefixCache = new LRUCache<string, string[]>(500);
  *   - index >= 0: Position of full match
  *   - -1: No match found
  *   - -2: Partial match from the end
- *   - -3: String is only whitespace
+ *   - -3: String is only whitespace (or whitespace/backticks)
+ *   - -4: String is a markdown code fence opener (```optional-lang)
  */
 export function matchesContent(
   content: string,

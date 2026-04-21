@@ -895,11 +895,65 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
             const decoder = new TextDecoder();
             let buffer = '';
 
+            // Returns true if the caller should stop reading (e.g. saw [DONE]).
+            const processEvent = (event: string): boolean => {
+              if (!event.trim()) return false;
+
+              const lines = event.split('\n');
+              let data = '';
+              let eventType = 'message';
+
+              for (const line of lines) {
+                if (line.startsWith('data: ')) {
+                  data = line.slice(6);
+                } else if (line.startsWith('event: ')) {
+                  eventType = line.slice(7);
+                }
+              }
+
+              if (!data) return false;
+
+              if (data === '[DONE]') {
+                controller.close();
+                return true;
+              }
+
+              try {
+                const parsed = JSON.parse(data) as TResponse;
+                lastChunk = parsed;
+                chunkCount++;
+                metrics.streamChunks = chunkCount;
+                metrics.lastChunkTime = Date.now();
+
+                controller.enqueue(parsed);
+
+                api.span?.addEvent('stream.chunk', {
+                  'stream.chunks': chunkCount,
+                  'stream.duration': Date.now() - metrics.startTime,
+                  'response.retries': metrics.retryCount,
+                  'sse.event.type': eventType,
+                });
+              } catch (parseError) {
+                if (verbose) {
+                  console.warn('Skipping non-JSON SSE data:', data, parseError);
+                }
+              }
+              return false;
+            };
+
             async function read() {
               try {
                 while (true) {
                   const { done, value } = await reader.read();
                   if (done) {
+                    // Flush any trailing event that wasn't terminated by \n\n.
+                    // Providers are allowed to end the stream without a final
+                    // blank line; the Node SSEParser path handles this via
+                    // handleFlush, so match that behavior here.
+                    if (buffer.length > 0) {
+                      processEvent(buffer);
+                      buffer = '';
+                    }
                     closed = true;
                     controller.close();
                     break;
@@ -907,60 +961,11 @@ export const apiCall = async <TRequest = unknown, TResponse = unknown>(
 
                   buffer += decoder.decode(value, { stream: true });
 
-                  // Parse SSE format: split by double newlines for events
                   const events = buffer.split('\n\n');
-                  buffer = events.pop() || ''; // Keep incomplete event in buffer
+                  buffer = events.pop() || '';
 
                   for (const event of events) {
-                    if (!event.trim()) continue;
-
-                    const lines = event.split('\n');
-                    let data = '';
-                    let eventType = 'message';
-
-                    // Parse SSE event fields
-                    for (const line of lines) {
-                      if (line.startsWith('data: ')) {
-                        data = line.slice(6);
-                      } else if (line.startsWith('event: ')) {
-                        eventType = line.slice(7);
-                      }
-                      // We could also handle 'id:', 'retry:', etc. if needed
-                    }
-
-                    if (data) {
-                      // Handle termination signal
-                      if (data === '[DONE]') {
-                        controller.close();
-                        return;
-                      }
-
-                      try {
-                        const parsed = JSON.parse(data) as TResponse;
-                        lastChunk = parsed;
-                        chunkCount++;
-                        metrics.streamChunks = chunkCount;
-                        metrics.lastChunkTime = Date.now();
-
-                        controller.enqueue(parsed);
-
-                        api.span?.addEvent('stream.chunk', {
-                          'stream.chunks': chunkCount,
-                          'stream.duration': Date.now() - metrics.startTime,
-                          'response.retries': metrics.retryCount,
-                          'sse.event.type': eventType,
-                        });
-                      } catch (parseError) {
-                        // Skip invalid JSON chunks - this is normal for SSE
-                        if (verbose) {
-                          console.warn(
-                            'Skipping non-JSON SSE data:',
-                            data,
-                            parseError
-                          );
-                        }
-                      }
-                    }
+                    if (processEvent(event)) return;
                   }
                 }
               } catch (e) {

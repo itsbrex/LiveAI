@@ -63,7 +63,6 @@ export interface extractionState {
   extractedFields: AxField[];
   streamedIndex: Record<string, number>;
   s: number;
-  inBlock?: boolean;
 }
 
 // Helper function to check for missing required fields
@@ -141,7 +140,6 @@ export const streamingExtractValues = (
         return true; // String is only whitespace, skip and gather more content
       }
       if (match === -4) {
-        xstate.inBlock = true;
         return true; // String is only backticks, skip and gather more content
       }
       if (match >= 0 && (e === -1 || match < e)) {

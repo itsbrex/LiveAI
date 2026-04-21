@@ -64,20 +64,10 @@ import {
   GEMINI_CONTEXT_CACHE_SUPPORTED_MODELS,
 } from './types.js';
 
-const PRE_GEMINI_3_VERTEX_V1_MODELS = new Set<string>([
-  ...Object.values(AxAIGoogleGeminiModel).filter(
-    (model) => !model.startsWith('gemini-3')
-  ),
-  ...Object.values(AxAIGoogleGeminiEmbedModel),
-  'gemini-2.0-flash-001',
-  'gemini-2.0-flash-lite-001',
-]);
-
 const getVertexGeminiAPIVersion = (
-  model: string,
-  noBeta?: boolean
-): 'v1' | 'v1beta1' =>
-  noBeta || PRE_GEMINI_3_VERTEX_V1_MODELS.has(model) ? 'v1' : 'v1beta1';
+  _model: string,
+  beta?: boolean
+): 'v1' | 'v1beta1' => (beta ? 'v1beta1' : 'v1');
 
 /**
  * Clean function schema for Gemini API compatibility by removing unsupported fields
@@ -272,7 +262,7 @@ class AxAIGoogleGeminiImpl
     private endpointId?: string,
     private apiKey?: string | (() => Promise<string>),
     private options?: AxAIGoogleGeminiArgs<any>['options'],
-    private vertexApiURLForModel?: (model: string, noBeta?: boolean) => string
+    private vertexApiURLForModel?: (model: string, beta?: boolean) => string
   ) {
     if (!this.isVertex && this.config.autoTruncate) {
       throw new Error('Auto truncate is not supported for GoogleGemini');
@@ -349,10 +339,8 @@ class AxAIGoogleGeminiImpl
     return this.tokensUsed;
   }
 
-  private getVertexApiURL(model: string, noBeta?: boolean): string | undefined {
-    return this.isVertex
-      ? this.vertexApiURLForModel?.(model, noBeta)
-      : undefined;
+  private getVertexApiURL(model: string, beta?: boolean): string | undefined {
+    return this.isVertex ? this.vertexApiURLForModel?.(model, beta) : undefined;
   }
 
   getModelConfig(): AxModelConfig {
@@ -581,7 +569,7 @@ class AxAIGoogleGeminiImpl
     }
 
     if (this.isVertex) {
-      apiConfig.url = this.getVertexApiURL(model as string, config?.noBeta);
+      apiConfig.url = this.getVertexApiURL(model as string, config?.beta);
     }
 
     if (!this.isVertex) {
@@ -1008,7 +996,7 @@ class AxAIGoogleGeminiImpl
         };
       }
 
-      apiConfig.url = this.getVertexApiURL(model as string, config?.noBeta);
+      apiConfig.url = this.getVertexApiURL(model as string, config?.beta);
 
       reqValue = {
         instances: req.texts.map((text) => ({
@@ -1354,7 +1342,7 @@ class AxAIGoogleGeminiImpl
       apiConfig: {
         name: apiPath,
         ...(this.isVertex
-          ? { url: this.getVertexApiURL(model as string, options?.noBeta) }
+          ? { url: this.getVertexApiURL(model as string, options?.beta) }
           : {}),
       },
       request: cacheRequest,
@@ -1421,7 +1409,7 @@ class AxAIGoogleGeminiImpl
     cacheName: string,
     ttlSeconds: number,
     model?: AxAIGoogleGeminiModel,
-    noBeta?: AxAIServiceOptions['noBeta']
+    beta?: AxAIServiceOptions['beta']
   ): AxContextCacheOperation => {
     const updateRequest: AxAIGoogleGeminiCacheUpdateRequest = {
       ttl: `${ttlSeconds}s`,
@@ -1441,7 +1429,7 @@ class AxAIGoogleGeminiImpl
         name: apiPath,
         headers: { 'Content-Type': 'application/json' },
         ...(this.isVertex && model
-          ? { url: this.getVertexApiURL(model, noBeta) }
+          ? { url: this.getVertexApiURL(model, beta) }
           : {}),
       },
       request: updateRequest,
@@ -1932,7 +1920,7 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
     let apiURL: string;
     let headers: () => Promise<Record<string, string>>;
     let buildVertexApiURL:
-      | ((model: string, noBeta?: boolean) => string)
+      | ((model: string, beta?: boolean) => string)
       | undefined;
 
     if (isVertex) {
@@ -1953,8 +1941,8 @@ export class AxAIGoogleGemini<TModelKey = string> extends AxBaseAI<
       }
 
       const tld = region === 'global' ? 'aiplatform' : `${region}-aiplatform`;
-      buildVertexApiURL = (model: string, noBeta?: boolean) =>
-        `https://${tld}.googleapis.com/${getVertexGeminiAPIVersion(model, noBeta)}/projects/${projectId}/locations/${region}/${path}`;
+      buildVertexApiURL = (model: string, beta?: boolean) =>
+        `https://${tld}.googleapis.com/${getVertexGeminiAPIVersion(model, beta)}/projects/${projectId}/locations/${region}/${path}`;
       apiURL = buildVertexApiURL(Config.model);
       headers = async () => ({
         Authorization: `Bearer ${typeof apiKey === 'function' ? await apiKey() : apiKey}`,

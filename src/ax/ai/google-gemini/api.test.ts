@@ -49,7 +49,7 @@ function createSequencedMockFetch(
 }
 
 describe('AxAIGoogleGemini model key preset merging', () => {
-  it('routes Vertex chat requests to v1 for pre-3.1 models and v1beta1 for newer models', async () => {
+  it('routes all Vertex chat requests to v1 by default, including Gemini 3.x', async () => {
     const capture: { calls: Array<{ url: string; body?: any }> } = {
       calls: [],
     };
@@ -108,7 +108,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-2.5-flash:generateContent'
     );
     expect(capture.calls[1]?.url).toContain(
-      '/v1beta1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
+      '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
     );
   });
 
@@ -151,7 +151,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
   });
 
-  it('honors options.noBeta by forcing Vertex chat requests onto v1', async () => {
+  it('honors options.beta by routing Vertex chat requests onto v1beta1', async () => {
     const capture: { calls: Array<{ url: string; body?: any }> } = {
       calls: [],
     };
@@ -174,7 +174,7 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       projectId: 'demo-project',
       region: 'us-central1',
       config: { model: AxAIGoogleGeminiModel.Gemini31Pro },
-      options: { noBeta: true, fetch },
+      options: { beta: true, fetch },
     });
 
     await ai.chat(
@@ -186,11 +186,11 @@ describe('AxAIGoogleGemini model key preset merging', () => {
     );
 
     expect(capture.calls[0]?.url).toContain(
-      '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
+      '/v1beta1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
     );
   });
 
-  it('honors models[].noBeta by forcing the selected Vertex model key onto v1', async () => {
+  it('honors models[].beta by routing the selected Vertex model key onto v1beta1', async () => {
     const capture: { calls: Array<{ url: string; body?: any }> } = {
       calls: [],
     };
@@ -215,10 +215,10 @@ describe('AxAIGoogleGemini model key preset merging', () => {
       config: { model: AxAIGoogleGeminiModel.Gemini25Flash },
       models: [
         {
-          key: 'preview-stable-path',
+          key: 'preview-beta-path',
           model: AxAIGoogleGeminiModel.Gemini31Pro,
-          description: 'Gemini 3.1 via stable path override',
-          noBeta: true,
+          description: 'Gemini 3.1 via beta path override',
+          beta: true,
         },
       ],
     });
@@ -227,14 +227,14 @@ describe('AxAIGoogleGemini model key preset merging', () => {
 
     await ai.chat(
       {
-        model: 'preview-stable-path',
-        chatPrompt: [{ role: 'user', content: 'hi model preset stable' }],
+        model: 'preview-beta-path',
+        chatPrompt: [{ role: 'user', content: 'hi model preset beta' }],
       },
       { stream: false }
     );
 
     expect(capture.calls[0]?.url).toContain(
-      '/v1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
+      '/v1beta1/projects/demo-project/locations/us-central1/publishers/google/models/gemini-3.1-pro-preview:generateContent'
     );
   });
 

@@ -369,7 +369,7 @@ export class AxBaseAI<
   private retry?: AxAIServiceOptions['retry'];
   private customLabels?: Record<string, string>;
   private contextCache?: AxAIServiceOptions['contextCache'];
-  private noBeta?: AxAIServiceOptions['noBeta'];
+  private beta?: AxAIServiceOptions['beta'];
 
   private modelInfo: readonly AxModelInfo[];
   private modelUsage?: AxModelUsage;
@@ -509,7 +509,7 @@ export class AxBaseAI<
     this.retry = options.retry;
     this.customLabels = options.customLabels;
     this.contextCache = options.contextCache;
-    this.noBeta = options.noBeta;
+    this.beta = options.beta;
   }
 
   getOptions(): Readonly<AxAIServiceOptions> {
@@ -528,7 +528,7 @@ export class AxBaseAI<
       retry: this.retry,
       customLabels: this.customLabels,
       contextCache: this.contextCache,
-      noBeta: this.noBeta,
+      beta: this.beta,
     };
   }
 
@@ -1202,7 +1202,7 @@ export class AxBaseAI<
         ).thinkingTokenBudget
       : undefined;
     const mergedOptions: Readonly<AxAIServiceOptions> = {
-      ...(this.noBeta !== undefined ? { noBeta: this.noBeta } : undefined),
+      ...(this.beta !== undefined ? { beta: this.beta } : undefined),
       ...(modelKeyEntry
         ? {
             thinkingTokenBudget: modelKeyThinkingTokenBudget,
@@ -1226,11 +1226,11 @@ export class AxBaseAI<
                 useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
               }
             ).useExpensiveModel,
-            noBeta: (
+            beta: (
               modelKeyEntry as {
-                noBeta?: AxAIServiceOptions['noBeta'];
+                beta?: AxAIServiceOptions['beta'];
               }
-            ).noBeta,
+            ).beta,
           }
         : undefined),
       // Filter out undefined values from options to avoid overriding model key defaults
@@ -1730,7 +1730,7 @@ export class AxBaseAI<
       req.embedModel as TModel | TEmbedModel | TModelKey
     );
     const mergedOptions: Readonly<AxAIServiceOptions> = {
-      ...(this.noBeta !== undefined ? { noBeta: this.noBeta } : undefined),
+      ...(this.beta !== undefined ? { beta: this.beta } : undefined),
       ...(modelKeyEntry
         ? {
             thinkingTokenBudget: (
@@ -1758,11 +1758,11 @@ export class AxBaseAI<
                 useExpensiveModel?: AxAIServiceOptions['useExpensiveModel'];
               }
             ).useExpensiveModel,
-            noBeta: (
+            beta: (
               modelKeyEntry as {
-                noBeta?: AxAIServiceOptions['noBeta'];
+                beta?: AxAIServiceOptions['beta'];
               }
-            ).noBeta,
+            ).beta,
           }
         : undefined),
       ...options,
@@ -2049,7 +2049,7 @@ export class AxBaseAI<
             existingEntry.cacheName,
             ttlSeconds,
             req.model,
-            options?.noBeta
+            options?.beta
           ),
           options,
           span
