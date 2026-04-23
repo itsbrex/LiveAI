@@ -9,8 +9,9 @@ import type { AxFunctionJSONSchema } from '../ai/types.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
-import { renderPromptTemplate } from './templateEngine.js';
 import type { AxAgentTurnCallbackArgs } from './AxAgent.js';
+import { renderPrimitivesList } from './runtimePrimitives.js';
+import { renderPromptTemplate } from './templateEngine.js';
 
 // ----- Helpers for rendering function/agent signatures in the actor prompt -----
 
@@ -237,8 +238,6 @@ export interface AxRLMConfig {
   contextFields: string[];
   /** Actor prompt verbosity and scaffolding level (default: 'default'). */
   promptLevel?: 'default' | 'detailed';
-  /** Input fields to pass directly to subagents, bypassing the top-level LLM. */
-  sharedFields?: string[];
   /** Code runtime for the REPL loop (default: AxJSRuntime). */
   runtime?: AxCodeRuntime;
   /** Global cap on recursive sub-agent calls across all descendants (default: 100). */
@@ -269,12 +268,6 @@ export interface AxRLMConfig {
     message: string,
     status: 'success' | 'failed'
   ) => void | Promise<void>;
-  /**
-   * Sub-query execution mode (default: 'simple').
-   * - 'simple': llmQuery delegates to a plain AxGen (direct LLM call, no code runtime).
-   * - 'advanced': llmQuery delegates to a full AxAgent (Actor/Responder + code runtime).
-   */
-  mode?: 'simple' | 'advanced';
 }
 
 /**
@@ -294,10 +287,7 @@ export function axBuildActorDefinition(
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
     hasCompressedActionReplay?: boolean;
-    llmQueryPromptMode?:
-      | 'simple'
-      | 'advanced-recursive'
-      | 'simple-at-terminal-depth';
+    llmQueryPromptMode?: 'simple';
     /** When true, Actor must run one observable console step per non-final turn. */
     enforceIncrementalConsoleTurns?: boolean;
     /** Child agents available under the `<agentModuleNamespace>.*` namespace in the JS runtime. */
@@ -377,13 +367,18 @@ export function axBuildActorDefinition(
         .sort((a, b) => a.localeCompare(b))
         .map((namespace) => ({ namespace }));
 
-  const actorBody = renderPromptTemplate('rlm/actor.md', {
+  const actorBody = renderPromptTemplate('rlm/ctx-actor.md', {
     contextVarList,
     responderOutputFieldTitles,
     promptLevel: options.promptLevel ?? 'default',
     llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
     discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
+    primitivesList: renderPrimitivesList('combined', {
+      hasInspectRuntime: Boolean(options.hasInspectRuntime),
+      hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+      discoveryMode,
+    }),
     hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
     agentModuleNamespace,
     agentFunctionsList: sortedAgents
@@ -442,6 +437,8 @@ export function axBuildContextActorDefinition(
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
     hasCompressedActionReplay?: boolean;
+    /** When true, advertise `finalForUser(...)` so ctx can short-circuit. */
+    hasFinalForUser?: boolean;
   }>
 ): string {
   const contextVarList =
@@ -462,6 +459,10 @@ export function axBuildContextActorDefinition(
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
     hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
     hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
+    primitivesList: renderPrimitivesList('context', {
+      hasInspectRuntime: Boolean(options.hasInspectRuntime),
+      hasFinalForUser: Boolean(options.hasFinalForUser),
+    }),
     runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
   })
     .replace(/\n{3,}/g, '\n\n')
@@ -486,10 +487,7 @@ export function axBuildTaskActorDefinition(
     hasInspectRuntime?: boolean;
     hasLiveRuntimeState?: boolean;
     hasCompressedActionReplay?: boolean;
-    llmQueryPromptMode?:
-      | 'simple'
-      | 'advanced-recursive'
-      | 'simple-at-terminal-depth';
+    llmQueryPromptMode?: 'simple';
     enforceIncrementalConsoleTurns?: boolean;
     hasAgentStatusCallback?: boolean;
     discoveryMode?: boolean;
@@ -566,6 +564,11 @@ export function axBuildTaskActorDefinition(
     llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
     discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
+    primitivesList: renderPrimitivesList('task', {
+      hasInspectRuntime: Boolean(options.hasInspectRuntime),
+      hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+      discoveryMode,
+    }),
     hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
     agentModuleNamespace,
     agentFunctionsList: sortedAgents

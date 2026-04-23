@@ -215,3 +215,6 @@ behaviour
 recognises
 zschema
 Multimodal
+Northstar
+Northstar's
+northstar

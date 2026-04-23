@@ -19,7 +19,7 @@ import { AxAIAnthropicModel, ai, ax, f, fn } from '../ax/index.js';
 
 const llm = ai({
   name: 'anthropic',
-  apiKey: process.env['ANTHROPIC_APIKEY'] as string,
+  apiKey: process.env.ANTHROPIC_APIKEY as string,
   config: { model: AxAIAnthropicModel.Claude35Haiku },
 });
 

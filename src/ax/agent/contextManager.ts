@@ -6,14 +6,14 @@
  * to maximize context window utility.
  */
 
-import type { AxAIService } from '../../ai/types.js';
-import { AxGen } from '../../dsp/generate.js';
-import type { AxProgramForwardOptions } from '../../dsp/types.js';
+import type { AxAIService } from '../ai/types.js';
+import { AxGen } from '../dsp/generate.js';
+import type { AxProgramForwardOptions } from '../dsp/types.js';
 import {
   extractTopLevelDeclaredNames,
   extractTopLevelDurableWriteTargets,
   stripJsStringsAndComments,
-} from '../../util/jsAnalysis.js';
+} from '../util/jsAnalysis.js';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -1215,6 +1215,46 @@ export function buildActionLogWithPolicy(
   }
 
   return parts.join('\n\n');
+}
+
+/**
+ * Split of the action log into stable (cache-friendly) and mutating pieces.
+ *
+ * - `summary` contains only pieces that are stable across a turn boundary:
+ *   restoreNotice, delegatedContextSummary, and checkpointSummary. These
+ *   change rarely (usually only at compaction), so they can safely carry a
+ *   prompt-cache breakpoint in a dedicated input field.
+ * - `history` contains the recent replay text, which changes every turn and
+ *   therefore must not be part of the cached prefix.
+ */
+export type ActionLogParts = {
+  summary: string;
+  history: string;
+};
+
+export function buildActionLogParts(
+  entries: readonly ActionLogEntry[],
+  policy: Readonly<ActionLogBuildPolicy>
+): ActionLogParts {
+  const replayPlan = buildActionLogReplayPlan(entries, policy);
+
+  const summaryParts: string[] = [];
+  if (policy.restoreNotice) {
+    summaryParts.push(policy.restoreNotice);
+  }
+  if (policy.delegatedContextSummary) {
+    summaryParts.push(
+      `Delegated Context (runtime-only — explore with code):\n${policy.delegatedContextSummary}`
+    );
+  }
+  if (policy.checkpointSummary) {
+    summaryParts.push(`Checkpoint Summary:\n${policy.checkpointSummary}`);
+  }
+
+  return {
+    summary: summaryParts.join('\n\n'),
+    history: replayPlan.historyText,
+  };
 }
 
 export function buildActionEvidenceSummary(

@@ -241,10 +241,10 @@ export async function compilePromptTemplates(options = {}) {
   const scriptDir = path.dirname(fileURLToPath(import.meta.url));
   const repoRoot = path.resolve(scriptDir, '..');
   const templateDir = path.resolve(
-    options.templateDir ?? path.join(repoRoot, 'src/ax/prompts/templates')
+    options.templateDir ?? path.join(repoRoot, 'src/ax/agent/templates')
   );
   const outputFile = path.resolve(
-    options.output ?? path.join(repoRoot, 'src/ax/prompts/templates.generated.ts')
+    options.output ?? path.join(repoRoot, 'src/ax/agent/templates.generated.ts')
   );
   const check = Boolean(options.check);
 

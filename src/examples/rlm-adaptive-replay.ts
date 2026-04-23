@@ -29,7 +29,6 @@ const incidentAnalyst = agent(
     }),
     maxTurns: 10,
     maxSubAgentCalls: 20,
-    mode: 'simple',
     contextPolicy: {
       preset: 'adaptive',
       budget: 'compact',

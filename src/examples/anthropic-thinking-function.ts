@@ -27,7 +27,7 @@ const mathAgent = agent(
   'userQuestion:string "User question" -> responseText:string "Final answer", rationale:string "Brief reasoning"',
   {
     ai: llm,
-    functions: { local: tools },
+    functions: tools,
     actorOptions: {
       description:
         'You are a precise math assistant. Use tools for any arithmetic. Provide a concise final answer and a short rationale.',

@@ -31,7 +31,6 @@ const analyzer = agent(
     }),
     maxTurns: 20,
     maxSubAgentCalls: 40,
-    mode: 'simple',
 
     contextPolicy: {
       preset: 'lean',

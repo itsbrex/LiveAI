@@ -27,7 +27,7 @@ import {
   const _bad: Result = { answer: 'x' };
 }
 
-// Agent with recursionOptions and maxDepth
+// Agent with recursionOptions
 {
   const runtime = {} as AxCodeRuntime;
   const a = agent('query:string -> answer:string', {
@@ -35,7 +35,6 @@ import {
     runtime,
     recursionOptions: {
       model: 'tiny-model',
-      maxDepth: 3,
       timeout: 1_000,
     },
   });
@@ -141,15 +140,15 @@ import {
   a.test('console.log(query)', { query: 123 });
 }
 
-// recursionOptions.maxDepth should be numeric
+// recursionOptions.model should be a string
 {
   const runtime = {} as AxCodeRuntime;
-  // @ts-expect-error maxDepth must be a number
+  // @ts-expect-error model must be a string
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
     recursionOptions: {
-      maxDepth: '3',
+      model: 123,
     },
   });
 }
@@ -606,12 +605,13 @@ import {
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    functions: {
-      discovery: true,
-      local: [...groupedFns, ...optionalGroupedFns],
-      shared: [agentFns[0]!],
-      globallyShared: [agentFns[1]!],
-    },
+    functions: [
+      ...groupedFns,
+      ...optionalGroupedFns,
+      agentFns[0]!,
+      agentFns[1]!,
+    ],
+    functionDiscovery: true,
   });
 }
 
@@ -621,34 +621,32 @@ import {
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    functions: {
-      local: [
-        {
-          namespace: 'db',
-          title: 'Database Tools',
-          selectionCriteria: 'Use for schedule lookups',
-          description: 'Schedule lookup helpers',
-          functions: [
-            {
-              name: 'lookupSchedule',
-              description: 'Lookup schedule data',
-              parameters: {
-                type: 'object',
-                properties: {
-                  query: { type: 'string', description: 'Query text' },
-                },
-                required: ['query'],
+    functions: [
+      {
+        namespace: 'db',
+        title: 'Database Tools',
+        selectionCriteria: 'Use for schedule lookups',
+        description: 'Schedule lookup helpers',
+        functions: [
+          {
+            name: 'lookupSchedule',
+            description: 'Lookup schedule data',
+            parameters: {
+              type: 'object',
+              properties: {
+                query: { type: 'string', description: 'Query text' },
               },
-              // @ts-expect-error grouped functions must not define namespace
-              namespace: 'db',
-              async func() {
-                return [];
-              },
+              required: ['query'],
             },
-          ],
-        },
-      ],
-    },
+            // @ts-expect-error grouped functions must not define namespace
+            namespace: 'db',
+            async func() {
+              return [];
+            },
+          },
+        ],
+      },
+    ],
   });
 }
 
@@ -733,24 +731,26 @@ import {
   });
 }
 
-// functions.discovery should accept boolean values
+// functionDiscovery should accept boolean values
 {
   const runtime = {} as AxCodeRuntime;
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    functions: { discovery: true, local: [] },
+    functions: [],
+    functionDiscovery: true,
   });
 }
 
-// functions.discovery should reject non-boolean values
+// functionDiscovery should reject non-boolean values
 {
   const runtime = {} as AxCodeRuntime;
-  // @ts-expect-error discovery must be a boolean
   agent('query:string -> answer:string', {
     contextFields: [] as const,
     runtime,
-    functions: { discovery: 'yes', local: [] },
+    functions: [],
+    // @ts-expect-error functionDiscovery must be a boolean
+    functionDiscovery: 'yes',
   });
 }
 

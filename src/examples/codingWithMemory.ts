@@ -37,7 +37,7 @@ const functions = toAgentFunctions([
 const codingAssistant = agent(
   'userQuery:string -> reply:string, codeResult?:string "You are a coding assistant that can remember past conversations and execute JavaScript code."',
   {
-    functions: { local: functions },
+    functions: functions,
     contextFields: [],
     runtime: new AxJSRuntime(),
   }

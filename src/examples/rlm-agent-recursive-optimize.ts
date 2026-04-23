@@ -233,7 +233,6 @@ const trainingAgent = agent(
     ai: studentAI,
     contextFields: [],
     runtime,
-    mode: 'advanced',
     recursionOptions: {
       maxDepth: 2,
     },
@@ -263,7 +262,7 @@ const trainingAgent = agent(
         maxTokens: 180,
       },
     },
-    functions: { local: projectTools },
+    functions: projectTools,
   }
 );
 
@@ -353,7 +352,6 @@ const optimizedAgent = agent(
     ai: studentAI,
     contextFields: [],
     runtime,
-    mode: 'advanced',
     recursionOptions: {
       maxDepth: 2,
     },
@@ -383,7 +381,7 @@ const optimizedAgent = agent(
         maxTokens: 180,
       },
     },
-    functions: { local: projectTools },
+    functions: projectTools,
   }
 );
 

@@ -27,7 +27,6 @@ const analyzer = agent(
       thinkingTokenBudget: 'minimal',
     },
     maxSubAgentCalls: 30,
-    mode: 'simple',
     contextPolicy: {
       preset: 'checkpointed',
       budget: 'balanced',

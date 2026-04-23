@@ -1,12 +1,12 @@
 import type {
-  ActionLogEntry,
-  RuntimeStateVariableProvenance,
-} from './contextManager.js';
-import type {
   AxAgentState,
   AxAgentStateActionLogEntry,
   AxAgentStateRuntimeEntry,
 } from './AxAgent.js';
+import type {
+  ActionLogEntry,
+  RuntimeStateVariableProvenance,
+} from './contextManager.js';
 
 function cloneStructured<T>(value: T): T {
   return typeof structuredClone === 'function'

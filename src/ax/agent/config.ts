@@ -1,25 +1,33 @@
-import type {
-  AxContextPolicyBudget,
-  AxContextPolicyConfig,
-  AxContextPolicyPreset,
-} from './rlm.js';
-import type { AxProgramForwardOptions } from '../../dsp/types.js';
+import type { AxProgramForwardOptions } from '../dsp/types.js';
 import type {
   AxActorModelPolicy,
   AxAgentStateActorModelState,
   AxResolvedActorModelPolicy,
   AxResolvedContextPolicy,
 } from './AxAgent.js';
+import type {
+  AxContextPolicyBudget,
+  AxContextPolicyConfig,
+  AxContextPolicyPreset,
+} from './rlm.js';
 
+/** Global ceiling on total `llmQuery` child invocations per forward — guards runaway recursion. */
 export const DEFAULT_RLM_MAX_LLM_CALLS = 100;
+/** Per-child `llmQuery` budget — prevents a single child agent from exhausting the global budget. */
 export const DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD = 50;
+/** Max chars of turn output surfaced back to the actor; longer output gets truncated to force narrowing. */
 export const DEFAULT_RLM_MAX_RUNTIME_CHARS = 3_000;
+/** Max chars for the live-runtime-state summary injected into the actor prompt. */
 export const DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS = 1_200;
+/** Concurrency for batched `llmQuery` items within a single actor turn. */
 export const DEFAULT_RLM_BATCH_CONCURRENCY = 8;
+/** Cap on actor loop iterations before the forward is terminated; keeps a stuck agent from looping forever. */
 export const DEFAULT_RLM_MAX_TURNS = 8;
-export const DEFAULT_RLM_MAX_RECURSION_DEPTH = 2;
+/** Per-context-field truncation budget when rendering input fields into the prompt. */
 export const DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS = 1_200;
+/** Namespace under which child agents are exposed to the JS runtime (e.g. `agents.searchAgent`). */
 export const DEFAULT_AGENT_MODULE_NAMESPACE = 'agents';
+/** Turns to wait after a rank-pruning signal before actually pruning — avoids pruning entries still in use. */
 export const DEFAULT_RANK_PRUNE_GRACE_TURNS = 2;
 
 /** System prompt size at which the chat budget hits the floor ratio. */
@@ -286,6 +294,8 @@ function getContextPolicyPresetDefaults(
         inspect: true,
         maxEntries: 8,
         checkpointsEnabled: true,
+        // Trigger a checkpoint once the prompt fills to 75% of budget — leaves
+        // headroom for the summarized state to fit alongside recent turns.
         checkpointTriggerChars: Math.floor(
           budgetDefaults.targetPromptChars * 0.75
         ),
@@ -301,6 +311,8 @@ function getContextPolicyPresetDefaults(
         inspect: true,
         maxEntries: 4,
         checkpointsEnabled: true,
+        // 'lean' preset trims aggressively — checkpoint earlier (60% of budget)
+        // because less prior context is retained in full form.
         checkpointTriggerChars: Math.floor(
           budgetDefaults.targetPromptChars * 0.6
         ),

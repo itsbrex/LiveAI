@@ -173,9 +173,9 @@ const analyst = agent(
     } as any,
     contextFields: ['context'],
     runtime,
-    agents: { local: [writingCoach] },
-    fields: { shared: ['audience'] },
-    functions: { discovery: true, local: tools } as any,
+    agents: [writingCoach],
+    functions: tools,
+    functionDiscovery: true,
     actorOptions: {
       description: [
         'Workflow:',
@@ -187,7 +187,6 @@ const analyst = agent(
         '6) Use utils.toBulletList with evidence lines for formatting.',
       ].join('\n'),
     },
-    mode: 'advanced',
     recursionOptions: {
       maxDepth: 2,
     },

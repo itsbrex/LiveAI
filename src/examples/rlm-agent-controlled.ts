@@ -69,7 +69,7 @@ export const buildSupportAgent = () =>
     runtime: new AxJSRuntime({
       outputMode: 'return',
     }),
-    functions: { local: workflowTools },
+    functions: workflowTools,
     actorOptions: {
       description: [
         'This demo uses host-side workflow functions for review and clarification, then completes successful runs with direct final(...).',

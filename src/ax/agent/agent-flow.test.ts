@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
+import { AxMockAIService } from '../ai/mock/api.js';
 import { agent, s } from '../index.js';
 import type { AxCodeRuntime } from './rlm.js';
-import { AxMockAIService } from '../ai/mock/api.js';
 
 const makeModelUsage = () => ({
   ai: 'mock',
@@ -134,7 +134,7 @@ describe('Agent Split Architecture Flow', () => {
       contextFields: [],
       runtime,
       maxTurns: 3,
-      mode: 'advanced',
+      
     });
 
     const res = await gen.forward(mockAI, {
@@ -144,5 +144,221 @@ describe('Agent Split Architecture Flow', () => {
     expect(res.plan).toBeDefined();
     expect(res.restaurant).toBe('Sukiyabashi Jiro');
     expect(actorCallCount).toBe(2);
+  });
+
+  it('Case A: ctx+task two-stage flow with contextFields + function', async () => {
+    let ctxActorCalls = 0;
+    let taskActorCalls = 0;
+
+    const stubFunction = {
+      name: 'stubFn',
+      description: 'A stub function for testing',
+      parameters: {
+        type: 'object' as const,
+        properties: { input: { type: 'string' as const } },
+        required: [] as string[],
+      },
+      func: async () => 'stub result',
+    };
+
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Context Understanding Agent')) {
+          ctxActorCalls++;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("distilled", {})',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        if (systemPrompt.includes('Code Generation Agent')) {
+          taskActorCalls++;
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done", {"answer":"done"})',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        // Responder — discriminate ctx vs task by which output field appears in
+        // the **Output Fields** section of the system prompt.
+        // ctx responder: outputs `distilledContext` (title "Distilled Context")
+        // task responder: outputs `answer` (title "Answer")
+        const outputSection = systemPrompt.split('**Output Fields**')[1] ?? '';
+        if (outputSection.includes('Distilled Context')) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Distilled Context: {}',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: done',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              const twoArgMatch = code.match(
+                /final\(\s*"([^"]*)"\s*,\s*(\{[\s\S]*?\})\s*\)/
+              );
+              if (twoArgMatch) {
+                let parsed: Record<string, unknown> = {};
+                try {
+                  parsed = JSON.parse(twoArgMatch[2]!);
+                } catch {
+                  /* ignore */
+                }
+                (globals.final as (...args: unknown[]) => void)(
+                  twoArgMatch[1],
+                  parsed
+                );
+                return 'submitted';
+              }
+              const oneArgMatch = code.match(/final\(\s*"([^"]*)"\s*\)/);
+              if (oneArgMatch) {
+                (globals.final as (...args: unknown[]) => void)(oneArgMatch[1]);
+                return 'submitted';
+              }
+            }
+            return `executed: ${code}`;
+          },
+          patchGlobals: async () => {},
+          close: () => {},
+        };
+      },
+    };
+
+    const gen = agent('docText:string, query:string -> answer:string', {
+      contextFields: ['docText'],
+      functions: [stubFunction],
+      runtime,
+      maxTurns: 3,
+    });
+
+    const res = await gen.forward(mockAI, {
+      docText: 'some document content',
+      query: 'what is this?',
+    });
+
+    expect(res.answer).toBe('done');
+    // Both ctx actor and task actor must have been called
+    expect(ctxActorCalls).toBeGreaterThan(0);
+    expect(taskActorCalls).toBeGreaterThan(0);
+  });
+
+  it('Case B: ctx-only single-stage (contextFields, no tools)', async () => {
+    const mockAI = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req) => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        // Case B uses a single internal agent with combined actor template
+        // (no split), so the actor system prompt will be "Code Generation Agent"
+        // or "Context Understanding Agent" depending on variant selection.
+        if (
+          systemPrompt.includes('Code Generation Agent') ||
+          systemPrompt.includes('Context Understanding Agent')
+        ) {
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("done", {})',
+                finishReason: 'stop' as const,
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        // Responder
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Answer: extracted',
+              finishReason: 'stop' as const,
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    const runtime: AxCodeRuntime = {
+      getUsageInstructions: () => '',
+      createSession(globals) {
+        return {
+          execute: async (code: string) => {
+            if (globals?.final && code.includes('final(')) {
+              const twoArgMatch = code.match(
+                /final\(\s*"([^"]*)"\s*,\s*(\{[\s\S]*?\})\s*\)/
+              );
+              if (twoArgMatch) {
+                (globals.final as (...args: unknown[]) => void)(
+                  twoArgMatch[1],
+                  {}
+                );
+                return 'submitted';
+              }
+              const oneArgMatch = code.match(/final\(\s*"([^"]*)"\s*\)/);
+              if (oneArgMatch) {
+                (globals.final as (...args: unknown[]) => void)(oneArgMatch[1]);
+                return 'submitted';
+              }
+            }
+            return `executed: ${code}`;
+          },
+          patchGlobals: async () => {},
+          close: () => {},
+        };
+      },
+    };
+
+    // Case B: contextFields present but NO functions/agents/functionDiscovery
+    const gen = agent('docText:string -> answer:string', {
+      contextFields: ['docText'],
+      runtime,
+      maxTurns: 3,
+    });
+
+    const res = await gen.forward(mockAI, {
+      docText: 'some document content',
+    });
+
+    expect(res.answer).toBe('extracted');
   });
 });

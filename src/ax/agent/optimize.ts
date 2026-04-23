@@ -1,5 +1,5 @@
-import { type AxSignature, f } from '../../dsp/sig.js';
-import type { AxFieldValue, AxProgramForwardOptions } from '../../dsp/types.js';
+import { type AxSignature, f } from '../dsp/sig.js';
+import type { AxFieldValue, AxProgramForwardOptions } from '../dsp/types.js';
 import type {
   AxAgentEvalDataset,
   AxAgentEvalFunctionCall,
@@ -13,7 +13,6 @@ import type {
   AxAgentOptimizeTarget,
   AxNormalizedAgentEvalDataset,
 } from './AxAgent.js';
-import { AX_AGENT_RECURSIVE_TARGET_IDS } from './agentRecursiveOptimize.js';
 
 export const DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS = 100;
 
@@ -386,25 +385,8 @@ export function resolveAgentOptimizeTargetIds(
   target: Readonly<AxAgentOptimizeTarget>
 ): string[] {
   const availableIds = new Set(availablePrograms.map((program) => program.id));
-  const hasRecursiveSlots = availableIds.has(
-    AX_AGENT_RECURSIVE_TARGET_IDS.shared
-  );
-  const recursiveActorIds = [
-    AX_AGENT_RECURSIVE_TARGET_IDS.shared,
-    AX_AGENT_RECURSIVE_TARGET_IDS.root,
-    AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
-    AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
-  ].filter((id) => availableIds.has(id));
 
   if (target === 'actor') {
-    if (hasRecursiveSlots) {
-      if (recursiveActorIds.length === 0) {
-        throw new Error(
-          'AxAgent.optimize(): recursive actor targets are not available'
-        );
-      }
-      return recursiveActorIds;
-    }
     if (!availableIds.has('root.actor')) {
       throw new Error('AxAgent.optimize(): root.actor is not available');
     }
@@ -417,14 +399,6 @@ export function resolveAgentOptimizeTargetIds(
     return ['root.responder'];
   }
   if (target === 'all') {
-    if (hasRecursiveSlots) {
-      return [
-        ...recursiveActorIds,
-        ...(availableIds.has(AX_AGENT_RECURSIVE_TARGET_IDS.responder)
-          ? [AX_AGENT_RECURSIVE_TARGET_IDS.responder]
-          : []),
-      ];
-    }
     return [...availableIds];
   }
 

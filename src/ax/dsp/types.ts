@@ -358,6 +358,8 @@ export type AxChatLogEntry = {
   model: string;
   messages: AxChatLogMessage[];
   modelUsage?: AxChatResponse['modelUsage'];
+  /** Set by the AxAgent coordinator when running a two-stage ctx+task flow. */
+  stage?: 'ctx' | 'task';
 };
 
 export interface AxProgramOptions {

@@ -4,7 +4,7 @@ import type {
   AxCodeSession,
   AxCodeSessionSnapshot,
   AxCodeSessionSnapshotEntry,
-} from '../prompts/rlm.js';
+} from '../agent/rlm.js';
 import {
   extractTopLevelDeclaredNames,
   stripJsStringsAndComments,

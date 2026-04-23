@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 
 import {
   ACTOR_MODEL_POLICY_MIGRATION_ERROR,
-  computeEffectiveChatBudget,
   CONTEXT_POLICY_SUMMARIZER_OPTIONS_MIGRATION_ERROR,
+  computeEffectiveChatBudget,
   DEFAULT_RLM_MAX_RUNTIME_CHARS,
   DEFAULT_RLM_STATE_SUMMARY_MAX_CHARS,
   resolveActorModelPolicy,

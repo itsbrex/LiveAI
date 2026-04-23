@@ -8,7 +8,7 @@ import type { AxChatRequest, AxContextCacheOptions } from '../ai/types.js';
 import {
   renderPromptTemplate,
   renderTemplateContent,
-} from '../prompts/templateEngine.js';
+} from '../agent/templateEngine.js';
 import { formatDateWithTimezone } from './datetime.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxField, AxFieldType, AxIField, AxSignature } from './sig.js';

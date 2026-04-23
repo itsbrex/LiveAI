@@ -547,7 +547,7 @@ function buildCoordinator(env: OfficeEnvironment) {
     judgeAI: teacherAI,
     contextFields: ['today'],
     runtime: new AxJSRuntime(),
-    functions: { local: env.tools },
+    functions: env.tools,
     maxTurns: 8,
     contextPolicy: {
       preset: 'checkpointed',

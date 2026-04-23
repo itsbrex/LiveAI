@@ -2,9 +2,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { logChatRequest } from '../ai/debug.js';
 import { AxMockAIService } from '../ai/mock/api.js';
-import { AxGen } from '../dsp/generate.js';
-import { AxOptimizedProgramImpl } from '../dsp/optimizer.js';
-import { AxGEPA } from '../dsp/optimizers/gepa.js';
 import type {
   AxAIServiceOptions,
   AxChatRequest,
@@ -12,30 +9,32 @@ import type {
   AxFunctionJSONSchema,
   AxLoggerData,
 } from '../ai/types.js';
+import { AxGen } from '../dsp/generate.js';
+import { AxOptimizedProgramImpl } from '../dsp/optimizer.js';
+import { AxGEPA } from '../dsp/optimizers/gepa.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
 import { s } from '../dsp/template.js';
 import { AxJSRuntime } from '../funcs/jsRuntime.js';
 import { AxAIServiceAbortedError } from '../util/apicall.js';
-
+import {
+  AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
+  AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
+  AX_AGENT_RECURSIVE_TARGET_IDS,
+} from './agentRecursiveOptimize.js';
+import {
+  AxAgentProtocolCompletionSignal,
+  createCompletionBindings,
+} from './completion.js';
 import {
   AxAgent,
   AxAgentClarificationError,
   type AxAgentState,
   agent,
 } from './index.js';
-import {
-  AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION,
-  AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA,
-  AX_AGENT_RECURSIVE_TARGET_IDS,
-} from './agentRecursiveOptimize.js';
-import { truncateText, validateActorTurnCodePolicy } from './runtime.js';
-import {
-  AxAgentProtocolCompletionSignal,
-  createCompletionBindings,
-} from './completion.js';
 import type { AxCodeRuntime } from './rlm.js';
 import { axBuildActorDefinition, axBuildResponderDefinition } from './rlm.js';
+import { truncateText, validateActorTurnCodePolicy } from './runtime.js';
 
 // ----- Helpers -----
 
@@ -523,13 +522,10 @@ async function runDiscoveryPromptScenario(args: {
 
   const testAgent = agent('context:string, query:string -> answer:string', {
     ai: testMockAI,
-    contextFields: ['context'],
     runtime: makeDiscoveryPromptRuntime(),
     maxTurns: 4,
-    functions: {
-      discovery: true,
-      local: makeDiscoveryFunctionGroups(),
-    },
+    functions: makeDiscoveryFunctionGroups(),
+    functionDiscovery: true,
     contextPolicy: args.contextPolicy,
   });
 
@@ -648,13 +644,10 @@ async function runInvalidDiscoveryRecoveryScenario() {
 
   const testAgent = agent('context:string, query:string -> answer:string', {
     ai: testMockAI,
-    contextFields: ['context'],
     runtime: makeEmailSearchDiscoveryPromptRuntime(),
     maxTurns: 7,
-    functions: {
-      discovery: true,
-      local: makeEmailSearchDiscoveryFunctionGroups(),
-    },
+    functions: makeEmailSearchDiscoveryFunctionGroups(),
+    functionDiscovery: true,
     contextPolicy: {
       preset: 'full',
     },
@@ -700,8 +693,8 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(a).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(a)
+      .actorProgram.getSignature()
       .getDescription() as string;
     // Should contain the base RLM prompt
     expect(actorDesc).toContain('Code Generation Agent');
@@ -720,11 +713,11 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(a).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(a)
+      .actorProgram.getSignature()
       .getDescription() as string;
 
-    expect(actorDesc).toContain('Exploration & Truncation');
+    expect(actorDesc).toContain('Exploration & Turn Discipline');
     expect(actorDesc).not.toContain('### Common Anti-Patterns');
   });
 
@@ -740,12 +733,13 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(a).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(a)
+      .actorProgram.getSignature()
       .getDescription() as string;
 
-    expect(actorDesc).toContain('### Common Anti-Patterns');
-    expect(actorDesc).toContain('console.log(inputs.emails);');
+    // Anti-patterns block removed from prompt; detailed mode no longer adds it
+    expect(actorDesc).not.toContain('### Common Anti-Patterns');
+    expect(actorDesc).toContain('Exploration & Turn Discipline');
   });
 
   it('should describe guidanceLog and actionLog trust boundaries in field descriptions', () => {
@@ -807,8 +801,8 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderDesc = getInternal(a).responderProgram
-      .getSignature()
+    const responderDesc = getInternal(a)
+      .responderProgram.getSignature()
       .getDescription() as string;
     // Should contain the base RLM prompt
     expect(responderDesc).toContain('Answer Synthesis Agent');
@@ -829,12 +823,12 @@ describe('AxAgent', () => {
     );
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(a).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(a)
+      .actorProgram.getSignature()
       .getDescription() as string;
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderDesc = getInternal(a).responderProgram
-      .getSignature()
+    const responderDesc = getInternal(a)
+      .responderProgram.getSignature()
       .getDescription() as string;
 
     expect(actorDesc).toContain('Actor-specific guidance.');
@@ -1090,20 +1084,6 @@ describe('Split-architecture signature derivation', () => {
         expectedError: 'RLM contextField "context" not found in signature',
       },
       {
-        initialSignature: 'query:string, userId:string -> answer:string',
-        nextSignature: 'query:string -> answer:string',
-        config: { contextFields: [], fields: { shared: ['userId'] } },
-        expectedError:
-          'sharedField "userId" not found in signature input fields',
-      },
-      {
-        initialSignature: 'query:string, orgId:string -> answer:string',
-        nextSignature: 'query:string -> answer:string',
-        config: { contextFields: [], fields: { globallyShared: ['orgId'] } },
-        expectedError:
-          'globalSharedField "orgId" not found in signature input fields',
-      },
-      {
         initialSignature: 'query:string -> answer:string, reasoning:string',
         nextSignature: 'query:string -> answer:string',
         config: { contextFields: [], actorFields: ['reasoning'] },
@@ -1131,31 +1111,29 @@ describe('Split-architecture signature derivation', () => {
 describe('AxAgent.test()', () => {
   it('returns captured console.log output from registered runtime globals', async () => {
     const testAgent = agent('query:string -> answer:string', {
-      contextFields: ['query'],
       runtime: new AxJSRuntime(),
-      functions: {
-        local: [
-          {
-            name: 'uppercase',
-            namespace: 'tools',
-            description: 'Uppercase a string',
-            parameters: {
-              type: 'object',
-              properties: {
-                value: { type: 'string' },
-              },
-              required: ['value'],
+      functions: [
+        {
+          name: 'uppercase',
+          namespace: 'tools',
+          description: 'Uppercase a string',
+          parameters: {
+            type: 'object',
+            properties: {
+              value: { type: 'string' },
             },
-            func: async ({ value }) => String(value).toUpperCase(),
+            required: ['value'],
           },
-        ],
-      },
+          func: async ({ value }) => String(value).toUpperCase(),
+        },
+      ],
     });
 
     await expect(
-      testAgent.test('console.log(await tools.uppercase({ value: query }))', {
-        query: 'hello',
-      })
+      testAgent.test(
+        'console.log(await tools.uppercase({ value: "hello" }))',
+        {}
+      )
     ).resolves.toBe('HELLO');
   });
 
@@ -1171,48 +1149,6 @@ describe('AxAgent.test()', () => {
         { context: 'ctx' }
       )
     ).resolves.toBe('ctx|ctx');
-  });
-
-  it('supports child-agent globals with shared-field injection', async () => {
-    const childAgent = {
-      _id: 'child',
-      getFunction: () => ({
-        name: 'child',
-        description: 'Child agent',
-        parameters: {
-          type: 'object',
-          properties: {
-            query: { type: 'string' },
-          },
-          required: ['query'],
-        },
-        func: async (values: Record<string, unknown>) =>
-          `child:${values.query}:${values.userId}`,
-      }),
-      getId() {
-        return this._id;
-      },
-      setId(id: string) {
-        this._id = id;
-      },
-    } as any;
-
-    const testAgent = agent('query:string, userId:string -> answer:string', {
-      contextFields: ['userId'],
-      runtime: new AxJSRuntime(),
-      fields: {
-        shared: ['userId'],
-      },
-      agents: {
-        local: [childAgent],
-      },
-    });
-
-    await expect(
-      testAgent.test('console.log(await agents.child({ query: "hi" }))', {
-        userId: 'u123',
-      })
-    ).resolves.toBe('child:hi:u123');
   });
 
   it('uses a fresh runtime session for each test() call', async () => {
@@ -3114,10 +3050,8 @@ describe('Actor/Responder execution loop', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: makeDiscoveryFunctionGroups(),
-      },
+      functions: makeDiscoveryFunctionGroups(),
+      functionDiscovery: true,
     });
 
     const testMockAI = new AxMockAIService({
@@ -3198,13 +3132,10 @@ describe('Actor/Responder execution loop', () => {
       'context:string, query:string -> answer:string',
       {
         ai: restoredAI,
-        contextFields: ['context'],
         runtime: makeDiscoveryPromptRuntime(),
         maxTurns: 1,
-        functions: {
-          discovery: true,
-          local: makeDiscoveryFunctionGroups(),
-        },
+        functions: makeDiscoveryFunctionGroups(),
+        functionDiscovery: true,
         contextPolicy: { preset: 'full' },
       }
     );
@@ -3255,31 +3186,29 @@ describe('Actor/Responder execution loop', () => {
       contextFields: [],
       runtime: defaultRuntime,
       maxTurns: 1,
-      functions: {
-        discovery: true,
-        local: [
-          ...makeDiscoveryFunctionGroups(),
-          {
-            namespace: 'utils',
-            title: 'Utilities',
-            functions: [
-              {
-                name: 'search',
-                description: 'Utility search',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    query: { type: 'string', description: 'Search query' },
-                  },
-                  required: ['query'],
+      functions: [
+        ...makeDiscoveryFunctionGroups(),
+        {
+          namespace: 'utils',
+          title: 'Utilities',
+          functions: [
+            {
+              name: 'search',
+              description: 'Utility search',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Search query' },
                 },
-                returns: { type: 'string' },
-                func: async () => 'ok',
+                required: ['query'],
               },
-            ],
-          },
-        ],
-      },
+              returns: { type: 'string' },
+              func: async () => 'ok',
+            },
+          ],
+        },
+      ],
+      functionDiscovery: true,
       contextPolicy: { preset: 'full' },
     });
 
@@ -4792,26 +4721,24 @@ describe('Functions as runtime globals', () => {
 
     const testAgent = agent('query:string -> answer:string', {
       ai: testMockAI,
-      functions: {
-        local: [
-          {
-            name: 'myTool',
-            description: 'A test tool function',
-            parameters: {
-              type: 'object',
-              properties: {
-                input: { type: 'string', description: 'Input value' },
-              },
-              required: ['input'],
+      functions: [
+        {
+          name: 'myTool',
+          description: 'A test tool function',
+          parameters: {
+            type: 'object',
+            properties: {
+              input: { type: 'string', description: 'Input value' },
             },
-            func: async (args: Record<string, unknown>) => {
-              functionCalled = true;
-              functionArg = String(args.input ?? '');
-              return 'tool-output';
-            },
+            required: ['input'],
           },
-        ],
-      },
+          func: async (args: Record<string, unknown>) => {
+            functionCalled = true;
+            functionArg = String(args.input ?? '');
+            return 'tool-output';
+          },
+        },
+      ],
       contextFields: [],
       runtime,
       maxTurns: 1,
@@ -5562,7 +5489,7 @@ describe('final()/askClarification() as runtime globals', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [guideFn] },
+      functions: [guideFn],
       contextPolicy: { preset: 'adaptive' },
     });
 
@@ -5598,7 +5525,7 @@ describe('final()/askClarification() as runtime globals', () => {
     const resumedAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [guideFn] },
+      functions: [guideFn],
       contextPolicy: { preset: 'adaptive' },
     });
     resumedAgent.setState(savedState);
@@ -6189,10 +6116,8 @@ console.log('Keys:', Object.keys(globalThis));`;
       contextFields: [],
       runtime,
       maxTurns: 4,
-      functions: {
-        discovery: true,
-        local: makeDiscoveryFunctionGroups(),
-      },
+      functions: makeDiscoveryFunctionGroups(),
+      functionDiscovery: true,
       contextPolicy: { preset: 'full' },
     });
 
@@ -6897,7 +6822,7 @@ describe('axBuildActorDefinition', () => {
     const result = axBuildActorDefinition(undefined, [], [], {
       enforceIncrementalConsoleTurns: true,
     });
-    expect(result).toContain('### Turn Discipline');
+    expect(result).toContain('### Exploration & Turn Discipline');
     expect(result).toContain(
       'Discovery calls (`discoverModules`/`discoverFunctions`) can appear alongside other code'
     );
@@ -6908,8 +6833,9 @@ describe('axBuildActorDefinition', () => {
       promptLevel: 'detailed',
     });
 
-    expect(result).toContain('### Common Anti-Patterns');
-    expect(result).toContain('console.log(inputs.emails);');
+    // Anti-patterns block removed; detailed mode no longer adds it
+    expect(result).not.toContain('### Common Anti-Patterns');
+    expect(result).toContain('Exploration & Turn Discipline');
   });
 
   it('should append base definition', () => {
@@ -6955,14 +6881,14 @@ describe('axBuildResponderDefinition', () => {
   it('should instruct to base answer on actorResult evidence', () => {
     const result = axBuildResponderDefinition(undefined, []);
     expect(result).toContain(
-      'Base your answer ONLY on evidence from actorResult payload arguments'
+      'Base your answer ONLY on evidence in actorResult'
     );
   });
 
   it('should instruct to use available evidence', () => {
     const result = axBuildResponderDefinition(undefined, []);
     expect(result).toContain(
-      'provide the best possible answer from available evidence'
+      'give the best possible answer from what\'s available'
     );
   });
 
@@ -7086,7 +7012,7 @@ describe('RLM llmQuery runtime behavior', () => {
       runtime,
       maxTurns: 1,
       maxSubAgentCalls: 1,
-      mode: 'advanced',
+      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7096,147 +7022,6 @@ describe('RLM llmQuery runtime behavior', () => {
 
     expect(budgetResult[0]).not.toContain('sub-query budget exhausted');
     expect(budgetResult[1]).toContain('sub-query budget exhausted (1/1)');
-  });
-
-  it('should share maxSubAgentCalls budget across recursive child agents', async () => {
-    let rootChildAnswer = '';
-    let childResponderSawBudgetExhausted = false;
-    let grandchildActorCalls = 0;
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                query: string,
-                context?: string
-              ) => Promise<string>;
-              rootChildAnswer = await llmQueryFn('child query', 'ctx1');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  rootChildAnswer,
-                  {}
-                );
-              }
-              return rootChildAnswer;
-            }
-
-            if (code === 'CHILD_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                query: string,
-                context?: string
-              ) => Promise<string>;
-              const nested = await llmQueryFn('grandchild query', 'ctx2');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(nested, {});
-              }
-              return nested;
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_STEP',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          if (userPrompt.includes('Task: grandchild query')) {
-            grandchildActorCalls++;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("grandchild", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childResponderSawBudgetExhausted = userPrompt.includes(
-              'sub-query budget exhausted (1/1)'
-            );
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: `Answer: ${childResponderSawBudgetExhausted ? 'budget-shared' : 'budget-missed'}`,
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      maxSubAgentCalls: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      context: 'unused',
-      query: 'unused',
-    });
-
-    expect(rootChildAnswer).toBe('budget-shared');
-    expect(childResponderSawBudgetExhausted).toBe(true);
-    expect(grandchildActorCalls).toBe(0);
   });
 
   it('should return per-item errors for batched llmQuery calls', async () => {
@@ -7296,7 +7081,7 @@ describe('RLM llmQuery runtime behavior', () => {
           };
         }
 
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
+        if (!systemPrompt.includes('Code Generation Agent')) {
           if (userPrompt.includes('Task: fail')) {
             throw new Error('boom');
           }
@@ -7366,7 +7151,7 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      mode: 'advanced',
+      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7444,7 +7229,7 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      mode: 'advanced',
+      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7527,7 +7312,7 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      mode: 'advanced',
+      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7537,169 +7322,6 @@ describe('RLM llmQuery runtime behavior', () => {
 
     expect(simpleSubAgentCalled).toBe(true);
     expect(queryResult).toBe('solar system answer');
-  });
-
-  it('should abort sibling recursive children when batched llmQuery bubbles clarification', async () => {
-    let slowChildStarted = false;
-    let slowChildAborted = false;
-    let slowChildCompleted = false;
-    let resolveSlowChild: (() => void) | undefined;
-    const slowChildSettled = new Promise<void>((resolve) => {
-      resolveSlowChild = resolve;
-    });
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string, options?: { signal?: AbortSignal }) => {
-            if (code === 'ROOT_BATCH_CLARIFY') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: readonly { query: string; context?: string }[]
-              ) => Promise<string[]>;
-              return await llmQueryFn([
-                { query: 'clarify', context: 'ctx1' },
-                { query: 'slow', context: 'ctx2' },
-              ]);
-            }
-
-            if (code === 'SLOW_CHILD_STEP') {
-              slowChildStarted = true;
-              return await new Promise<string>((resolve, reject) => {
-                const timer = setTimeout(() => {
-                  slowChildCompleted = true;
-                  resolveSlowChild?.();
-                  resolve('slow child finished');
-                }, 80);
-
-                const onAbort = () => {
-                  clearTimeout(timer);
-                  slowChildAborted = true;
-                  resolveSlowChild?.();
-                  const err = new Error('Slow child aborted');
-                  err.name = 'AbortError';
-                  reject(err);
-                };
-
-                if (options?.signal?.aborted) {
-                  onAbort();
-                  return;
-                }
-
-                options?.signal?.addEventListener('abort', onAbort, {
-                  once: true,
-                });
-              });
-            }
-
-            if (
-              globals?.askClarification &&
-              code.includes('askClarification(')
-            ) {
-              (globals.askClarification as (...args: unknown[]) => void)(
-                'Need more detail'
-              );
-              return 'clarify child';
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)(
-                'generate output',
-                { data: 'done' }
-              );
-              return 'done';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: clarify')) {
-            await new Promise<void>((resolve) => {
-              setTimeout(resolve, 20);
-            });
-            return {
-              results: [
-                {
-                  index: 0,
-                  content:
-                    'Javascript Code: askClarification("Need more detail")',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          if (userPrompt.includes('Task: slow')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: SLOW_CHILD_STEP',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_BATCH_CLARIFY',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      maxBatchedLlmQueryConcurrency: 2,
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await expect(
-      testAgent.forward(testMockAI, {
-        context: 'unused',
-        query: 'unused',
-      })
-    ).rejects.toMatchObject({
-      name: 'AxAgentClarificationError',
-      question: 'Need more detail',
-    });
-
-    await slowChildSettled;
-
-    expect(slowChildStarted).toBe(true);
-    expect(slowChildAborted).toBe(true);
-    expect(slowChildCompleted).toBe(false);
   });
 
   it('should return [ERROR] for single-call llmQuery failures', async () => {
@@ -7783,9 +7405,9 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      mode: 'advanced',
+      
       recursionOptions: {
-        maxDepth: 1,
+        
       },
     });
 
@@ -7845,7 +7467,7 @@ describe('RLM llmQuery runtime behavior', () => {
           };
         }
 
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
+        if (!systemPrompt.includes('Code Generation Agent')) {
           if (userPrompt.includes('Task: summarize this')) {
             return {
               results: [
@@ -7917,7 +7539,7 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      mode: 'advanced',
+      
     });
 
     await testAgent.forward(testMockAI, {
@@ -8664,8 +8286,8 @@ describe('actorFields', () => {
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(testAgent).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(testAgent)
+      .actorProgram.getSignature()
       .getDescription() as string;
 
     expect(actorDesc).toContain('### Responder Contract');
@@ -8928,7 +8550,7 @@ describe('actorTurnCallback', () => {
     const seedAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [guideFn] },
+      functions: [guideFn],
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -8955,7 +8577,7 @@ describe('actorTurnCallback', () => {
     const resumedAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [guideFn] },
+      functions: [guideFn],
       actorTurnCallback: async (turn) => {
         callbackResults.push(turn as unknown as Record<string, unknown>);
       },
@@ -9001,207 +8623,6 @@ describe('actorTurnCallback', () => {
     });
   });
 
-  it('should fire actorTurnCallback for recursive child agents as well', async () => {
-    const callbackCodes: string[] = [];
-
-    const recursiveRuntime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              const childAnswer = await llmQueryFn('child query', 'ctx');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childAnswer,
-                  {}
-                );
-              }
-              return childAnswer;
-            }
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done', {});
-              return 'child done';
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child done", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime: recursiveRuntime,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-      actorTurnCallback: async ({ code }) => {
-        callbackCodes.push(code);
-      },
-    });
-
-    await testAgent.forward(testMockAI, { query: 'test' });
-
-    expect(callbackCodes).toContain('ROOT_STEP');
-    expect(callbackCodes).toContain('final("child done", {})');
-    expect(callbackCodes).toHaveLength(2);
-  });
-
-  it('should fire actorTurnCallback for the parent turn when child clarification bubbles', async () => {
-    const callbackEvents: Array<{
-      code: string;
-      output: string;
-      isError: boolean;
-    }> = [];
-
-    const recursiveRuntime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              await llmQueryFn('child query', 'ctx');
-              return 'root done';
-            }
-            if (
-              globals?.askClarification &&
-              code.includes('askClarification(')
-            ) {
-              (globals.askClarification as (...args: unknown[]) => void)(
-                'child clarification'
-              );
-              return 'child clarification';
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content:
-                    'Javascript Code: askClarification("child clarification")',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime: recursiveRuntime,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-      actorTurnCallback: async ({ code, output, isError }) => {
-        callbackEvents.push({ code, output, isError });
-      },
-    });
-
-    await expect(
-      testAgent.forward(testMockAI, { query: 'test' })
-    ).rejects.toMatchObject({
-      name: 'AxAgentClarificationError',
-      question: 'child clarification',
-    });
-
-    expect(callbackEvents).toContainEqual({
-      code: 'askClarification("child clarification")',
-      output: '(no output)',
-      isError: false,
-    });
-    expect(callbackEvents).toContainEqual({
-      code: 'ROOT_STEP',
-      output: '[CLARIFICATION] child clarification',
-      isError: false,
-    });
-  });
 });
 
 // ----- inputUpdateCallback tests -----
@@ -9548,105 +8969,6 @@ describe('inputUpdateCallback', () => {
       testAgent.forward(testMockAI, { query: 'initial-query' })
     ).rejects.toThrow('update-callback-failed');
     expect(actorCallCount).toBe(0);
-  });
-
-  it('should propagate patched shared fields to child agents on later turns', async () => {
-    let actorTurn = 0;
-    let capturedChildArgs: Record<string, unknown> | undefined;
-
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime: defaultRuntime,
-    });
-
-    const originalGetFunction = childAgent.getFunction.bind(childAgent);
-    childAgent.getFunction = () => {
-      const fn = originalGetFunction();
-      fn.func = async (args: any) => {
-        capturedChildArgs = args;
-        return 'Child Answer: mocked';
-      };
-      return fn;
-    };
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code.includes('agents.child')) {
-              const agentsObj = globals!.agents as Record<
-                string,
-                (...args: unknown[]) => Promise<unknown>
-              >;
-              await agentsObj.child({ question: 'test' });
-            }
-            if (code.includes('final(') && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)(
-                'generate output',
-                { data: 'done' }
-              );
-              return 'done';
-            }
-            return 'ok';
-          },
-          patchGlobals: async (patch) => {
-            applyPatchedGlobals(globals as Record<string, unknown>, patch);
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        if (systemPrompt.includes('Code Generation Agent')) {
-          actorTurn++;
-          return {
-            results: [
-              {
-                index: 0,
-                content:
-                  actorTurn === 1
-                    ? 'Javascript Code: var prep = true'
-                    : 'Javascript Code: const r = await agents.child({ question: "test" }); final(r)',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    let callbackTurn = 0;
-    const parentAgent = agent('query:string, userId:string -> answer:string', {
-      ai: testMockAI,
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime,
-      inputUpdateCallback: () => {
-        callbackTurn++;
-        return callbackTurn === 2 ? { userId: 'updated-user' } : undefined;
-      },
-    });
-
-    await parentAgent.forward(testMockAI, {
-      query: 'question',
-      userId: 'initial-user',
-    });
-
-    expect(capturedChildArgs?.userId).toBe('updated-user');
   });
 
   it('should apply callback updates in streamingForward actor loop', async () => {
@@ -10153,10 +9475,8 @@ describe('actorModelPolicy', () => {
       runtime: new AxJSRuntime(),
       maxTurns: 3,
       actorOptions: { model: 'actor-default' },
-      functions: {
-        discovery: true,
-        local: [dbSearchFunction],
-      },
+      functions: [dbSearchFunction],
+      functionDiscovery: true,
       actorModelPolicy: [
         {
           model: 'actor-db',
@@ -10215,10 +9535,8 @@ describe('actorModelPolicy', () => {
       runtime: new AxJSRuntime(),
       maxTurns: 3,
       actorOptions: { model: 'actor-default' },
-      functions: {
-        discovery: true,
-        local: [utilsLookupFunction],
-      },
+      functions: [utilsLookupFunction],
+      functionDiscovery: true,
       actorModelPolicy: [
         {
           model: 'actor-utils',
@@ -10293,10 +9611,8 @@ describe('actorModelPolicy', () => {
       runtime: new AxJSRuntime(),
       maxTurns: 3,
       actorOptions: { model: 'actor-default' },
-      functions: {
-        discovery: true,
-        local: [dbSearchFunction, kbLookupFunction],
-      },
+      functions: [dbSearchFunction, kbLookupFunction],
+      functionDiscovery: true,
       actorModelPolicy: [
         {
           model: 'actor-db',
@@ -10358,10 +9674,8 @@ describe('actorModelPolicy', () => {
       runtime: new AxJSRuntime(),
       maxTurns: 3,
       actorOptions: { model: 'actor-default' },
-      functions: {
-        discovery: true,
-        local: [kbLookupFunction],
-      },
+      functions: [kbLookupFunction],
+      functionDiscovery: true,
       actorModelPolicy: [
         {
           model: 'actor-db',
@@ -10419,10 +9733,8 @@ describe('actorModelPolicy', () => {
       runtime: new AxJSRuntime(),
       maxTurns: 3,
       actorOptions: { model: 'actor-default' },
-      functions: {
-        discovery: true,
-        local: [dbSearchFunction],
-      },
+      functions: [dbSearchFunction],
+      functionDiscovery: true,
       actorModelPolicy: [
         {
           model: 'actor-db',
@@ -10743,10 +10055,8 @@ describe('actorModelPolicy', () => {
         runtime: new AxJSRuntime(),
         maxTurns: 3,
         actorOptions: { model: 'actor-default' },
-        functions: {
-          discovery: true,
-          local: [dbSearchFunction],
-        },
+        functions: [dbSearchFunction],
+        functionDiscovery: true,
         actorModelPolicy: [
           {
             model: 'actor-db',
@@ -10774,192 +10084,6 @@ describe('actorModelPolicy', () => {
 
     expect(resumedResult.answer).toBe('done');
     expect(actorModels).toEqual(['actor-default', 'actor-db', 'actor-db']);
-  });
-
-  it('should evaluate recursive child actors independently', async () => {
-    let childActorCallCount = 0;
-    const childModels: Array<string | undefined> = [];
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                query: string,
-                context?: string
-              ) => Promise<string>;
-              await llmQueryFn('child query', 'child context');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'root done',
-                  {}
-                );
-              }
-              return 'root done';
-            }
-            if (code === 'CHILD_BAD') {
-              throw new Error('child failure');
-            }
-            if (code === 'CHILD_DONE' && globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('child done', {});
-              return 'child done';
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childActorCallCount += 1;
-            childModels.push(req.model as string | undefined);
-            return {
-              results: [
-                {
-                  index: 0,
-                  content:
-                    childActorCallCount === 1
-                      ? 'Javascript Code: CHILD_BAD'
-                      : 'Javascript Code: CHILD_DONE',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 1 },
-      maxTurns: 2,
-      actorOptions: { model: 'actor-default' },
-      actorModelPolicy: [
-        {
-          model: 'actor-large',
-          aboveErrorTurns: 1,
-        },
-      ],
-    });
-
-    const result = await testAgent.forward(testMockAI, { query: 'test' });
-
-    expect(result.answer).toBe('done');
-    expect(childModels).toEqual(['actor-default', 'actor-large']);
-  });
-
-  it('should evaluate namespace discovery matches independently in recursive child actors', async () => {
-    const rootModels: Array<string | undefined> = [];
-    const childModels: Array<string | undefined> = [];
-    let childActorCallCount = 0;
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childActorCallCount += 1;
-            childModels.push(req.model as string | undefined);
-            const childCodeByTurn: Record<number, string> = {
-              1: 'Javascript Code: await discoverFunctions(["db.search"])',
-              2: 'Javascript Code: final("child done", {})',
-            };
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: childCodeByTurn[childActorCallCount]!,
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-
-          rootModels.push(req.model as string | undefined);
-          return {
-            results: [
-              {
-                index: 0,
-                content:
-                  'Javascript Code: const result = await llmQuery("child query", "child context"); final(result, {})',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime: new AxJSRuntime(),
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 1 },
-      maxTurns: 3,
-      actorOptions: { model: 'actor-default' },
-      functions: {
-        discovery: true,
-        local: [dbSearchFunction],
-      },
-      actorModelPolicy: [
-        {
-          model: 'actor-db',
-          namespaces: ['db'],
-        },
-      ],
-    });
-
-    const result = await testAgent.forward(testMockAI, { query: 'test' });
-
-    expect(result.answer).toBe('done');
-    expect(rootModels).toEqual(['actor-default']);
-    expect(childModels).toEqual(['actor-default', 'actor-db']);
   });
 
   it('should reject the legacy scalar actorModelPolicy shape with a migration error', () => {
@@ -11259,7 +10383,7 @@ describe('judgeOptions / optimize', () => {
       judgeAI: constructorJudgeAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
       judgeOptions: {
         description: 'Default judge guidance.',
         model: 'default-judge-model',
@@ -11313,7 +10437,7 @@ describe('judgeOptions / optimize', () => {
       ai: studentAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
     });
     const applySpy = vi.spyOn(testAgent, 'applyOptimization');
 
@@ -11369,7 +10493,7 @@ describe('judgeOptions / optimize', () => {
       ai: studentAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
     });
 
     await testAgent.optimize([makeTask()], {
@@ -11419,7 +10543,7 @@ describe('judgeOptions / optimize', () => {
       ai: studentAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
     });
     const applySpy = vi.spyOn(testAgent, 'applyOptimization');
 
@@ -11470,7 +10594,7 @@ describe('judgeOptions / optimize', () => {
       ai: studentAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
     });
 
     await testAgent.optimize([makeTask()], {
@@ -11858,7 +10982,7 @@ describe('judgeOptions / optimize', () => {
       judgeAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
     });
 
     await testAgent.optimize([makeTask()]);
@@ -11881,7 +11005,7 @@ describe('judgeOptions / optimize', () => {
       ai: studentAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
     });
 
     const result = await testAgent.optimize([makeTask()], {
@@ -11894,7 +11018,7 @@ describe('judgeOptions / optimize', () => {
       ai: studentAI,
       contextFields: [],
       runtime: optimizeRuntime,
-      functions: { local: [sendEmailFn] },
+      functions: [sendEmailFn],
     });
     freshAgent.applyOptimization(loaded);
 
@@ -11905,124 +11029,14 @@ describe('judgeOptions / optimize', () => {
     expect(actorProgram?.getInstruction?.()).toBe('optimized actor');
   });
 
-  it('should expand recursive optimize targets for advanced agents and wrap recursive artifacts', async () => {
-    const studentAI = makeRecursiveStudentAI();
-    const seenTargets: string[][] = [];
-
-    vi.spyOn(AxGEPA.prototype, 'compile').mockImplementation(
-      async (program, _examples, _metric) => {
-        seenTargets.push(
-          (program.namedProgramInstances?.() ?? []).map((entry) => entry.id)
-        );
-
-        return {
-          demos: [],
-          stats: makeOptimizationStats(),
-          bestScore: 0.95,
-          paretoFront: [],
-          paretoFrontSize: 0,
-          finalConfiguration: {},
-          optimizedProgram: makeRecursiveOptimizedProgram(),
-        } as any;
-      }
-    );
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: studentAI,
-      contextFields: [],
-      runtime: recursiveRuntime,
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 2 },
-    });
-
-    const actorOnlyResult = await testAgent.optimize([makeTask()], {
-      metric: async () => 1,
-      apply: false,
-    });
-    await testAgent.optimize([makeTask()], {
-      metric: async () => 1,
-      target: 'all',
-      apply: false,
-    });
-
-    expect(seenTargets[0]).toEqual([
-      AX_AGENT_RECURSIVE_TARGET_IDS.shared,
-      AX_AGENT_RECURSIVE_TARGET_IDS.root,
-      AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
-      AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
-    ]);
-    expect(seenTargets[1]).toEqual([
-      AX_AGENT_RECURSIVE_TARGET_IDS.shared,
-      AX_AGENT_RECURSIVE_TARGET_IDS.root,
-      AX_AGENT_RECURSIVE_TARGET_IDS.recursive,
-      AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
-      AX_AGENT_RECURSIVE_TARGET_IDS.responder,
-    ]);
-    expect(actorOnlyResult.optimizedProgram?.instructionSchema).toBe(
-      AX_AGENT_RECURSIVE_INSTRUCTION_SCHEMA
-    );
-    expect(actorOnlyResult.optimizedProgram?.artifactFormatVersion).toBe(
-      AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION
-    );
-  });
-
-  it('should attach recursive traces and use terminal-slot instructions at max depth', async () => {
-    const seenActorPrompts: string[] = [];
-    const studentAI = makeRecursiveStudentAI({
-      onActorPrompt: (prompt) => {
-        seenActorPrompts.push(prompt);
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: studentAI,
-      contextFields: [],
-      runtime: recursiveRuntime,
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 1 },
-      maxTurns: 4,
-      maxSubAgentCalls: 4,
-    });
-
-    testAgent.applyOptimization(
-      makeRecursiveOptimizedProgram({
-        [AX_AGENT_RECURSIVE_TARGET_IDS.shared]: 'shared-slot-marker',
-        [AX_AGENT_RECURSIVE_TARGET_IDS.root]: 'root-slot-marker',
-        [AX_AGENT_RECURSIVE_TARGET_IDS.recursive]: 'recursive-slot-marker',
-        [AX_AGENT_RECURSIVE_TARGET_IDS.terminal]: 'terminal-slot-marker',
-        [AX_AGENT_RECURSIVE_TARGET_IDS.responder]: 'responder-slot-marker',
-      })
-    );
-
-    const prediction = await getInternal(testAgent)._forwardForEvaluation(
-      studentAI,
-      makeTask({
-        input: { query: 'Use one recursive subtask, then answer.' },
-        criteria: 'Delegate exactly one child task and return the result.',
-      })
-    );
-
-    expect(seenActorPrompts).toHaveLength(2);
-    expect(seenActorPrompts[0]).toContain('shared-slot-marker');
-    expect(seenActorPrompts[0]).toContain('root-slot-marker');
-    expect(seenActorPrompts[0]).not.toContain('terminal-slot-marker');
-    expect(seenActorPrompts[1]).toContain('shared-slot-marker');
-    expect(seenActorPrompts[1]).toContain('terminal-slot-marker');
-    expect(seenActorPrompts[1]).not.toContain('root-slot-marker');
-    expect(prediction.recursiveTrace?.children[0]?.role).toBe('terminal');
-    expect(prediction.recursiveStats?.rootLocalUsage.totalTokens).toBe(4);
-    expect(prediction.recursiveStats?.rootCumulativeUsage.totalTokens).toBe(8);
-    expect(prediction.recursiveSummary).toContain('recursiveCalls=1');
-  });
-
   it('should allow advanced recursive agents to apply legacy optimized artifacts', async () => {
     const studentAI = makeRecursiveStudentAI();
     const testAgent = agent('query:string -> answer:string', {
       ai: studentAI,
       contextFields: [],
       runtime: recursiveRuntime,
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 2 },
+      
+      recursionOptions: {},
     });
 
     testAgent.applyOptimization(
@@ -12047,1917 +11061,8 @@ describe('judgeOptions / optimize', () => {
     );
   });
 
-  it('should fail loudly on unsupported recursive optimization schemas', () => {
-    const studentAI = makeRecursiveStudentAI();
-    const testAgent = agent('query:string -> answer:string', {
-      ai: studentAI,
-      contextFields: [],
-      runtime: recursiveRuntime,
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 2 },
-    });
-
-    expect(() =>
-      testAgent.applyOptimization(
-        makeRecursiveOptimizedProgram(undefined, {
-          instructionSchema: 'ax-agent-recursive-slots-v2',
-        })
-      )
-    ).toThrow(/unsupported instruction schema/);
-
-    expect(() =>
-      testAgent.applyOptimization(
-        makeRecursiveOptimizedProgram(undefined, {
-          artifactFormatVersion: AX_AGENT_RECURSIVE_ARTIFACT_FORMAT_VERSION + 1,
-        })
-      )
-    ).toThrow(/unsupported recursive artifact format version/);
-  });
-
-  it('should capture a no-recursion evaluation trace when the root answers directly', async () => {
-    const studentAI = makeRecursiveStudentAI({
-      rootCode: 'final("direct answer", {})',
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: studentAI,
-      contextFields: [],
-      runtime: recursiveRuntime,
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 2 },
-      maxTurns: 2,
-    });
-
-    const prediction = await getInternal(testAgent)._forwardForEvaluation(
-      studentAI,
-      makeTask({
-        input: { query: 'Simple question: answer directly.' },
-        criteria: 'Answer directly without recursion.',
-      })
-    );
-
-    expect(prediction.recursiveTrace?.childCount).toBe(0);
-    expect(prediction.recursiveStats?.recursiveCallCount).toBe(0);
-    expect(prediction.recursiveStats?.directAnswerCount).toBe(1);
-  });
 });
 
-// ----- recursionOptions and recursive parity tests -----
-
-describe('recursionOptions and recursive parity', () => {
-  it('should expose root tool globals inside recursive llmQuery child sessions', async () => {
-    let recursiveToolCalled = false;
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              return await llmQueryFn('child query', 'child context');
-            }
-
-            if (code === 'CHILD_STEP') {
-              const utilsNs = globals?.utils as
-                | Record<string, unknown>
-                | undefined;
-              if (utilsNs?.myTool) {
-                recursiveToolCalled = true;
-                const myTool = utilsNs.myTool as (
-                  args: Record<string, unknown>
-                ) => Promise<unknown>;
-                await myTool({ input: 'ok' });
-              }
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'child answer',
-                  {}
-                );
-              }
-              return 'child done';
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('root done', {});
-              return 'root done';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_STEP',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-      functions: {
-        local: [
-          {
-            name: 'myTool',
-            description: 'recursive tool',
-            parameters: {
-              type: 'object',
-              properties: {
-                input: { type: 'string' },
-              },
-              required: ['input'],
-            },
-            func: async () => 'ok',
-          },
-        ],
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      context: 'root context',
-      query: 'root query',
-    });
-
-    expect(recursiveToolCalled).toBe(true);
-  });
-
-  it('should NOT pass parent contextFields into recursive child runtime globals', async () => {
-    let childResponderPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childResult,
-                  {}
-                );
-              }
-              return childResult;
-            }
-
-            if (code === 'CHILD_CHECK') {
-              const payload = {
-                parentKnowledge:
-                  (globals?.knowledge as string | undefined) ?? '',
-                contextType: typeof globals?.context,
-              };
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'generate output',
-                  payload
-                );
-              }
-              return payload;
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_CHECK',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childResponderPrompt = userPrompt;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Answer: child result',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Answer: root result',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('knowledge:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['knowledge'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      knowledge: 'root-knowledge',
-      query: 'root query',
-    });
-
-    // Child should NOT inherit parent's 'knowledge' context field
-    expect(childResponderPrompt).toContain('"parentKnowledge": ""');
-    // No explicit llmQuery context means recursive child gets no default context binding
-    expect(childResponderPrompt).toContain('"contextType": "undefined"');
-  });
-
-  it('should expose explicit llmQuery context object as child runtime globals', async () => {
-    let childResponderPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: Record<string, unknown>
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query', {
-                taskId: 'case-17',
-                incident: { severity: 'high' },
-                rubric: 'refund-or-not',
-              });
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childResult,
-                  {}
-                );
-              }
-              return childResult;
-            }
-
-            if (code === 'CHILD_CHECK') {
-              const payload = {
-                taskId: (globals?.taskId as string | undefined) ?? '',
-                rubric: (globals?.rubric as string | undefined) ?? '',
-                incidentType: typeof globals?.incident,
-                contextType: typeof globals?.context,
-                contextTaskId:
-                  (globals?.context as Record<string, unknown> | undefined)
-                    ?.taskId ?? '',
-                parentKnowledge:
-                  (globals?.knowledge as string | undefined) ?? '',
-              };
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'generate output',
-                  payload
-                );
-              }
-              return payload;
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_CHECK',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childResponderPrompt = userPrompt;
-          }
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('knowledge:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['knowledge'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      knowledge: 'root-knowledge',
-      query: 'root query',
-    });
-
-    expect(childResponderPrompt).toContain('"taskId": "case-17"');
-    expect(childResponderPrompt).toContain('"rubric": "refund-or-not"');
-    expect(childResponderPrompt).toContain('"incidentType": "object"');
-    expect(childResponderPrompt).toContain('"contextType": "object"');
-    expect(childResponderPrompt).toContain('"contextTaskId": "case-17"');
-    expect(childResponderPrompt).toContain('"parentKnowledge": ""');
-  });
-
-  it('should show bootstrapped child context in the initial live runtime state on fallback runtimes', async () => {
-    let childActorPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: Record<string, unknown>
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query', {
-                taskId: 'case-17',
-                rubric: 'refund-or-not',
-              });
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childResult,
-                  {}
-                );
-              }
-              return childResult;
-            }
-
-            if (isInspectBaselineCode(code)) {
-              return JSON.stringify(
-                Object.keys(globals ?? {})
-                  .concat(['setImmediate', 'clearImmediate'])
-                  .sort()
-              );
-            }
-
-            if (isStructuredInspectCode(code)) {
-              const skipFilteredBootstrap =
-                !code.includes("'context'") &&
-                !code.includes("'taskId'") &&
-                !code.includes("'rubric'");
-              return skipFilteredBootstrap
-                ? JSON.stringify({
-                    version: 1,
-                    entries: [
-                      {
-                        name: 'taskId',
-                        type: 'string',
-                        size: '7 chars',
-                        preview: '"case-17"',
-                      },
-                      {
-                        name: 'rubric',
-                        type: 'string',
-                        size: '13 chars',
-                        preview: '"refund-or-not"',
-                      },
-                      {
-                        name: 'context',
-                        type: 'object',
-                        size: '2 keys',
-                        preview: '{taskId, rubric}',
-                      },
-                    ],
-                  })
-                : JSON.stringify({ version: 1, entries: [] });
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done', {});
-              return 'child done';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childActorPrompt = userPrompt;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child done", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-      contextPolicy: {
-        preset: 'adaptive',
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      query: 'root query',
-    });
-
-    expect(childActorPrompt).toContain('Live Runtime State:');
-    expect(childActorPrompt).toContain('taskId');
-    expect(childActorPrompt).toContain('case-17');
-    expect(childActorPrompt).toContain('refund-or-not');
-  });
-
-  it('should show delegated child context when live runtime state is disabled', async () => {
-    let childActorPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: Record<string, unknown>
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query', {
-                taskId: 'case-17',
-                rubric: 'refund-or-not',
-                priority: 'high',
-              });
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childResult,
-                  {}
-                );
-              }
-              return childResult;
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done', {});
-              return 'child done';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childActorPrompt = userPrompt;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child done", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-      contextPolicy: {
-        preset: 'full',
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      query: 'root query',
-    });
-
-    expect(childActorPrompt).toContain('Delegated Context (runtime-only');
-    expect(childActorPrompt).toContain('taskId');
-    expect(childActorPrompt).toContain('case-17');
-    expect(childActorPrompt).toContain('refund-or-not');
-    expect(childActorPrompt).not.toContain('Live Runtime State:');
-  });
-
-  it('should show element keys for array-of-objects in delegated context summary', async () => {
-    let childActorPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: unknown
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query', {
-                emails: [
-                  { from: 'alice', subject: 'hello', date: '2025-01-01' },
-                  { from: 'bob', subject: 'hi', date: '2025-01-02' },
-                ],
-                tag: 'urgent',
-              });
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childResult,
-                  {}
-                );
-              }
-              return childResult;
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)('child done', {});
-              return 'child done';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childActorPrompt = userPrompt;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child done", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-      contextPolicy: {
-        preset: 'full',
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      query: 'root query',
-    });
-
-    // Element keys should appear for array-of-objects
-    expect(childActorPrompt).toContain('element keys: from, subject, date');
-    // Budget info should be visible
-    expect(childActorPrompt).toContain('Sub-query budget:');
-    expect(childActorPrompt).toContain('remaining');
-    // Explore-with-code preamble
-    expect(childActorPrompt).toContain('Explore with code');
-  });
-
-  it('should keep conflicting or invalid child context keys under context only', async () => {
-    let childResponderPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: Record<string, unknown>
-              ) => Promise<string>;
-              const childResult = await llmQueryFn('child query', {
-                rubric: 'refund-or-not',
-                console: 'shadowed-console',
-                'task-id': 'case-17',
-                context: { nested: true },
-              });
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childResult,
-                  {}
-                );
-              }
-              return childResult;
-            }
-
-            if (code === 'CHILD_CHECK_CONFLICTS') {
-              const childContext = (globals?.context ?? {}) as Record<
-                string,
-                unknown
-              >;
-              const payload = {
-                rubric: (globals?.rubric as string | undefined) ?? '',
-                promotedConsole:
-                  (globals as Record<string, unknown> | undefined)?.console ??
-                  '',
-                promotedTaskId:
-                  (globals as Record<string, unknown> | undefined)?.[
-                    'task-id'
-                  ] ?? '',
-                contextConsole:
-                  (childContext.console as string | undefined) ?? '',
-                contextTaskId:
-                  (childContext['task-id'] as string | undefined) ?? '',
-                contextHasNested:
-                  typeof childContext.context === 'object' &&
-                  childContext.context !== null,
-              };
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'generate output',
-                  payload
-                );
-              }
-              return payload;
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_CHECK_CONFLICTS',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childResponderPrompt = userPrompt;
-          }
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      query: 'root query',
-    });
-
-    expect(childResponderPrompt).toContain('"rubric": "refund-or-not"');
-    expect(childResponderPrompt).toContain('"promotedConsole": ""');
-    expect(childResponderPrompt).toContain('"promotedTaskId": ""');
-    expect(childResponderPrompt).toContain(
-      '"contextConsole": "shadowed-console"'
-    );
-    expect(childResponderPrompt).toContain('"contextTaskId": "case-17"');
-    expect(childResponderPrompt).toContain('"contextHasNested": true');
-  });
-
-  it('should bubble child askClarification instead of isolating it in parent state', async () => {
-    let childSubmitActorCalls = 0;
-    let childAskActorCalls = 0;
-    let rootResponderPrompt = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_NO_SIGNAL') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              await llmQueryFn('child-submit', 'ctx');
-              await llmQueryFn('child-ask', 'ctx');
-              return 'root-finished';
-            }
-            if (globals?.final && code.includes('final(')) {
-              (globals.final as (...args: unknown[]) => void)(
-                'child submit',
-                {}
-              );
-              return 'child submit';
-            }
-            if (
-              globals?.askClarification &&
-              code.includes('askClarification(')
-            ) {
-              (globals.askClarification as (...args: unknown[]) => void)(
-                'child ask'
-              );
-              return 'child ask';
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child-submit')) {
-            childSubmitActorCalls++;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child submit", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          if (userPrompt.includes('Task: child-ask')) {
-            childAskActorCalls++;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: askClarification("child ask")',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_NO_SIGNAL',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          if (!userPrompt.includes('Task: child-')) {
-            rootResponderPrompt = userPrompt;
-          }
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await expect(
-      testAgent.forward(testMockAI, {
-        context: 'root context',
-        query: 'root query',
-      })
-    ).rejects.toMatchObject({
-      name: 'AxAgentClarificationError',
-      question: 'child ask',
-    });
-
-    expect(childSubmitActorCalls).toBe(1);
-    expect(childAskActorCalls).toBe(1);
-    expect(rootResponderPrompt).toBe('');
-  });
-
-  it('should carry shared actor guidance but keep responder descriptions out of recursive child prompts', async () => {
-    let sawActorOverrideInChild = false;
-    let sawResponderOverrideInChild = false;
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              return await llmQueryFn('child query', 'child context');
-            }
-            if (globals?.final) {
-              (globals.final as (...args: unknown[]) => void)(
-                'generate output',
-                { data: 'done' }
-              );
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            if (systemPrompt.includes('CHILD ACTOR OVERRIDE')) {
-              sawActorOverrideInChild = true;
-            }
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child answer", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          if (
-            userPrompt.includes('Task: child query') &&
-            systemPrompt.includes('CHILD RESPONDER OVERRIDE')
-          ) {
-            sawResponderOverrideInChild = true;
-          }
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      actorOptions: {
-        description: 'CHILD ACTOR OVERRIDE',
-      },
-      responderOptions: {
-        description: 'CHILD RESPONDER OVERRIDE',
-      },
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      context: 'root context',
-      query: 'root query',
-    });
-
-    expect(sawActorOverrideInChild).toBe(true);
-    expect(sawResponderOverrideInChild).toBe(false);
-  });
-
-  it('should use simple llmQuery at the top level when recursionOptions.maxDepth is 0', async () => {
-    let llmQueryResult = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              llmQueryResult = await llmQueryFn('child query', 'child context');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  llmQueryResult,
-                  {}
-                );
-              }
-              return llmQueryResult;
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        if (systemPrompt.includes('Code Generation Agent')) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'answer: child simple result',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 0,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      context: 'root context',
-      query: 'root query',
-    });
-
-    expect(llmQueryResult).toBe('answer: child simple result');
-  });
-
-  it('should use simple llmQuery inside recursive children when recursionOptions.maxDepth is 1', async () => {
-    let childSimpleAnswer = '';
-    let actorCalls = 0;
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              childSimpleAnswer = await llmQueryFn(
-                'child query',
-                'child context'
-              );
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  childSimpleAnswer,
-                  {}
-                );
-              }
-              return childSimpleAnswer;
-            }
-
-            if (code === 'CHILD_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              const nested = await llmQueryFn(
-                'grandchild query',
-                'grandchild context'
-              );
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(nested, {});
-              }
-              return nested;
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          actorCalls++;
-          if (userPrompt.includes('Task: child query')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_STEP',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'answer: nested simple result',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 1,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      context: 'root context',
-      query: 'root query',
-    });
-
-    expect(actorCalls).toBe(2);
-    expect(childSimpleAnswer).toBe('answer: nested simple result');
-  });
-
-  it('should surface child-agent execution errors in action log instead of throwing', async () => {
-    let sawChildErrorInActionLog = false;
-
-    const childAgent = agent(
-      'draft:string, audience:string -> revision:string',
-      {
-        agentIdentity: { name: 'Writer', description: 'Writes revisions' },
-        contextFields: [],
-        runtime: defaultRuntime,
-      }
-    );
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code.includes('team.writer')) {
-              const team = globals?.team as Record<
-                string,
-                (args: Record<string, unknown>) => Promise<unknown>
-              >;
-              await team.writer({ draft: 'draft only' });
-              return 'child ok';
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              if (code.includes('"recovered child"')) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'recovered child',
-                  {}
-                );
-              } else {
-                (globals.final as (...args: unknown[]) => void)(
-                  'generate output',
-                  { data: 'done' }
-                );
-              }
-              return 'submitted';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (
-            userPrompt.includes("Value for input field 'audience' is required")
-          ) {
-            sawChildErrorInActionLog = true;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("recovered child", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-
-          if (userPrompt.includes('Query: root')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content:
-                    'Javascript Code: await team.writer({ draft: "draft only" })',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-        }
-
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Answer: recovered child',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const parentAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      agentIdentity: {
-        name: 'Coordinator',
-        description: 'Coordinates child agents',
-        namespace: 'team',
-      },
-      agents: { local: [childAgent] },
-      contextFields: [],
-      runtime,
-      maxTurns: 2,
-      mode: 'advanced',
-    });
-
-    const result = await parentAgent.forward(testMockAI, {
-      query: 'root',
-    });
-
-    expect(sawChildErrorInActionLog).toBe(true);
-    expect(result.answer).toBe('recovered child');
-  });
-
-  it('should surface namespaced function execution errors in action log instead of throwing', async () => {
-    let sawFunctionErrorInActionLog = false;
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code.includes('utils.failer')) {
-              const utils = globals?.utils as Record<
-                string,
-                (args: Record<string, unknown>) => Promise<unknown>
-              >;
-              await utils.failer({ query: 'boom' });
-              return 'function ok';
-            }
-
-            if (globals?.final && code.includes('final(')) {
-              if (code.includes('"recovered fn"')) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'recovered fn',
-                  {}
-                );
-              } else {
-                (globals.final as (...args: unknown[]) => void)(
-                  'generate output',
-                  { data: 'done' }
-                );
-              }
-              return 'submitted';
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Error: boom')) {
-            sawFunctionErrorInActionLog = true;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("recovered fn", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-
-          if (userPrompt.includes('Query: root')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content:
-                    'Javascript Code: await utils.failer({ query: "boom" })',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-        }
-
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Answer: recovered fn',
-              finishReason: 'stop',
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const parentAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 2,
-      mode: 'advanced',
-      functions: {
-        local: [
-          {
-            name: 'failer',
-            description: 'Always throws',
-            namespace: 'utils',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string' },
-              },
-              required: ['query'],
-            },
-            func: async () => {
-              throw new Error('boom');
-            },
-          },
-        ],
-      },
-    });
-
-    const result = await parentAgent.forward(testMockAI, {
-      query: 'root',
-    });
-
-    expect(sawFunctionErrorInActionLog).toBe(true);
-    expect(result.answer).toBe('recovered fn');
-  });
-
-  it('should keep abort-like runtime execution errors fatal', async () => {
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: RUNTIME_ABORT_TEST',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession() {
-        return {
-          execute: async (code: string) => {
-            if (code === 'RUNTIME_ABORT_TEST') {
-              const err = new Error('Aborted in runtime');
-              err.name = 'AbortError';
-              throw err;
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testAgent = agent('query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: [],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-    });
-
-    await expect(
-      testAgent.forward(testMockAI, {
-        query: 'root',
-      })
-    ).rejects.toThrow('Aborted in runtime');
-  });
-
-  it('should use a fresh runtime session for each recursive llmQuery call', async () => {
-    let childReadResponderPayload = '';
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        const sessionState: { marker?: string } = {};
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              await llmQueryFn('child-set', 'ctx');
-              await llmQueryFn('child-read', 'ctx');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'root done',
-                  {}
-                );
-              }
-              return 'root done';
-            }
-
-            if (code === 'CHILD_SET') {
-              sessionState.marker = 'set';
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  sessionState.marker,
-                  {}
-                );
-              }
-              return sessionState.marker;
-            }
-
-            if (code === 'CHILD_READ') {
-              const marker = sessionState.marker ?? 'missing';
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(marker, {});
-              }
-              return marker;
-            }
-
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child-set')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_SET',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          if (userPrompt.includes('Task: child-read')) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: CHILD_READ',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        if (systemPrompt.includes('Answer Synthesis Agent')) {
-          if (userPrompt.includes('Task: child-read')) {
-            childReadResponderPayload = userPrompt;
-          }
-          return {
-            results: [
-              { index: 0, content: 'Answer: done', finishReason: 'stop' },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [{ index: 0, content: 'fallback', finishReason: 'stop' }],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await testAgent.forward(testMockAI, {
-      context: 'root context',
-      query: 'root query',
-    });
-
-    // The second child call cannot see marker set by the first child call.
-    expect(childReadResponderPayload).toContain('"missing"');
-  });
-
-  it('should propagate parent forward model to recursive llmQuery child by default', async () => {
-    let childModel: string | undefined;
-
-    const runtime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            if (code === 'ROOT_STEP') {
-              const llmQueryFn = globals?.llmQuery as (
-                q: string,
-                context?: string
-              ) => Promise<string>;
-              await llmQueryFn('child query', 'child context');
-              if (globals?.final) {
-                (globals.final as (...args: unknown[]) => void)(
-                  'root done',
-                  {}
-                );
-              }
-              return 'root done';
-            }
-            if (globals?.final) {
-              (globals.final as (...args: unknown[]) => void)('child done', {});
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        const userPrompt = String(req.chatPrompt[1]?.content ?? '');
-
-        if (systemPrompt.includes('Code Generation Agent')) {
-          if (userPrompt.includes('Task: child query')) {
-            childModel = req.model as string | undefined;
-            return {
-              results: [
-                {
-                  index: 0,
-                  content: 'Javascript Code: final("child answer", {})',
-                  finishReason: 'stop',
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content: 'Javascript Code: ROOT_STEP',
-                finishReason: 'stop',
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-
-        return {
-          results: [
-            { index: 0, content: 'Answer: done', finishReason: 'stop' },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const testAgent = agent('context:string, query:string -> answer:string', {
-      ai: testMockAI,
-      contextFields: ['context'],
-      runtime,
-      maxTurns: 1,
-      mode: 'advanced',
-      recursionOptions: {
-        maxDepth: 2,
-      },
-    });
-
-    await testAgent.forward(
-      testMockAI,
-      {
-        context: 'root context',
-        query: 'root query',
-      },
-      { model: 'parent-model' }
-    );
-
-    expect(childModel).toBe('parent-model');
-  });
-});
 
 // ----- A/An article grammar tests (unchanged) -----
 
@@ -13978,849 +11083,6 @@ describe('A/An article grammar in renderInputFields', () => {
     const type = 'number';
     const article = /^[aeiou]/i.test(type) ? 'An' : 'A';
     expect(article).toBe('A');
-  });
-});
-
-// ----- Shared Fields tests -----
-
-describe('Shared Fields', () => {
-  const runtime: AxCodeRuntime = {
-    getUsageInstructions: () => '',
-    createSession(globals) {
-      return {
-        execute: async (code: string) => {
-          if (globals?.final && code.includes('final(')) {
-            (globals.final as (...args: unknown[]) => void)('generate output', {
-              data: 'done',
-            });
-            return 'done';
-          }
-          return 'ok';
-        },
-        close: () => {},
-      };
-    },
-  };
-
-  it('should throw when sharedField is not in signature input fields', () => {
-    expect(
-      () =>
-        new AxAgent(
-          { signature: 'query:string -> answer:string' },
-          { contextFields: [], fields: { shared: ['nonExistent'] }, runtime }
-        )
-    ).toThrow(/sharedField "nonExistent" not found in signature input fields/);
-  });
-
-  it('should exclude shared-only fields from Actor and Responder signatures', () => {
-    const parentAgent = agent(
-      'query:string, userId:string, context:string -> answer:string',
-      {
-        contextFields: ['context'],
-        fields: { shared: ['userId'] },
-        runtime,
-      }
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
-    const actorInputNames = actorSig
-      .getInputFields()
-      .map((f: { name: string }) => f.name);
-
-    // userId should NOT appear in Actor inputs (it's shared, bypasses LLM)
-    expect(actorInputNames).not.toContain('userId');
-    // query should still appear (it's a regular input)
-    expect(actorInputNames).toContain('query');
-    // context should NOT appear (it's a context field)
-    expect(actorInputNames).not.toContain('context');
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderSig = getInternal(parentAgent).responderProgram.getSignature();
-    const responderInputNames = responderSig
-      .getInputFields()
-      .map((f: { name: string }) => f.name);
-
-    expect(responderInputNames).not.toContain('userId');
-    expect(responderInputNames).toContain('query');
-  });
-
-  it('should keep shared fields local when listed in fields.local', () => {
-    const parentAgent = agent(
-      'query:string, userId:string, context:string -> answer:string',
-      {
-        contextFields: ['context'],
-        fields: { shared: ['userId'], local: ['userId'] },
-        runtime,
-      }
-    );
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
-    const actorInputNames = actorSig
-      .getInputFields()
-      .map((f: { name: string }) => f.name);
-
-    expect(actorInputNames).toContain('userId');
-    expect(actorInputNames).toContain('query');
-    expect(actorInputNames).not.toContain('context');
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const responderSig = getInternal(parentAgent).responderProgram.getSignature();
-    const responderInputNames = responderSig
-      .getInputFields()
-      .map((f: { name: string }) => f.name);
-
-    expect(responderInputNames).toContain('userId');
-    expect(responderInputNames).toContain('query');
-  });
-
-  it('should extend child agent signature with shared fields', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    // Before: child has only 'question' input
-    const childInputsBefore = childAgent
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputsBefore).toEqual(['question']);
-
-    // Create parent with sharedFields
-    agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime,
-    });
-
-    // After: child should have 'question' + 'userId'
-    const childInputsAfter = childAgent
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputsAfter).toContain('question');
-    expect(childInputsAfter).toContain('userId');
-  });
-
-  it('should auto-extend child contextFields for shared context fields', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    // Create parent where 'context' is both context and shared
-    agent('query:string, context:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: ['context'],
-      fields: { shared: ['context'] },
-      runtime,
-    });
-
-    // Child should now have 'context' in its contextFields
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childContextFields = getInternal(childAgent).rlmConfig.contextFields;
-    expect(childContextFields).toContain('context');
-
-    // Child signature should include 'context'
-    const childInputs = childAgent
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputs).toContain('context');
-  });
-
-  it('should respect child excludeSharedFields', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      fields: { excluded: ['userId'] },
-      runtime,
-    });
-
-    // Create parent with shared userId
-    agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime,
-    });
-
-    // Child should NOT have 'userId' (it excluded it)
-    const childInputs = childAgent
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputs).not.toContain('userId');
-  });
-
-  it('should not duplicate fields already in child signature', () => {
-    const childAgent = agent(
-      'question:string, userId:string -> answer:string',
-      {
-        agentIdentity: { name: 'Child', description: 'A child agent' },
-        contextFields: [],
-        runtime,
-      }
-    );
-
-    // Create parent that shares 'userId' which child already has
-    agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime,
-    });
-
-    // Child should still have exactly one 'userId'
-    const childInputs = childAgent
-      .getSignature()
-      .getInputFields()
-      .filter((f) => f.name === 'userId');
-    expect(childInputs).toHaveLength(1);
-  });
-
-  it('should inject shared field values into subagent calls at runtime', async () => {
-    let capturedChildArgs: Record<string, unknown> | undefined;
-
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    // Spy on getFunction to capture args passed to the child
-    const originalGetFunction = childAgent.getFunction.bind(childAgent);
-    childAgent.getFunction = () => {
-      const fn = originalGetFunction();
-      fn.func = async (args: any) => {
-        capturedChildArgs = args;
-        return 'Child Answer: mocked';
-      };
-      return fn;
-    };
-
-    let actorTurn = 0;
-    const childCallRuntime: AxCodeRuntime = {
-      getUsageInstructions: () => '',
-      createSession(globals) {
-        return {
-          execute: async (code: string) => {
-            // Check agents.child BEFORE final() since a code string might contain both
-            if (code.includes('agents.child')) {
-              const agentsObj = globals!.agents as Record<
-                string,
-                (...args: unknown[]) => Promise<unknown>
-              >;
-              const result = await agentsObj.child({ question: 'test' });
-              return String(result);
-            }
-            if (code.includes('final(')) {
-              (globals!.final as (...args: unknown[]) => void)('done', {});
-              return 'done';
-            }
-            return 'ok';
-          },
-          close: () => {},
-        };
-      },
-    };
-
-    const testMockAI = new AxMockAIService({
-      features: { functions: false, streaming: false },
-      chatResponse: async (req) => {
-        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
-        if (systemPrompt.includes('Code Generation Agent')) {
-          actorTurn++;
-          if (actorTurn === 1) {
-            return {
-              results: [
-                {
-                  index: 0,
-                  content:
-                    'Javascript Code: const r = await agents.child({ question: "test" })',
-                  finishReason: 'stop' as const,
-                },
-              ],
-              modelUsage: makeModelUsage(),
-            };
-          }
-          return {
-            results: [
-              {
-                index: 0,
-                content:
-                  'Javascript Code: final("generate output", { data: "done" })',
-                finishReason: 'stop' as const,
-              },
-            ],
-            modelUsage: makeModelUsage(),
-          };
-        }
-        return {
-          results: [
-            {
-              index: 0,
-              content: 'Answer: done',
-              finishReason: 'stop' as const,
-            },
-          ],
-          modelUsage: makeModelUsage(),
-        };
-      },
-    });
-
-    const parentAgent = agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime: childCallRuntime,
-    });
-
-    await parentAgent.forward(testMockAI, {
-      query: 'test query',
-      userId: 'user-123',
-    });
-
-    // The child should have received userId via shared field injection
-    expect(capturedChildArgs).toBeDefined();
-    expect(capturedChildArgs!.userId).toBe('user-123');
-    expect(capturedChildArgs!.question).toBe('test');
-  });
-
-  it('should handle field in both contextFields and sharedFields', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const parentAgent = agent('query:string, context:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: ['context'],
-      fields: { shared: ['context'] },
-      runtime,
-    });
-
-    // Parent's Actor should not include 'context' (it's a context field)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorInputs = getInternal(parentAgent).actorProgram
-      .getSignature()
-      .getInputFields()
-      .map((f: { name: string }) => f.name);
-    expect(actorInputs).not.toContain('context');
-
-    // Child should have 'context' in signature AND contextFields
-    const childInputs = childAgent
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputs).toContain('context');
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childContextFields = getInternal(childAgent).rlmConfig.contextFields;
-    expect(childContextFields).toContain('context');
-  });
-});
-
-// ----- Shared Agents tests -----
-
-describe('Shared Agents', () => {
-  const runtime: AxCodeRuntime = {
-    getUsageInstructions: () => '',
-    createSession() {
-      return { execute: async () => 'ok', close: () => {} };
-    },
-  };
-
-  it('should add sharedAgents to direct child agents', () => {
-    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
-      agentIdentity: { name: 'Utility', description: 'A utility agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [childAgent], shared: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = getInternal(childAgent).agents as any[];
-    const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
-    expect(childAgentNames).toContain('utility');
-  });
-
-  it('should NOT propagate sharedAgents to grandchild agents', () => {
-    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
-      agentIdentity: { name: 'Utility', description: 'A utility agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child], shared: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // Child should have the utility agent
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = getInternal(child).agents as any[];
-    const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
-    expect(childAgentNames).toContain('utility');
-
-    // Grandchild should NOT have the utility agent
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildAgents = getInternal(grandchild).agents;
-    expect(grandchildAgents).toBeUndefined();
-  });
-
-  it('should avoid duplicate agents when child already has the agent', () => {
-    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
-      agentIdentity: { name: 'Utility', description: 'A utility agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [childAgent], shared: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = getInternal(childAgent).agents as any[];
-    const utilityCount = childAgents.filter(
-      (a: any) => a.getFunction().name === 'utility'
-    ).length;
-    expect(utilityCount).toBe(1);
-  });
-
-  it('should not add a child agent to itself when listed in shared (self-registration)', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [childAgent], shared: [childAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // childAgent's own agents list must not contain itself
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = getInternal(childAgent).agents as any[] | undefined;
-    const selfRefs = (childAgents ?? []).filter((a: any) => a === childAgent);
-    expect(selfRefs).toHaveLength(0);
-  });
-});
-
-// ----- Global Shared Agents tests -----
-
-describe('Global Shared Agents', () => {
-  const runtime: AxCodeRuntime = {
-    getUsageInstructions: () => '',
-    createSession() {
-      return { execute: async () => 'ok', close: () => {} };
-    },
-  };
-
-  it('should add globalSharedAgents to all descendants', () => {
-    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
-      agentIdentity: { name: 'Utility', description: 'A utility agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child], globallyShared: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // Child should have the utility agent
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = getInternal(child).agents as any[];
-    const childAgentNames = childAgents.map((a: any) => a.getFunction().name);
-    expect(childAgentNames).toContain('utility');
-
-    // Grandchild should ALSO have the utility agent
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildAgents = getInternal(grandchild).agents as any[];
-    const grandchildAgentNames = grandchildAgents.map(
-      (a: any) => a.getFunction().name
-    );
-    expect(grandchildAgentNames).toContain('utility');
-  });
-
-  it('should avoid duplicates across the tree', () => {
-    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
-      agentIdentity: { name: 'Utility', description: 'A utility agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      agents: { local: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child], globallyShared: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // Grandchild already had utility; should not be duplicated
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildAgents = getInternal(grandchild).agents as any[];
-    const utilityCount = grandchildAgents.filter(
-      (a: any) => a.getFunction().name === 'utility'
-    ).length;
-    expect(utilityCount).toBe(1);
-  });
-
-  it('should not add a child agent to itself when listed in globallyShared (self-registration)', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [childAgent], globallyShared: [childAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // childAgent's own agents list must not contain itself
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = getInternal(childAgent).agents as any[] | undefined;
-    const selfRefs = (childAgents ?? []).filter((a: any) => a === childAgent);
-    expect(selfRefs).toHaveLength(0);
-  });
-});
-
-// ----- Global Shared Fields tests -----
-
-describe('Global Shared Fields', () => {
-  const runtime: AxCodeRuntime = {
-    getUsageInstructions: () => '',
-    createSession() {
-      return { execute: async () => 'ok', close: () => {} };
-    },
-  };
-
-  it('should throw when globalSharedField is not in signature input fields', () => {
-    expect(
-      () =>
-        new AxAgent(
-          { signature: 'query:string -> answer:string' },
-          {
-            contextFields: [],
-            fields: { globallyShared: ['nonExistent'] },
-            runtime,
-          }
-        )
-    ).toThrow(
-      /globalSharedField "nonExistent" not found in signature input fields/
-    );
-  });
-
-  it('should exclude global shared fields from parent Actor and Responder', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const parentAgent = agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { globallyShared: ['userId'] },
-      runtime,
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
-    const actorInputNames = actorSig
-      .getInputFields()
-      .map((f: { name: string }) => f.name);
-    expect(actorInputNames).not.toContain('userId');
-    expect(actorInputNames).toContain('query');
-  });
-
-  it('should keep globallyShared fields local when listed in fields.local', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const parentAgent = agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { globallyShared: ['userId'], local: ['userId'] },
-      runtime,
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorSig = getInternal(parentAgent).actorProgram.getSignature();
-    const actorInputNames = actorSig
-      .getInputFields()
-      .map((f: { name: string }) => f.name);
-    expect(actorInputNames).toContain('userId');
-    expect(actorInputNames).toContain('query');
-
-    // Should still propagate globally to descendants
-    const childInputs = childAgent
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputs).toContain('userId');
-  });
-
-  it('should extend all descendants signatures with globalSharedFields', () => {
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string, userId:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      fields: { globallyShared: ['userId'] },
-      runtime,
-    });
-
-    // Child should have userId in its signature
-    const childInputs = child
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputs).toContain('userId');
-
-    // Grandchild should ALSO have userId in its signature
-    const grandchildInputs = grandchild
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(grandchildInputs).toContain('userId');
-  });
-
-  it('should strip globalSharedFields from all descendants getFunction().parameters', () => {
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string, userId:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      fields: { globallyShared: ['userId'] },
-      runtime,
-    });
-
-    // Child: userId should NOT appear in getFunction().parameters
-    const childParams = child.getFunction().parameters!;
-    expect(childParams.properties?.userId).toBeUndefined();
-    expect(childParams.properties?.topic).toBeDefined();
-
-    // Grandchild: userId should NOT appear in getFunction().parameters
-    const grandchildParams = grandchild.getFunction().parameters!;
-    expect(grandchildParams.properties?.userId).toBeUndefined();
-    expect(grandchildParams.properties?.question).toBeDefined();
-  });
-
-  it('should add globalSharedFields to intermediate agents sharedFieldNames for value chaining', () => {
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string, userId:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      fields: { globallyShared: ['userId'] },
-      runtime,
-    });
-
-    // Child's sharedFieldNames should include 'userId' (for value chaining)
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childSharedFields = getInternal(child).sharedFieldNames as string[];
-    expect(childSharedFields).toContain('userId');
-  });
-
-  it('should respect excludeSharedFields for globalSharedFields', () => {
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      fields: { excluded: ['userId'] },
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string, userId:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      fields: { globallyShared: ['userId'] },
-      runtime,
-    });
-
-    // Child should have userId
-    const childInputs = child
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(childInputs).toContain('userId');
-
-    // Grandchild excluded it — should NOT have userId
-    const grandchildInputs = grandchild
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    expect(grandchildInputs).not.toContain('userId');
-  });
-
-  it('should auto-extend contextFields for globalSharedFields that are context in parent', () => {
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string, context:string, userId:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: ['context'],
-      fields: { globallyShared: ['context', 'userId'] },
-      runtime,
-    });
-
-    // Child should have 'context' in its contextFields
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childContextFields = getInternal(child).rlmConfig.contextFields;
-    expect(childContextFields).toContain('context');
-
-    // Grandchild should also have 'context' in its contextFields
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildContextFields = getInternal(grandchild).rlmConfig.contextFields;
-    expect(grandchildContextFields).toContain('context');
-  });
-
-  it('should not duplicate fields already in descendant signature', () => {
-    const child = agent('topic:string, userId:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string, userId:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      fields: { globallyShared: ['userId'] },
-      runtime,
-    });
-
-    // Child already had userId — no duplicate
-    const childInputs = child
-      .getSignature()
-      .getInputFields()
-      .map((f) => f.name);
-    const userIdCount = childInputs.filter((n) => n === 'userId').length;
-    expect(userIdCount).toBe(1);
   });
 });
 
@@ -14850,133 +11112,6 @@ describe('getFunction() parameter schema', () => {
     // Output fields absent
     expect(params.properties?.answer).toBeUndefined();
     expect(params.properties?.reasoning).toBeUndefined();
-  });
-
-  it('should not include parent-injected shared fields in parameters', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    // Before parent registers it — only own input fields
-    const paramsBefore = childAgent.getFunction().parameters!;
-    expect(Object.keys(paramsBefore.properties ?? {})).toEqual(['question']);
-
-    // Create parent that injects 'userId' as a shared field
-    agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime,
-    });
-
-    // After parent registration — shared field must NOT appear in parameters
-    const paramsAfter = childAgent.getFunction().parameters!;
-    expect(paramsAfter.properties?.question).toBeDefined();
-    expect(paramsAfter.properties?.userId).toBeUndefined();
-    expect(paramsAfter.required).not.toContain('userId');
-  });
-
-  it('should keep fields already in child signature when parent shares the same name', () => {
-    // Child already owns 'userId' — parent sharing it is a no-op in _extendForSharedFields
-    const childAgent = agent(
-      'question:string, userId:string -> answer:string',
-      {
-        agentIdentity: { name: 'Child', description: 'A child agent' },
-        contextFields: [],
-        runtime,
-      }
-    );
-
-    agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime,
-    });
-
-    // userId was not injected (child already had it) so it remains in parameters
-    const params = childAgent.getFunction().parameters!;
-    expect(params.properties?.userId).toBeDefined();
-  });
-
-  it('should not include excluded shared fields', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      fields: { excluded: ['userId'] },
-      runtime,
-    });
-
-    agent('query:string, userId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId'] },
-      runtime,
-    });
-
-    // userId was excluded — not extended into child, not in parameters
-    const params = childAgent.getFunction().parameters!;
-    expect(params.properties?.userId).toBeUndefined();
-  });
-
-  it('should handle multiple shared fields — only own fields remain in parameters', () => {
-    const childAgent = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string, userId:string, sessionId:string -> answer:string', {
-      agents: { local: [childAgent] },
-      contextFields: [],
-      fields: { shared: ['userId', 'sessionId'] },
-      runtime,
-    });
-
-    const params = childAgent.getFunction().parameters!;
-    // Own fields present
-    expect(params.properties?.question).toBeDefined();
-    // Both injected shared fields absent
-    expect(params.properties?.userId).toBeUndefined();
-    expect(params.properties?.sessionId).toBeUndefined();
-  });
-
-  it('should scope _parentSharedFields independently in a grandparent → parent → child chain', () => {
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child agent' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      fields: { shared: ['topic'] },
-      runtime,
-    });
-
-    agent('query:string, userId:string, topic:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      fields: { shared: ['userId', 'topic'] },
-      runtime,
-    });
-
-    // Grandchild: 'topic' was shared by its parent (child) — should be hidden
-    const grandchildParams = grandchild.getFunction().parameters!;
-    expect(grandchildParams.properties?.question).toBeDefined();
-    expect(grandchildParams.properties?.topic).toBeUndefined();
-    // 'userId' was NOT shared by child to grandchild — should not appear at all
-    expect(grandchildParams.properties?.userId).toBeUndefined();
-
-    // Child: 'topic' is its OWN input field — should remain visible.
-    // 'userId' was injected by grandparent — should be hidden.
-    const childParams = child.getFunction().parameters!;
-    expect(childParams.properties?.topic).toBeDefined(); // child owns this
-    expect(childParams.properties?.userId).toBeUndefined(); // injected by grandparent
   });
 });
 
@@ -15086,21 +11221,14 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     expect(result).not.toContain('### Additional Functions');
   });
 
-  it('should render unified llmQuery guidance covering interpretation and delegation in all modes', () => {
-    const recursive = axBuildActorDefinition(undefined, [], [], {
-      llmQueryPromptMode: 'advanced-recursive',
-    });
-    const terminal = axBuildActorDefinition(undefined, [], [], {
-      llmQueryPromptMode: 'simple-at-terminal-depth',
-    });
+  it('should render unified llmQuery guidance in simple mode', () => {
     const simple = axBuildActorDefinition(undefined, [], [], {
       llmQueryPromptMode: 'simple',
     });
 
-    for (const result of [recursive, terminal, simple]) {
-      expect(result).toContain('interprets or delegates');
-      expect(result).toContain('delegate focused subtasks');
-    }
+    expect(simple).toContain('llmQuery` interprets');
+    // "delegate focused subtasks" still appears in the primitives list
+    expect(simple).toContain('delegate focused subtasks');
   });
 
   it('should render modules only in discovery mode', () => {
@@ -15372,14 +11500,14 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     const parentAgent = agent('query:string -> finalAnswer:string', {
-      agents: { local: [childAgent] },
+      agents: [childAgent],
       contextFields: [],
       runtime,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDescription = getInternal(parentAgent).actorProgram
-      .getSignature()
+    const actorDescription = getInternal(parentAgent)
+      .actorProgram.getSignature()
       .getDescription();
 
     expect(actorDescription).toContain('### Available Agent Functions');
@@ -15404,14 +11532,14 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
         description: 'Parent',
         namespace: 'team',
       },
-      agents: { local: [childAgent] },
+      agents: [childAgent],
       contextFields: [],
       runtime,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDescription = getInternal(parentAgent).actorProgram
-      .getSignature()
+    const actorDescription = getInternal(parentAgent)
+      .actorProgram.getSignature()
       .getDescription();
 
     expect(actorDescription).toContain(
@@ -15424,23 +11552,21 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
 
   it('actor program description should include agent function call signatures end-to-end', () => {
     const parentAgent = agent('query:string -> finalAnswer:string', {
-      functions: {
-        local: [
-          {
-            name: 'lookupData',
-            description: 'Looks up data in the database',
-            parameters: sampleSchema,
-            func: async () => 'result',
-          },
-        ],
-      },
+      functions: [
+        {
+          name: 'lookupData',
+          description: 'Looks up data in the database',
+          parameters: sampleSchema,
+          func: async () => 'result',
+        },
+      ],
       contextFields: [],
       runtime,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDescription = getInternal(parentAgent).actorProgram
-      .getSignature()
+    const actorDescription = getInternal(parentAgent)
+      .actorProgram.getSignature()
       .getDescription();
 
     expect(actorDescription).toContain('### Available Functions');
@@ -15514,20 +11640,18 @@ describe('AxFunction', () => {
       {
         contextFields: [],
         runtime,
-        functions: {
-          local: [
-            {
-              name: 'fetchData',
-              description: 'Fetches data',
-              parameters: {
-                type: 'object',
-                properties: { url: { type: 'string' } },
-                required: ['url'],
-              },
-              func: async () => 'result',
+        functions: [
+          {
+            name: 'fetchData',
+            description: 'Fetches data',
+            parameters: {
+              type: 'object',
+              properties: { url: { type: 'string' } },
+              required: ['url'],
             },
-          ],
-        },
+            func: async () => 'result',
+          },
+        ],
       }
     );
 
@@ -15544,21 +11668,19 @@ describe('AxFunction', () => {
       {
         contextFields: [],
         runtime,
-        functions: {
-          local: [
-            {
-              name: 'processImage',
-              description: 'Processes an image',
-              parameters: {
-                type: 'object',
-                properties: { url: { type: 'string' } },
-                required: ['url'],
-              },
-              namespace: 'media',
-              func: async () => 'processed',
+        functions: [
+          {
+            name: 'processImage',
+            description: 'Processes an image',
+            parameters: {
+              type: 'object',
+              properties: { url: { type: 'string' } },
+              required: ['url'],
             },
-          ],
-        },
+            namespace: 'media',
+            func: async () => 'processed',
+          },
+        ],
       }
     );
 
@@ -15575,28 +11697,26 @@ describe('AxFunction', () => {
       {
         contextFields: [],
         runtime,
-        functions: {
-          local: [
-            {
-              namespace: 'media',
-              title: 'Media Tools',
-              selectionCriteria: 'Use for image or file processing.',
-              description: 'Helpers for media processing.',
-              functions: [
-                {
-                  name: 'processImage',
-                  description: 'Processes an image',
-                  parameters: {
-                    type: 'object',
-                    properties: { url: { type: 'string' } },
-                    required: ['url'],
-                  },
-                  func: async () => 'processed',
+        functions: [
+          {
+            namespace: 'media',
+            title: 'Media Tools',
+            selectionCriteria: 'Use for image or file processing.',
+            description: 'Helpers for media processing.',
+            functions: [
+              {
+                name: 'processImage',
+                description: 'Processes an image',
+                parameters: {
+                  type: 'object',
+                  properties: { url: { type: 'string' } },
+                  required: ['url'],
                 },
-              ],
-            },
-          ],
-        },
+                func: async () => 'processed',
+              },
+            ],
+          },
+        ],
       }
     );
 
@@ -15615,7 +11735,7 @@ describe('AxFunction', () => {
     });
 
     const parent = agent('query:string -> answer:string', {
-      agents: { local: [child] },
+      agents: [child],
       contextFields: [],
       runtime,
     });
@@ -15639,7 +11759,7 @@ describe('AxFunction', () => {
         description: 'parent',
         namespace: 'Team Namespace',
       },
-      agents: { local: [child] },
+      agents: [child],
       contextFields: [],
       runtime,
     });
@@ -15664,7 +11784,7 @@ describe('AxFunction', () => {
         agentModuleNamespace: 'teamNamespace',
       },
       {
-        agents: { local: [child] },
+        agents: [child],
         contextFields: [],
         runtime,
       }
@@ -15692,17 +11812,15 @@ describe('AxFunction', () => {
             {
               contextFields: [],
               runtime,
-              functions: {
-                local: [
-                  {
-                    name: 'badFn',
-                    description: 'bad',
-                    parameters: { type: 'object', properties: {} },
-                    namespace: ns,
-                    func: async () => 'x',
-                  },
-                ],
-              },
+              functions: [
+                {
+                  name: 'badFn',
+                  description: 'bad',
+                  parameters: { type: 'object', properties: {} },
+                  namespace: ns,
+                  func: async () => 'x',
+                },
+              ],
             }
           )
       ).toThrow(
@@ -15726,17 +11844,15 @@ describe('AxFunction', () => {
           {
             contextFields: [],
             runtime,
-            functions: {
-              local: [
-                {
-                  name: 'badFn',
-                  description: 'bad',
-                  parameters: { type: 'object', properties: {} },
-                  namespace: 'team',
-                  func: async () => 'x',
-                },
-              ],
-            },
+            functions: [
+              {
+                name: 'badFn',
+                description: 'bad',
+                parameters: { type: 'object', properties: {} },
+                namespace: 'team',
+                func: async () => 'x',
+              },
+            ],
           }
         )
     ).toThrow(
@@ -15753,24 +11869,22 @@ describe('AxFunction', () => {
             {
               contextFields: [],
               runtime,
-              functions: {
-                local: [
-                  {
-                    namespace: ns,
-                    title: 'Reserved',
-                    selectionCriteria: 'Reserved namespace',
-                    description: 'Should fail',
-                    functions: [
-                      {
-                        name: 'lookup',
-                        description: 'Lookup',
-                        parameters: { type: 'object', properties: {} },
-                        func: async () => 'x',
-                      },
-                    ],
-                  },
-                ],
-              },
+              functions: [
+                {
+                  namespace: ns,
+                  title: 'Reserved',
+                  selectionCriteria: 'Reserved namespace',
+                  description: 'Should fail',
+                  functions: [
+                    {
+                      name: 'lookup',
+                      description: 'Lookup',
+                      parameters: { type: 'object', properties: {} },
+                      func: async () => 'x',
+                    },
+                  ],
+                },
+              ],
             }
           )
       ).toThrow(
@@ -15787,38 +11901,36 @@ describe('AxFunction', () => {
           {
             contextFields: [],
             runtime,
-            functions: {
-              local: [
-                {
-                  namespace: 'db',
-                  title: 'Database',
-                  selectionCriteria: 'Use for database lookups',
-                  description: 'Database tools',
-                  functions: [
-                    {
-                      name: 'search',
-                      description: 'Search database',
-                      parameters: { type: 'object', properties: {} },
-                      func: async () => 'x',
-                    },
-                  ],
-                },
-                {
-                  namespace: 'db',
-                  title: 'Duplicate',
-                  selectionCriteria: 'Use for duplicate lookups',
-                  description: 'Duplicate metadata',
-                  functions: [
-                    {
-                      name: 'other',
-                      description: 'Other database search',
-                      parameters: { type: 'object', properties: {} },
-                      func: async () => 'y',
-                    },
-                  ],
-                },
-              ],
-            },
+            functions: [
+              {
+                namespace: 'db',
+                title: 'Database',
+                selectionCriteria: 'Use for database lookups',
+                description: 'Database tools',
+                functions: [
+                  {
+                    name: 'search',
+                    description: 'Search database',
+                    parameters: { type: 'object', properties: {} },
+                    func: async () => 'x',
+                  },
+                ],
+              },
+              {
+                namespace: 'db',
+                title: 'Duplicate',
+                selectionCriteria: 'Use for duplicate lookups',
+                description: 'Duplicate metadata',
+                functions: [
+                  {
+                    name: 'other',
+                    description: 'Other database search',
+                    parameters: { type: 'object', properties: {} },
+                    func: async () => 'y',
+                  },
+                ],
+              },
+            ],
           }
         )
     ).toThrow('Duplicate agent function group namespace "db"');
@@ -15832,25 +11944,23 @@ describe('AxFunction', () => {
           {
             contextFields: [],
             runtime,
-            functions: {
-              local: [
-                {
-                  namespace: 'db',
-                  title: 'Database',
-                  selectionCriteria: 'Use for database lookups',
-                  description: 'Database tools',
-                  functions: [
-                    {
-                      name: 'search',
-                      description: 'Search database',
-                      parameters: { type: 'object', properties: {} },
-                      namespace: 'db',
-                      func: async () => 'x',
-                    },
-                  ],
-                },
-              ],
-            },
+            functions: [
+              {
+                namespace: 'db',
+                title: 'Database',
+                selectionCriteria: 'Use for database lookups',
+                description: 'Database tools',
+                functions: [
+                  {
+                    name: 'search',
+                    description: 'Search database',
+                    parameters: { type: 'object', properties: {} },
+                    namespace: 'db',
+                    func: async () => 'x',
+                  },
+                ],
+              },
+            ],
           }
         )
     ).toThrow(
@@ -15891,120 +12001,116 @@ describe('AxFunction', () => {
         description: 'parent',
         namespace: 'team',
       },
-      agents: { local: [child] },
+      agents: [child],
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: [
-          {
-            namespace: 'utils',
-            title: 'Utilities',
-            selectionCriteria: 'Use for general-purpose helpers.',
-            description: 'General-purpose runtime helpers.',
-            functions: [
-              {
-                name: 'lookup',
-                description: 'Lookup utility function',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    query: { type: 'string', description: 'Query' },
-                  },
-                  required: ['query'],
+      functions: [
+        {
+          namespace: 'utils',
+          title: 'Utilities',
+          selectionCriteria: 'Use for general-purpose helpers.',
+          description: 'General-purpose runtime helpers.',
+          functions: [
+            {
+              name: 'lookup',
+              description: 'Lookup utility function',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Query' },
                 },
-                func: async () => 'result',
+                required: ['query'],
               },
-            ],
-          },
-          {
-            namespace: 'db',
-            title: 'Scheduling Database',
-            selectionCriteria:
-              'Use for schedule lookups or natural-language window resolution.',
-            description:
-              'Database accessors for schedule lookups and availability.',
-            functions: [
-              {
-                name: 'search',
-                description: 'Search in database',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    query: { type: 'string', description: 'Query' },
-                    limit: { type: 'number', description: 'Limit' },
-                  },
-                  required: ['query'],
+              func: async () => 'result',
+            },
+          ],
+        },
+        {
+          namespace: 'db',
+          title: 'Scheduling Database',
+          selectionCriteria:
+            'Use for schedule lookups or natural-language window resolution.',
+          description:
+            'Database accessors for schedule lookups and availability.',
+          functions: [
+            {
+              name: 'search',
+              description: 'Search in database',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Query' },
+                  limit: { type: 'number', description: 'Limit' },
                 },
-                returns: { type: 'number' },
-                examples: [
-                  {
-                    title: 'Find open slots',
-                    description:
-                      'Lookup the next five available windows for a participant.',
-                    code: 'await db.search({ query: "availability for Alex", limit: 5 });',
-                  },
-                ],
-                func: async () => 1,
+                required: ['query'],
               },
-              {
-                name: 'resolveWindow',
-                description:
-                  'Resolve a scheduling window from natural language',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    request: {
-                      type: 'string',
-                      description: 'Natural-language scheduling request',
-                    },
-                    options: {
-                      type: 'object',
-                      description: 'Optional parsing and timezone controls',
-                      properties: {
-                        timezone: {
+              returns: { type: 'number' },
+              examples: [
+                {
+                  title: 'Find open slots',
+                  description:
+                    'Lookup the next five available windows for a participant.',
+                  code: 'await db.search({ query: "availability for Alex", limit: 5 });',
+                },
+              ],
+              func: async () => 1,
+            },
+            {
+              name: 'resolveWindow',
+              description: 'Resolve a scheduling window from natural language',
+              parameters: {
+                type: 'object',
+                properties: {
+                  request: {
+                    type: 'string',
+                    description: 'Natural-language scheduling request',
+                  },
+                  options: {
+                    type: 'object',
+                    description: 'Optional parsing and timezone controls',
+                    properties: {
+                      timezone: {
+                        type: 'string',
+                        description: 'IANA timezone for resolving the request',
+                      },
+                      participants: {
+                        type: 'array',
+                        description:
+                          'Participants included in the scheduling search',
+                        items: {
                           type: 'string',
-                          description:
-                            'IANA timezone for resolving the request',
-                        },
-                        participants: {
-                          type: 'array',
-                          description:
-                            'Participants included in the scheduling search',
-                          items: {
-                            type: 'string',
-                            description: 'Participant identifier',
-                          },
+                          description: 'Participant identifier',
                         },
                       },
-                      required: ['timezone'],
                     },
+                    required: ['timezone'],
                   },
-                  required: ['request'],
                 },
-                examples: [
-                  {
-                    title: 'Resolve a Pacific-time window',
-                    code: [
-                      'await db.resolveWindow({',
-                      '  request: "next Tuesday afternoon",',
-                      '  options: {',
-                      '    timezone: "America/Los_Angeles",',
-                      '    participants: ["alex", "sam"]',
-                      '  }',
-                      '});',
-                    ].join('\n'),
-                  },
-                ],
-                func: async () => ({
-                  start: '2026-03-10T13:00:00-08:00',
-                  end: '2026-03-10T15:00:00-08:00',
-                }),
+                required: ['request'],
               },
-            ],
-          },
-        ],
-      },
+              examples: [
+                {
+                  title: 'Resolve a Pacific-time window',
+                  code: [
+                    'await db.resolveWindow({',
+                    '  request: "next Tuesday afternoon",',
+                    '  options: {',
+                    '    timezone: "America/Los_Angeles",',
+                    '    participants: ["alex", "sam"]',
+                    '  }',
+                    '});',
+                  ].join('\n'),
+                },
+              ],
+              func: async () => ({
+                start: '2026-03-10T13:00:00-08:00',
+                end: '2026-03-10T15:00:00-08:00',
+              }),
+            },
+          ],
+        },
+      ],
+      functionDiscovery: true,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -16019,7 +12125,6 @@ describe('AxFunction', () => {
     const discoveredFunctions: Record<string, string> = {};
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const globalsWithCallbacks = getInternal(parent).buildRuntimeGlobals(
-      undefined,
       undefined,
       undefined,
       undefined,
@@ -16128,15 +12233,13 @@ describe('AxFunction', () => {
           {
             contextFields: [],
             runtime,
-            functions: {
-              local: [
-                {
-                  name: 'missingSchema',
-                  description: 'Missing parameters',
-                  func: async () => 'x',
-                },
-              ],
-            },
+            functions: [
+              {
+                name: 'missingSchema',
+                description: 'Missing parameters',
+                func: async () => 'x',
+              },
+            ],
           }
         )
     ).toThrow(
@@ -16148,39 +12251,37 @@ describe('AxFunction', () => {
     const myAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: {
-        local: [
-          {
-            name: 'searchDB',
-            description: 'Searches the database',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Search query' },
-                limit: { type: 'number', description: 'Max results' },
-              },
-              required: ['query'],
+      functions: [
+        {
+          name: 'searchDB',
+          description: 'Searches the database',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Search query' },
+              limit: { type: 'number', description: 'Max results' },
             },
-            returns: {
-              type: 'object',
-              properties: {
-                results: {
-                  type: 'array',
-                  items: { type: 'string' },
-                  description: 'Results',
-                },
-              },
-            },
-            namespace: 'db',
-            func: async () => [],
+            required: ['query'],
           },
-        ],
-      },
+          returns: {
+            type: 'object',
+            properties: {
+              results: {
+                type: 'array',
+                items: { type: 'string' },
+                description: 'Results',
+              },
+            },
+          },
+          namespace: 'db',
+          func: async () => [],
+        },
+      ],
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(myAgent).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(myAgent)
+      .actorProgram.getSignature()
       .getDescription();
 
     expect(actorDesc).toContain('### Available Functions');
@@ -16203,39 +12304,37 @@ describe('AxFunction', () => {
         description: 'parent',
         namespace: 'team',
       },
-      agents: { local: [child] },
+      agents: [child],
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: [
-          {
-            namespace: 'db',
-            title: 'Database Tools',
-            selectionCriteria: 'Use when you need structured data lookups.',
-            description: 'Database lookup helpers.',
-            functions: [
-              {
-                name: 'searchDB',
-                description: 'Searches the database',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    query: { type: 'string', description: 'Search query' },
-                  },
-                  required: ['query'],
+      functions: [
+        {
+          namespace: 'db',
+          title: 'Database Tools',
+          selectionCriteria: 'Use when you need structured data lookups.',
+          description: 'Database lookup helpers.',
+          functions: [
+            {
+              name: 'searchDB',
+              description: 'Searches the database',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Search query' },
                 },
-                func: async () => [],
+                required: ['query'],
               },
-            ],
-          },
-        ],
-      },
+              func: async () => [],
+            },
+          ],
+        },
+      ],
+      functionDiscovery: true,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(myAgent).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(myAgent)
+      .actorProgram.getSignature()
       .getDescription();
     expect(actorDesc).toContain('### Available Modules');
     expect(actorDesc).toContain('- `team`');
@@ -16256,35 +12355,32 @@ describe('AxFunction', () => {
     const myAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: [
-          {
-            namespace: 'db',
-            title: 'Database Tools',
-            functions: [
-              {
-                name: 'searchDB',
-                parameters: {
-                  type: 'object',
-                  properties: {
-                    query: { type: 'string', description: 'Search query' },
-                  },
-                  required: ['query'],
+      functions: [
+        {
+          namespace: 'db',
+          title: 'Database Tools',
+          functions: [
+            {
+              name: 'searchDB',
+              parameters: {
+                type: 'object',
+                properties: {
+                  query: { type: 'string', description: 'Search query' },
                 },
-                func: async () => [],
+                required: ['query'],
               },
-            ],
-          },
-        ],
-      },
+              func: async () => [],
+            },
+          ],
+        },
+      ],
+      functionDiscovery: true,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const discoveredModules: Record<string, string> = {};
     const discoveredFunctions: Record<string, string> = {};
     const globals = getInternal(myAgent).buildRuntimeGlobals(
-      undefined,
       undefined,
       undefined,
       undefined,
@@ -16312,316 +12408,32 @@ describe('AxFunction', () => {
     const myAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: [
-          {
-            name: 'searchDB',
-            description: 'Searches the database',
-            parameters: {
-              type: 'object',
-              properties: {
-                query: { type: 'string', description: 'Search query' },
-              },
-              required: ['query'],
+      functions: [
+        {
+          name: 'searchDB',
+          description: 'Searches the database',
+          parameters: {
+            type: 'object',
+            properties: {
+              query: { type: 'string', description: 'Search query' },
             },
-            namespace: 'db',
-            func: async () => [],
+            required: ['query'],
           },
-        ],
-      },
+          namespace: 'db',
+          func: async () => [],
+        },
+      ],
+      functionDiscovery: true,
     });
 
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const actorDesc = getInternal(myAgent).actorProgram
-      .getSignature()
+    const actorDesc = getInternal(myAgent)
+      .actorProgram.getSignature()
       .getDescription();
 
     expect(actorDesc).toContain('### Available Modules');
     expect(actorDesc).toContain('- `db`');
     expect(actorDesc).not.toContain('- `db` -');
-  });
-
-  it('should propagate shared agent functions to direct children', () => {
-    const sharedFn: AxFunction = {
-      name: 'sharedUtil',
-      description: 'A shared utility',
-      parameters: {
-        type: 'object',
-        properties: { input: { type: 'string' } },
-        required: ['input'],
-      },
-      func: async () => 'shared-result',
-    };
-
-    const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      runtime,
-      functions: { shared: [sharedFn] },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
-    expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
-  });
-
-  it('should NOT propagate shared agent functions to grandchildren', () => {
-    const sharedFn: AxFunction = {
-      name: 'sharedUtil',
-      description: 'A shared utility',
-      parameters: {
-        type: 'object',
-        properties: { input: { type: 'string' } },
-        required: ['input'],
-      },
-      func: async () => 'shared-result',
-    };
-
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      runtime,
-      functions: { shared: [sharedFn] },
-    });
-
-    // Child should have it
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
-    expect(childFunctions.map((f) => f.name)).toContain('sharedUtil');
-
-    // Grandchild should NOT have it
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildFunctions = getInternal(grandchild).agentFunctions as AxFunction[];
-    expect(grandchildFunctions.map((f) => f.name)).not.toContain('sharedUtil');
-  });
-
-  it('should propagate globallyShared agent functions to all descendants', () => {
-    const globalFn: AxFunction = {
-      name: 'globalUtil',
-      description: 'A global utility',
-      parameters: {
-        type: 'object',
-        properties: { input: { type: 'string' } },
-        required: ['input'],
-      },
-      func: async () => 'global-result',
-    };
-
-    const grandchild = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Grandchild', description: 'A grandchild' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('topic:string -> summary:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      agents: { local: [grandchild] },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      runtime,
-      functions: { globallyShared: [globalFn] },
-    });
-
-    // Child should have it
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
-    expect(childFunctions.map((f) => f.name)).toContain('globalUtil');
-
-    // Grandchild should ALSO have it
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const grandchildFunctions = getInternal(grandchild).agentFunctions as AxFunction[];
-    expect(grandchildFunctions.map((f) => f.name)).toContain('globalUtil');
-  });
-
-  it('should respect functions.excluded to block shared agent functions', () => {
-    const sharedFn: AxFunction = {
-      name: 'blockedFn',
-      description: 'Should be blocked',
-      parameters: {
-        type: 'object',
-        properties: { input: { type: 'string' } },
-        required: ['input'],
-      },
-      func: async () => 'blocked',
-    };
-
-    const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      contextFields: [],
-      runtime,
-      functions: { excluded: ['blockedFn'] },
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      runtime,
-      functions: { shared: [sharedFn] },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
-    expect(childFunctions.map((f) => f.name)).not.toContain('blockedFn');
-  });
-
-  it('should throw on duplicate agent function propagated from parent', () => {
-    const fn1: AxFunction = {
-      name: 'dupFn',
-      description: 'First',
-      parameters: { type: 'object', properties: {} },
-      func: async () => 'a',
-    };
-
-    const fn2: AxFunction = {
-      name: 'dupFn',
-      description: 'Second',
-      parameters: { type: 'object', properties: {} },
-      func: async () => 'b',
-    };
-
-    const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      contextFields: [],
-      runtime,
-    });
-
-    expect(() =>
-      agent('query:string -> finalAnswer:string', {
-        agents: { local: [child] },
-        contextFields: [],
-        runtime,
-        functions: { shared: [fn1, fn2] },
-      })
-    ).toThrow(/Duplicate shared agent function/);
-  });
-
-  it('should skip shared function when child already defines it locally', () => {
-    const localFn: AxFunction = {
-      name: 'myFn',
-      description: 'Child version',
-      parameters: { type: 'object', properties: {} },
-      func: async () => 'child-version',
-    };
-
-    const parentSharedFn: AxFunction = {
-      name: 'myFn',
-      description: 'Parent version',
-      parameters: { type: 'object', properties: {} },
-      func: async () => 'parent-version',
-    };
-
-    const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      contextFields: [],
-      runtime,
-      functions: { local: [localFn] },
-    });
-
-    // Should NOT throw — child owns it locally
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      runtime,
-      functions: { shared: [parentSharedFn] },
-    });
-
-    // Child should still have its own version
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
-    const myFn = childFunctions.find((f) => f.name === 'myFn');
-    expect(myFn?.description).toBe('Child version');
-  });
-
-  it('should respect agents.excluded to block shared agents', () => {
-    const utilityAgent = agent('taskInput:string -> taskOutput:string', {
-      agentIdentity: { name: 'Utility', description: 'A utility agent' },
-      contextFields: [],
-      runtime,
-    });
-
-    const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      contextFields: [],
-      runtime,
-      agents: { excluded: ['utility'] },
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child], shared: [utilityAgent] },
-      contextFields: [],
-      runtime,
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childAgents = getInternal(child).agents as any[] | undefined;
-    const childAgentNames = (childAgents ?? []).map(
-      (a: any) => a.getFunction().name
-    );
-    expect(childAgentNames).not.toContain('utility');
-  });
-
-  it('should dedup agent functions by namespace.name across namespaces', () => {
-    const fn1: AxFunction = {
-      name: 'process',
-      description: 'Utils process',
-      parameters: { type: 'object', properties: {} },
-      namespace: 'utils',
-      func: async () => 'a',
-    };
-
-    const fn2: AxFunction = {
-      name: 'process',
-      description: 'Media process',
-      parameters: { type: 'object', properties: {} },
-      namespace: 'media',
-      func: async () => 'b',
-    };
-
-    // Same name different namespace — should NOT throw
-    const child = agent('question:string -> answer:string', {
-      agentIdentity: { name: 'Child', description: 'A child' },
-      contextFields: [],
-      runtime,
-    });
-
-    agent('query:string -> finalAnswer:string', {
-      agents: { local: [child] },
-      contextFields: [],
-      runtime,
-      functions: { shared: [fn1, fn2] },
-    });
-
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const childFunctions = getInternal(child).agentFunctions as AxFunction[];
-    expect(childFunctions).toHaveLength(2);
-    expect(childFunctions.map((f) => `${f.namespace}.${f.name}`)).toEqual(
-      expect.arrayContaining(['utils.process', 'media.process'])
-    );
   });
 
   it('should validate guideAgent() payloads and unwind with an internal signal', () => {
@@ -16726,7 +12538,7 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [completeFn] },
+      functions: [completeFn],
     });
 
     const testMockAI = new AxMockAIService({
@@ -16877,7 +12689,7 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [askFn] },
+      functions: [askFn],
     });
 
     const testMockAI = new AxMockAIService({
@@ -17052,7 +12864,7 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [guideFn] },
+      functions: [guideFn],
     });
 
     const testMockAI = new AxMockAIService({
@@ -17207,10 +13019,8 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: [...makeDiscoveryFunctionGroups(), guideFunctionGroup],
-      },
+      functions: [...makeDiscoveryFunctionGroups(), guideFunctionGroup],
+      functionDiscovery: true,
     });
 
     const testMockAI = new AxMockAIService({
@@ -17470,10 +13280,8 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: makeDiscoveryFunctionGroups(),
-      },
+      functions: makeDiscoveryFunctionGroups(),
+      functionDiscovery: true,
     });
 
     const testMockAI = new AxMockAIService({
@@ -17593,7 +13401,7 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [guideFn] },
+      functions: [guideFn],
     });
 
     const testMockAI = new AxMockAIService({
@@ -17722,10 +13530,8 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: {
-        discovery: true,
-        local: [...makeDiscoveryFunctionGroups(), guideFunctionGroup],
-      },
+      functions: [...makeDiscoveryFunctionGroups(), guideFunctionGroup],
+      functionDiscovery: true,
     });
 
     const testMockAI = new AxMockAIService({
@@ -17869,9 +13675,9 @@ describe('AxFunction', () => {
     const testAgent = agent('query:string -> answer:string', {
       contextFields: [],
       runtime,
-      functions: { local: [completeChildFn] },
-      mode: 'advanced',
-      recursionOptions: { maxDepth: 2 },
+      functions: [completeChildFn],
+      
+      recursionOptions: {},
     });
 
     const testMockAI = new AxMockAIService({

@@ -73,7 +73,7 @@ async function createNotionAgent() {
   const notionAgent = agent(
     'userRequest:string -> assistantResponse:string "You are an assistant that can interact with Notion documents and data via SSE. Execute the user\'s request without question and to the best of your abilities."',
     {
-      functions: { local: toAgentFunctions(client.toFunction()) },
+      functions: toAgentFunctions(client.toFunction()),
       contextFields: [],
       runtime: new AxJSRuntime(),
     }

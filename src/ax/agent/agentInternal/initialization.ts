@@ -1,0 +1,219 @@
+import { AxGen } from '../../dsp/generate.js';
+import type { AxTunable, AxUsable } from '../../dsp/types.js';
+import { AxJSRuntime } from '../../funcs/jsRuntime.js';
+import {
+  DEFAULT_AGENT_MODULE_NAMESPACE,
+  DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
+  resolveActorModelPolicy,
+} from '../config.js';
+import {
+  DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+  DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+  normalizeContextFields,
+  shouldEnforceIncrementalConsoleTurns,
+} from '../runtime.js';
+import {
+  normalizeAgentFunctionCollection,
+  normalizeAgentModuleNamespace,
+  toCamelCase,
+} from '../runtimeDiscovery.js';
+
+export function initializeAgentInternal(
+  self: any,
+  init: any,
+  options: any
+): void {
+  const s = self as any;
+  const { ai, judgeAI, agentIdentity, agentModuleNamespace, signature } = init;
+
+  const {
+    debug,
+    contextFields = [],
+    runtime,
+    maxSubAgentCalls,
+    maxSubAgentCallsPerChild,
+    maxBatchedLlmQueryConcurrency,
+    maxTurns,
+    maxRuntimeChars,
+    contextPolicy,
+    summarizerOptions,
+    actorFields,
+    actorTurnCallback,
+    agentStatusCallback,
+    mode,
+    actorModelPolicy,
+    recursionOptions,
+    actorOptions,
+    responderOptions,
+    judgeOptions,
+    inputUpdateCallback,
+    bubbleErrors,
+  } = options;
+
+  s.ai = ai;
+  s.judgeAI = judgeAI;
+  s.agents = options.agents ?? [];
+  s.functionDiscoveryEnabled = options.functionDiscovery ?? false;
+  s.debug = debug;
+  s.options = options;
+  s.runtime = runtime ?? new AxJSRuntime();
+  s.runtimeUsageInstructions = s.runtime.getUsageInstructions();
+  s.enforceIncrementalConsoleTurns = shouldEnforceIncrementalConsoleTurns(
+    s.runtimeUsageInstructions
+  );
+
+  const resolvedAgentModuleNamespace =
+    agentModuleNamespace ??
+    agentIdentity?.namespace ??
+    DEFAULT_AGENT_MODULE_NAMESPACE;
+  s.agentModuleNamespace = normalizeAgentModuleNamespace(
+    resolvedAgentModuleNamespace,
+    {
+      normalize: agentModuleNamespace === undefined,
+    }
+  );
+
+  const reservedAgentModuleNamespaces = new Set([
+    'inputs',
+    'llmQuery',
+    'final',
+    'askClarification',
+    'success',
+    'failed',
+    'inspect_runtime',
+    DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
+    DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
+  ]);
+  if (reservedAgentModuleNamespaces.has(s.agentModuleNamespace)) {
+    throw new Error(
+      `Agent module namespace "${s.agentModuleNamespace}" is reserved`
+    );
+  }
+
+  const reservedAgentFunctionNamespaces = s._reservedAgentFunctionNamespaces();
+  const localAgentFnBundle = normalizeAgentFunctionCollection(
+    options.functions,
+    reservedAgentFunctionNamespaces
+  );
+  s.agentFunctions = localAgentFnBundle.functions;
+  s._mergeAgentFunctionModuleMetadata(localAgentFnBundle.moduleMetadata);
+
+  // Create the base program (used for signature/schema access)
+  const {
+    agents: _a,
+    functions: _fn,
+    functionDiscovery: _fd,
+    judgeOptions: _jo,
+    inputUpdateCallback: _iuc,
+    actorModelPolicy: _amp,
+    maxRuntimeChars: _mrc,
+    summarizerOptions: _so,
+    ...genOptions
+  } = options;
+  s.program = new AxGen(signature, genOptions);
+  const inputFields = s.program.getSignature().getInputFields();
+
+  const normalizedContext = normalizeContextFields(
+    contextFields,
+    inputFields,
+    DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS
+  );
+  s.contextPromptConfigByField = normalizedContext.promptConfigByField;
+
+  s.rlmConfig = {
+    contextFields: normalizedContext.contextFieldNames,
+    promptLevel: options.promptLevel,
+    runtime: s.runtime,
+    maxSubAgentCalls,
+    maxSubAgentCallsPerChild,
+    maxBatchedLlmQueryConcurrency,
+    maxTurns,
+    maxRuntimeChars,
+    contextPolicy,
+    summarizerOptions,
+    actorFields,
+    actorTurnCallback,
+    agentStatusCallback,
+    mode,
+  };
+  s.recursionForwardOptions = recursionOptions;
+  s.bubbleErrors = bubbleErrors;
+
+  const { description: actorDescription, ...actorForwardOptions } =
+    actorOptions ?? {};
+  const { description: responderDescription, ...responderForwardOptions } =
+    responderOptions ?? {};
+
+  s.actorDescription = actorDescription;
+  s.actorModelPolicy = resolveActorModelPolicy(actorModelPolicy);
+  s.actorForwardOptions = actorForwardOptions;
+
+  s.responderDescription = responderDescription;
+  s.responderForwardOptions = responderForwardOptions;
+  s.judgeOptions = judgeOptions ? { ...judgeOptions } : undefined;
+  s.inputUpdateCallback = inputUpdateCallback;
+  s.agentStatusCallback = agentStatusCallback;
+
+  const agents = s.agents;
+  for (const agent of agents ?? []) {
+    // Use agent function name as the child name for DSPy-compatible IDs
+    const childName = agent.getFunction().name;
+    s.program.register(
+      agent as unknown as Readonly<AxTunable<any, any> & AxUsable>,
+      childName
+    );
+  }
+
+  // Only set up function metadata when agentIdentity is provided
+  if (agentIdentity) {
+    s.func = {
+      name: toCamelCase(agentIdentity.name),
+      description: agentIdentity.description,
+      parameters: s._buildFuncParameters(),
+      func: async () => {
+        throw new Error('Use getFunction() to get a callable wrapper');
+      },
+    };
+  }
+
+  // ----- Split architecture setup -----
+
+  const actorFieldNames = actorFields ?? [];
+  s.actorFieldNames = actorFieldNames;
+
+  const allAgentFns = [...s.agentFunctions];
+
+  for (const fn of allAgentFns) {
+    if (!fn.parameters) {
+      throw new Error(
+        `Agent function "${fn.name}" must define parameters schema for agent runtime usage.`
+      );
+    }
+    if (fn.examples) {
+      for (const [index, example] of fn.examples.entries()) {
+        if (!example.code.trim()) {
+          throw new Error(
+            `Agent function "${fn.name}" example at index ${index} must define non-empty code`
+          );
+        }
+      }
+    }
+  }
+
+  s._validateConfiguredSignature(s.program.getSignature());
+  s._validateAgentFunctionNamespaces(allAgentFns);
+
+  // Build Actor/Responder programs from current signature and config
+  s._buildSplitPrograms();
+
+  // Register Actor/Responder with DSPy-compatible names so optimizers
+  // can discover them via getTraces(), and setDemos()/applyOptimization() propagate.
+  s.program.register(
+    s.actorProgram as unknown as Readonly<AxTunable<any, any> & AxUsable>,
+    'actor'
+  );
+  s.program.register(
+    s.responderProgram as unknown as Readonly<AxTunable<any, any> & AxUsable>,
+    'responder'
+  );
+}

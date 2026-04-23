@@ -93,7 +93,7 @@ const sig = s(
 );
 
 const gen = agent(sig, {
-  functions: { local: functions },
+  functions,
   contextFields: [],
   runtime: new AxJSRuntime(),
 });

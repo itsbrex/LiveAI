@@ -3,23 +3,46 @@
  * using Web Crypto API standards
  */
 
-// Web Crypto API is available in both modern Node.js (16+) and browsers via globalThis.crypto
-const webCrypto = (() => {
-  if (globalThis.crypto && typeof globalThis.crypto.randomUUID === 'function') {
+function getWebCrypto(): Crypto {
+  if (globalThis.crypto) {
     return globalThis.crypto;
   }
 
   throw new Error(
-    'Web Crypto API with randomUUID support not available. Requires Node.js 16+ or modern browser.'
+    'Web Crypto API not available. Requires modern Node.js, Deno, or a modern browser.'
   );
-})();
+}
+
+function getRandomUUIDCrypto(): Crypto & { randomUUID: () => string } {
+  const crypto = getWebCrypto();
+
+  if (typeof crypto.randomUUID === 'function') {
+    return crypto as Crypto & { randomUUID: () => string };
+  }
+
+  throw new Error(
+    'Web Crypto API randomUUID support not available. Requires modern Node.js, Deno, or a modern browser.'
+  );
+}
+
+function getSubtleCrypto(): Crypto & { subtle: SubtleCrypto } {
+  const crypto = getWebCrypto();
+
+  if (crypto.subtle) {
+    return crypto as Crypto & { subtle: SubtleCrypto };
+  }
+
+  throw new Error(
+    'Web Crypto API subtle.digest support not available. Requires modern Node.js, Deno, or a modern browser.'
+  );
+}
 
 /**
  * Generate a random UUID using Web Crypto API
  * @returns A random UUID string
  */
 export function randomUUID(): string {
-  return webCrypto.randomUUID();
+  return getRandomUUIDCrypto().randomUUID();
 }
 
 /**
@@ -31,7 +54,10 @@ export async function sha256(data: string | ArrayBuffer): Promise<string> {
   const encoder = new TextEncoder();
   const inputData = typeof data === 'string' ? encoder.encode(data) : data;
 
-  const hashBuffer = await webCrypto.subtle.digest('SHA-256', inputData);
+  const hashBuffer = await getSubtleCrypto().subtle.digest(
+    'SHA-256',
+    inputData
+  );
   const hashArray = Array.from(new Uint8Array(hashBuffer));
   const hashHex = hashArray
     .map((b) => b.toString(16).padStart(2, '0'))
@@ -94,6 +120,6 @@ export function createHash(algorithm: string): Hash {
  * Get the crypto object for use in JavaScript interpreter contexts
  * @returns The Web Crypto API object
  */
-export function getCrypto() {
-  return webCrypto;
+export function getCrypto(): Crypto {
+  return getWebCrypto();
 }

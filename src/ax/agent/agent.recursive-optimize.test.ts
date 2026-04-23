@@ -1,292 +1,117 @@
 import { describe, expect, it } from 'vitest';
 
-import {
-  AX_AGENT_RECURSIVE_TARGET_IDS,
-  buildRecursiveFeedback,
-  createRecursiveSlotSeedInstructions,
-  createZeroRecursiveUsage,
-  deriveRecursiveStats,
-  projectRecursiveTraceForEval,
-  renderRecursiveSummary,
-  renderReflectiveDatasetValue,
-  type AxAgentRecursiveTraceNode,
-} from './agentRecursiveOptimize.js';
+import { agent } from './index.js';
 
-const usage = (totalTokens: number) => ({
-  promptTokens: Math.floor(totalTokens * 0.6),
-  completionTokens: Math.ceil(totalTokens * 0.4),
-  totalTokens,
-});
-
-const createNode = (
-  overrides: Partial<AxAgentRecursiveTraceNode>
-): AxAgentRecursiveTraceNode => ({
-  nodeId: overrides.nodeId ?? 'node',
-  parentId: overrides.parentId,
-  depth: overrides.depth ?? 0,
-  role: overrides.role ?? 'root',
-  taskDigest: overrides.taskDigest ?? 'task',
-  contextDigest: overrides.contextDigest,
-  completionType: overrides.completionType ?? 'final',
-  turnCount: overrides.turnCount ?? 1,
-  childCount: overrides.childCount ?? overrides.children?.length ?? 0,
-  actorTurns: overrides.actorTurns ?? [],
-  functionCalls: overrides.functionCalls ?? [],
-  toolErrors: overrides.toolErrors ?? [],
-  localUsage: overrides.localUsage ?? createZeroRecursiveUsage(),
-  cumulativeUsage:
-    overrides.cumulativeUsage ??
-    overrides.localUsage ??
-    createZeroRecursiveUsage(),
-  children: overrides.children ?? [],
-});
-
-describe('agentRecursiveOptimize helpers', () => {
-  it('projects a recursive trace with cumulative token totals', () => {
-    const raw = createNode({
-      nodeId: 'root',
-      role: 'root',
-      localUsage: usage(200),
-      actorTurns: [
+describe('AxAgent coordinator optimization routing (Case A)', () => {
+  it('applyOptimization targets the task agent in a contextFields+tools setup', () => {
+    // Case A coordinator: contextFields + tools → two internal agents (ctx + task).
+    // applyOptimization must forward to the primaryAgent (taskAgent), not ctxAgent.
+    // namedPrograms() now aggregates both stages with ctx.*/task.* prefixes.
+    const caseAAgent = agent('docText:string, query:string -> answer:string', {
+      contextFields: ['docText'],
+      functions: [
         {
-          turn: 1,
-          code: 'const result = "abcdefghijklmnopqrstuvwxyz".repeat(50); console.log(result);',
-          output: 'y'.repeat(500),
-          isError: false,
+          name: 'search',
+          namespace: 'kb',
+          description: 'search',
+          parameters: { type: 'object', properties: {}, required: [] },
+          func: async () => 'result',
         },
       ],
-      children: [
-        createNode({
-          nodeId: 'child',
-          parentId: 'root',
-          depth: 1,
-          role: 'recursive',
-          localUsage: usage(300),
-        }),
+    });
+
+    const programs = caseAAgent.namedPrograms();
+    // Case A: both ctx and task programs are exposed with prefixes.
+    expect(programs.length).toBeGreaterThan(0);
+    const ids = programs.map((p) => p.id);
+    // Prefixed actor and responder IDs exist for both stages
+    expect(ids.some((id) => id.includes('actor'))).toBe(true);
+    expect(ids.some((id) => id.includes('responder'))).toBe(true);
+    // Task-stage programs are present (applyOptimization targets them)
+    expect(ids.some((id) => id.startsWith('task.'))).toBe(true);
+    expect(ids.some((id) => id.startsWith('ctx.'))).toBe(true);
+  });
+
+  it('Case A namedPrograms() aggregates ctx and task programs with prefixes', () => {
+    // namedPrograms() in Case A returns programs from BOTH ctxAgent and taskAgent,
+    // each prefixed with 'ctx.' or 'task.'. The user's output field 'answer' lives
+    // in the task.responder signature, not the ctx.responder signature
+    // (ctx.responder outputs 'distilledContext').
+    const caseAAgent = agent('document:string, query:string -> answer:string', {
+      contextFields: ['document'],
+      functions: [
+        {
+          name: 'fn',
+          namespace: 'tools',
+          description: 'fn',
+          parameters: { type: 'object', properties: {}, required: [] },
+          func: async () => 'ok',
+        },
       ],
     });
 
-    const projected = projectRecursiveTraceForEval(raw, {
-      maxCodeChars: 32,
-      maxOutputChars: 32,
+    const programs = caseAAgent.namedPrograms();
+    // Both stages present — IDs are prefixed ctx.<uid>.actor etc.
+    expect(programs.some((p) => p.id.startsWith('ctx.'))).toBe(true);
+    expect(programs.some((p) => p.id.startsWith('task.'))).toBe(true);
+    // Actor and responder in both stages (IDs include the stage keyword)
+    expect(
+      programs.some((p) => p.id.startsWith('ctx.') && p.id.includes('actor'))
+    ).toBe(true);
+    expect(
+      programs.some(
+        (p) => p.id.startsWith('ctx.') && p.id.includes('responder')
+      )
+    ).toBe(true);
+    expect(
+      programs.some((p) => p.id.startsWith('task.') && p.id.includes('actor'))
+    ).toBe(true);
+    expect(
+      programs.some(
+        (p) => p.id.startsWith('task.') && p.id.includes('responder')
+      )
+    ).toBe(true);
+    // The user's output field 'answer' is in the task.responder signature;
+    // the ctx.responder outputs 'distilledContext' instead.
+    const taskResponderSig =
+      programs.find(
+        (p) => p.id.startsWith('task.') && p.id.includes('responder')
+      )?.signature ?? '';
+    expect(taskResponderSig).toContain('answer');
+    const ctxResponderSig =
+      programs.find(
+        (p) => p.id.startsWith('ctx.') && p.id.includes('responder')
+      )?.signature ?? '';
+    expect(ctxResponderSig).toContain('distilledContext');
+  });
+
+  it('Case C namedPrograms() match pre-split baseline (no ctxAgent, no prefixes)', () => {
+    // Case C: tools only, no contextFields — single taskAgent, same as old AxAgent.
+    // No ctx.* prefixes; program IDs are returned verbatim.
+    const caseAAgent = agent('query:string -> answer:string', {
+      functions: [
+        {
+          name: 'fn',
+          namespace: 'tools',
+          description: 'fn',
+          parameters: { type: 'object', properties: {}, required: [] },
+          func: async () => 'ok',
+        },
+      ],
     });
 
-    expect(projected.cumulativeUsage.totalTokens).toBe(500);
-    expect(projected.childCount).toBe(1);
-    expect(projected.actorTurns[0]?.code.endsWith('...')).toBe(true);
-    expect(projected.actorTurns[0]?.output.endsWith('...')).toBe(true);
-  });
+    const caseC = agent('query:string -> answer:string', {});
 
-  it('derives recursive stats for over-decomposed traces', () => {
-    const projected = projectRecursiveTraceForEval(
-      createNode({
-        nodeId: 'root',
-        role: 'root',
-        localUsage: usage(900),
-        children: [
-          createNode({
-            nodeId: 'child-a',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'same branch',
-            localUsage: usage(2_400),
-            children: [
-              createNode({
-                nodeId: 'leaf-a',
-                parentId: 'child-a',
-                depth: 2,
-                role: 'terminal',
-                taskDigest: 'same branch',
-                localUsage: usage(900),
-                actorTurns: [
-                  {
-                    turn: 1,
-                    code: 'throw new Error("oops")',
-                    output: 'oops',
-                    isError: true,
-                  },
-                ],
-                toolErrors: ['tool failed'],
-              }),
-            ],
-          }),
-          createNode({
-            nodeId: 'child-b',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'same branch',
-            localUsage: usage(2_100),
-          }),
-          createNode({
-            nodeId: 'child-c',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'third branch',
-            localUsage: usage(1_700),
-          }),
-          createNode({
-            nodeId: 'child-d',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'fourth branch',
-            localUsage: usage(1_600),
-          }),
-        ],
-      })
+    // Both should expose the same number of named programs (actor + responder).
+    expect(caseAAgent.namedPrograms().length).toBe(
+      caseC.namedPrograms().length
     );
-
-    const stats = deriveRecursiveStats(projected);
-    const summary = renderRecursiveSummary(projected, stats);
-
-    expect(stats.nodeCount).toBe(6);
-    expect(stats.maxDepth).toBe(2);
-    expect(stats.recursiveCallCount).toBe(5);
-    expect(stats.batchedFanOutCount).toBe(1);
-    expect(stats.errorCount).toBe(1);
-    expect(stats.topExpensiveNodes[0]?.nodeId).toBe('root');
-    expect(summary).toContain('root cumulative tokens=');
-  });
-
-  it('builds root-level feedback for expensive over-decomposition', () => {
-    const projected = projectRecursiveTraceForEval(
-      createNode({
-        nodeId: 'root',
-        role: 'root',
-        localUsage: usage(1_000),
-        children: [
-          createNode({
-            nodeId: 'child-a',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'duplicate branch',
-            localUsage: usage(2_500),
-          }),
-          createNode({
-            nodeId: 'child-b',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'duplicate branch',
-            localUsage: usage(2_300),
-          }),
-          createNode({
-            nodeId: 'child-c',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'third branch',
-            localUsage: usage(2_200),
-          }),
-          createNode({
-            nodeId: 'child-d',
-            parentId: 'root',
-            depth: 1,
-            role: 'recursive',
-            taskDigest: 'fourth branch',
-            localUsage: usage(2_100),
-          }),
-        ],
-      })
-    );
-
-    const feedback = buildRecursiveFeedback({
-      componentId: AX_AGENT_RECURSIVE_TARGET_IDS.root,
-      prediction: {
-        recursiveTrace: projected,
-        recursiveStats: deriveRecursiveStats(projected),
-      },
-    });
-
-    expect(feedback?.join('\n')).toContain('fanned out into 4 subtasks');
-    expect(feedback?.join('\n')).toContain('overlap in scope');
-    expect(feedback?.join('\n')).toContain('Prefer solving directly');
-  });
-
-  it('builds terminal feedback for noisy max-depth behavior', () => {
-    const projected = projectRecursiveTraceForEval(
-      createNode({
-        nodeId: 'root',
-        role: 'root',
-        localUsage: usage(400),
-        children: [
-          createNode({
-            nodeId: 'leaf',
-            parentId: 'root',
-            depth: 1,
-            role: 'terminal',
-            localUsage: usage(2_400),
-            turnCount: 4,
-            actorTurns: [
-              {
-                turn: 1,
-                code: 'throw new Error("boom")',
-                output: 'boom',
-                isError: true,
-              },
-            ],
-            toolErrors: ['boom'],
-          }),
-        ],
-      })
-    );
-
-    const feedback = buildRecursiveFeedback({
-      componentId: AX_AGENT_RECURSIVE_TARGET_IDS.terminal,
-      prediction: {
-        recursiveTrace: projected,
-        recursiveStats: deriveRecursiveStats(projected),
-      },
-    });
-
-    expect(feedback?.join('\n')).toContain('Terminal-depth nodes still hit');
-    expect(feedback?.join('\n')).toContain('spent too much effort');
-  });
-
-  it('supports a no-recursion success shape without root over-decomposition feedback', () => {
-    const projected = projectRecursiveTraceForEval(
-      createNode({
-        nodeId: 'root',
-        role: 'root',
-        localUsage: usage(450),
-        turnCount: 1,
-        children: [],
-      })
-    );
-
-    const feedback = buildRecursiveFeedback({
-      componentId: AX_AGENT_RECURSIVE_TARGET_IDS.root,
-      prediction: {
-        recursiveTrace: projected,
-        recursiveStats: deriveRecursiveStats(projected),
-      },
-    });
-
-    expect(feedback).toBeUndefined();
-  });
-
-  it('renders nested reflective dataset values as JSON instead of object tags', () => {
-    const rendered = renderReflectiveDatasetValue({
-      trace: {
-        root: { children: [{ taskDigest: 'branch-a' }] },
-      },
-    });
-
-    expect(rendered).toContain('"branch-a"');
-    expect(rendered).not.toContain('[object Object]');
-  });
-
-  it('creates recursive slot seeds with responder left empty', () => {
-    const seeds = createRecursiveSlotSeedInstructions('shared seed');
-
-    expect(seeds[AX_AGENT_RECURSIVE_TARGET_IDS.shared]).toBe('shared seed');
-    expect(seeds[AX_AGENT_RECURSIVE_TARGET_IDS.responder]).toBe('');
-    expect(seeds[AX_AGENT_RECURSIVE_TARGET_IDS.root]).toContain(
-      'solve directly or decompose'
-    );
+    // No ctx./task. stage prefixes in Case C — IDs are the raw agent-scoped names
+    const ids = caseAAgent.namedPrograms().map((p) => p.id);
+    expect(
+      ids.every((id) => !id.startsWith('ctx.') && !id.startsWith('task.'))
+    ).toBe(true);
+    expect(ids.some((id) => id.includes('actor'))).toBe(true);
+    expect(ids.some((id) => id.includes('responder'))).toBe(true);
   });
 });

@@ -74,7 +74,7 @@ Using HTTP transport for communication with Notion MCP server.
   const notionAgent = agent(
     'userRequest:string -> assistantResponse:string "You are an assistant that can interact with Notion documents and data via HTTP. Execute the user\'s request without question and to the best of your abilities."',
     {
-      functions: { local: toAgentFunctions(client.toFunction()) },
+      functions: toAgentFunctions(client.toFunction()),
       contextFields: [],
       runtime: new AxJSRuntime(),
     }

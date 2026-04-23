@@ -9,7 +9,6 @@ import {
   AxAIBedrockModel,
 } from './src/aws-bedrock/api.js';
 import { axModelInfoBedrock } from './src/aws-bedrock/info.js';
-import type { AxAIBedrockConfig } from './src/aws-bedrock/types.js';
 import {
   AxAIAnthropic,
   type AxAIAnthropicArgs,
@@ -784,6 +783,7 @@ import {
   type AxActorModelPolicy,
   type AxActorModelPolicyEntry,
   AxAgent,
+  AxAgentInternal,
   type AxAgentActorResultPayload,
   type AxAgentClarification,
   type AxAgentClarificationChoice,
@@ -834,7 +834,7 @@ import {
   type AxResolvedActorModelPolicyEntry,
   type AxResolvedContextPolicy,
   agent,
-} from './src/ax/prompts/agent/AxAgent.js';
+} from './src/ax/agent/AxAgent.js';
 import type {
   AxAgentRecursiveExpensiveNode,
   AxAgentRecursiveFunctionCall,
@@ -844,12 +844,12 @@ import type {
   AxAgentRecursiveTraceNode,
   AxAgentRecursiveTurn,
   AxAgentRecursiveUsage,
-} from './src/ax/prompts/agent/agentRecursiveOptimize.js';
+} from './src/ax/agent/agentRecursiveOptimize.js';
 import {
   type AxAgentGuidancePayload,
   type AxAgentInternalCompletionPayload,
   AxAgentProtocolCompletionSignal,
-} from './src/ax/prompts/agent/completion.js';
+} from './src/ax/agent/completion.js';
 import {
   type AxCodeInterpreter,
   type AxCodeRuntime,
@@ -862,7 +862,7 @@ import {
   type AxRLMConfig,
   axBuildActorDefinition,
   axBuildResponderDefinition,
-} from './src/ax/prompts/agent/rlm.js';
+} from './src/ax/agent/rlm.js';
 import { axRAG } from './src/ax/prompts/rag.js';
 import {
   AxTraceLogger,
@@ -959,6 +959,7 @@ export { AxAITogetherModel };
 export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
+export { AxAgentInternal };
 export { AxAgentClarificationError };
 export { AxAgentProtocolCompletionSignal };
 export { AxAgentProvider };
@@ -1157,7 +1158,6 @@ export type { AxAIAnthropicWebSearchTool };
 export type { AxAIArgs };
 export type { AxAIAzureOpenAIArgs };
 export type { AxAIAzureOpenAIConfig };
-export type { AxAIBedrockConfig };
 export type { AxAICohereArgs };
 export type { AxAICohereChatRequest };
 export type { AxAICohereChatRequestToolResults };

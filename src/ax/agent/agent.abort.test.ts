@@ -297,4 +297,76 @@ describe('AxAgent.stop()', () => {
 
     await expect(pending).rejects.toBeInstanceOf(AxAIServiceAbortedError);
   });
+
+  it('coordinator stop() aborts both ctxAgent and taskAgent concurrently in Case A', async () => {
+    const stubFunction = {
+      name: 'stubFn',
+      description: 'A stub function for testing',
+      parameters: {
+        type: 'object' as const,
+        properties: { input: { type: 'string' as const } },
+        required: [] as string[],
+      },
+      func: async () => 'stub result',
+    };
+
+    // The ctx actor AI is slow — this gives us a window to call stop()
+    const ai = new AxMockAIService({
+      features: { functions: false, streaming: false },
+      chatResponse: async (req): Promise<AxChatResponse> => {
+        const systemPrompt = String(req.chatPrompt[0]?.content ?? '');
+
+        if (systemPrompt.includes('Context Understanding Agent')) {
+          // Deliberately slow so stop() wins the race
+          await new Promise((resolve) => setTimeout(resolve, 50));
+          return {
+            results: [
+              {
+                index: 0,
+                content: 'Javascript Code: final("distilled", {})',
+                finishReason: 'stop',
+              },
+            ],
+            modelUsage: makeModelUsage(),
+          };
+        }
+
+        return {
+          results: [
+            {
+              index: 0,
+              content: 'Javascript Code: final("done", {"answer":"ok"})',
+              finishReason: 'stop',
+            },
+          ],
+          modelUsage: makeModelUsage(),
+        };
+      },
+    });
+
+    // Case A: contextFields + function → coordinator creates both ctxAgent and taskAgent
+    const myAgent = new AxAgent(
+      {
+        signature: 'docText:string, query:string -> answer:string',
+      },
+      {
+        contextFields: ['docText'],
+        functions: [stubFunction],
+        runtime: createSimpleRuntime(),
+        maxTurns: 5,
+      }
+    );
+
+    const pending = myAgent.forward(ai, {
+      docText: 'some document',
+      query: 'test',
+    });
+
+    // Let the ctx stage start its slow AI call, then abort
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    myAgent.stop();
+
+    // The forward() must reject — coordinator fans out stop() to both internal agents
+    await expect(pending).rejects.toThrow();
+  });
 });

@@ -1,10 +1,9 @@
-import crypto from 'node:crypto';
-
 import type {
   AxACEBullet,
   AxACECuratorOperation,
   AxACEPlaybook,
 } from './aceTypes.js';
+import { getCrypto } from '../../util/crypto.js';
 
 interface ApplyOperationsOptions {
   maxSectionSize?: number;
@@ -217,7 +216,11 @@ export function generateBulletId(section: string): string {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 6);
-  const randomHex = crypto.randomBytes(4).toString('hex');
+  const bytes = new Uint8Array(4);
+  getCrypto().getRandomValues(bytes);
+  const randomHex = Array.from(bytes, (byte) =>
+    byte.toString(16).padStart(2, '0')
+  ).join('');
   return `${normalized || 'ctx'}-${randomHex}`;
 }
 

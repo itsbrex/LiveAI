@@ -2,6 +2,92 @@
 // Auto-generated index file - Do not edit
 
 import {
+  type AxActorModelPolicy,
+  type AxActorModelPolicyEntry,
+  AxAgent,
+  type AxAgentActorResultPayload,
+  type AxAgentClarification,
+  type AxAgentClarificationChoice,
+  AxAgentClarificationError,
+  type AxAgentClarificationKind,
+  type AxAgentConfig,
+  type AxAgentDemos,
+  type AxAgentDiscoveryPromptState,
+  type AxAgentEvalDataset,
+  type AxAgentEvalFunctionCall,
+  type AxAgentEvalPrediction,
+  type AxAgentEvalTask,
+  type AxAgentFunction,
+  type AxAgentFunctionCollection,
+  type AxAgentFunctionExample,
+  type AxAgentFunctionGroup,
+  type AxAgentFunctionModuleMeta,
+  type AxAgentGuidanceLogEntry,
+  type AxAgentIdentity,
+  type AxAgentInputUpdateCallback,
+  AxAgentInternal,
+  type AxAgentic,
+  type AxAgentJudgeEvalInput,
+  type AxAgentJudgeEvalOutput,
+  type AxAgentJudgeInput,
+  type AxAgentJudgeOptions,
+  type AxAgentJudgeOutput,
+  type AxAgentOptimizeOptions,
+  type AxAgentOptimizeResult,
+  type AxAgentOptimizeTarget,
+  type AxAgentOptions,
+  type AxAgentRecursionOptions,
+  type AxAgentRuntimeExecutionContext,
+  type AxAgentState,
+  type AxAgentStateActionLogEntry,
+  type AxAgentStateActorModelState,
+  type AxAgentStateCheckpointState,
+  type AxAgentStateRuntimeEntry,
+  type AxAgentStructuredClarification,
+  type AxAgentTestCompletionPayload,
+  type AxAgentTestResult,
+  type AxAgentTurnCallbackArgs,
+  type AxAnyAgentic,
+  type AxContextFieldInput,
+  type AxContextFieldPromptConfig,
+  type AxNormalizedAgentEvalDataset,
+  type AxPreparedRestoredState,
+  type AxResolvedActorModelPolicy,
+  type AxResolvedActorModelPolicyEntry,
+  type AxResolvedContextPolicy,
+  agent,
+} from './agent/AxAgent.js';
+import type {
+  AxAgentRecursiveExpensiveNode,
+  AxAgentRecursiveFunctionCall,
+  AxAgentRecursiveNodeRole,
+  AxAgentRecursiveStats,
+  AxAgentRecursiveTargetId,
+  AxAgentRecursiveTraceNode,
+  AxAgentRecursiveTurn,
+  AxAgentRecursiveUsage,
+} from './agent/agentRecursiveOptimize.js';
+import {
+  type AxAgentGuidancePayload,
+  type AxAgentInternalCompletionPayload,
+  AxAgentProtocolCompletionSignal,
+} from './agent/completion.js';
+import {
+  type AxCodeInterpreter,
+  type AxCodeRuntime,
+  type AxCodeSession,
+  type AxCodeSessionSnapshot,
+  type AxCodeSessionSnapshotEntry,
+  type AxContextPolicyBudget,
+  type AxContextPolicyConfig,
+  type AxContextPolicyPreset,
+  type AxRLMConfig,
+  axBuildActorDefinition,
+  axBuildContextActorDefinition,
+  axBuildResponderDefinition,
+  axBuildTaskActorDefinition,
+} from './agent/rlm.js';
+import {
   AxAIAnthropic,
   type AxAIAnthropicArgs,
   axAIAnthropicDefaultConfig,
@@ -758,89 +844,6 @@ import type {
   AxMemoryData,
   AxMemoryMessageValue,
 } from './mem/types.js';
-import {
-  type AxActorModelPolicy,
-  type AxActorModelPolicyEntry,
-  AxAgent,
-  type AxAgentActorResultPayload,
-  type AxAgentClarification,
-  type AxAgentClarificationChoice,
-  AxAgentClarificationError,
-  type AxAgentClarificationKind,
-  type AxAgentConfig,
-  type AxAgentDemos,
-  type AxAgentDiscoveryPromptState,
-  type AxAgentEvalDataset,
-  type AxAgentEvalFunctionCall,
-  type AxAgentEvalPrediction,
-  type AxAgentEvalTask,
-  type AxAgentFunction,
-  type AxAgentFunctionCollection,
-  type AxAgentFunctionExample,
-  type AxAgentFunctionGroup,
-  type AxAgentFunctionModuleMeta,
-  type AxAgentGuidanceLogEntry,
-  type AxAgentIdentity,
-  type AxAgentInputUpdateCallback,
-  type AxAgentic,
-  type AxAgentJudgeEvalInput,
-  type AxAgentJudgeEvalOutput,
-  type AxAgentJudgeInput,
-  type AxAgentJudgeOptions,
-  type AxAgentJudgeOutput,
-  type AxAgentOptimizeOptions,
-  type AxAgentOptimizeResult,
-  type AxAgentOptimizeTarget,
-  type AxAgentOptions,
-  type AxAgentRecursionOptions,
-  type AxAgentRuntimeExecutionContext,
-  type AxAgentState,
-  type AxAgentStateActionLogEntry,
-  type AxAgentStateActorModelState,
-  type AxAgentStateCheckpointState,
-  type AxAgentStateRuntimeEntry,
-  type AxAgentStructuredClarification,
-  type AxAgentTestCompletionPayload,
-  type AxAgentTestResult,
-  type AxAgentTurnCallbackArgs,
-  type AxAnyAgentic,
-  type AxContextFieldInput,
-  type AxContextFieldPromptConfig,
-  type AxNormalizedAgentEvalDataset,
-  type AxPreparedRestoredState,
-  type AxResolvedActorModelPolicy,
-  type AxResolvedActorModelPolicyEntry,
-  type AxResolvedContextPolicy,
-  agent,
-} from './prompts/agent/AxAgent.js';
-import type {
-  AxAgentRecursiveExpensiveNode,
-  AxAgentRecursiveFunctionCall,
-  AxAgentRecursiveNodeRole,
-  AxAgentRecursiveStats,
-  AxAgentRecursiveTargetId,
-  AxAgentRecursiveTraceNode,
-  AxAgentRecursiveTurn,
-  AxAgentRecursiveUsage,
-} from './prompts/agent/agentRecursiveOptimize.js';
-import {
-  type AxAgentGuidancePayload,
-  type AxAgentInternalCompletionPayload,
-  AxAgentProtocolCompletionSignal,
-} from './prompts/agent/completion.js';
-import {
-  type AxCodeInterpreter,
-  type AxCodeRuntime,
-  type AxCodeSession,
-  type AxCodeSessionSnapshot,
-  type AxCodeSessionSnapshotEntry,
-  type AxContextPolicyBudget,
-  type AxContextPolicyConfig,
-  type AxContextPolicyPreset,
-  type AxRLMConfig,
-  axBuildActorDefinition,
-  axBuildResponderDefinition,
-} from './prompts/agent/rlm.js';
 import { axRAG } from './prompts/rag.js';
 import { AxTraceLogger, type AxTraceLoggerOptions } from './trace/logger.js';
 import {
@@ -926,6 +929,7 @@ export { AxAIWebLLM };
 export { AxAIWebLLMModel };
 export { AxAgent };
 export { AxAgentClarificationError };
+export { AxAgentInternal };
 export { AxAgentProtocolCompletionSignal };
 export { AxApacheTika };
 export { AxAssertionError };
@@ -1031,7 +1035,9 @@ export { axAnalyzeRequestRequirements };
 export { axBaseAIDefaultConfig };
 export { axBaseAIDefaultCreativeConfig };
 export { axBuildActorDefinition };
+export { axBuildContextActorDefinition };
 export { axBuildResponderDefinition };
+export { axBuildTaskActorDefinition };
 export { axCheckMetricsHealth };
 export { axCreateDefaultColorLogger };
 export { axCreateDefaultOptimizerColorLogger };

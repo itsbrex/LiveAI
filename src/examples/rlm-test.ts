@@ -19,7 +19,7 @@ export const rlmTestAgent = agent(
   {
     contextFields: ['label', 'values'],
     runtime,
-    functions: { local: testTools },
+    functions: testTools,
     contextPolicy: {
       preset: 'checkpointed',
       budget: 'balanced',
