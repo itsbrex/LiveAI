@@ -44,15 +44,14 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     id: 'llmQuery',
     stages: ['context', 'task', 'combined'],
     lines: [
-      '`await llmQuery([{ query: string, context: any }, ...]): string[]` — Ask focused questions about (or delegate focused subtasks on) the narrowed context you pass in.',
+      '`await llmQuery([{ query: string, context: any }, ...]): string[]` — Ask focused questions about the narrowed context you pass in.',
     ],
   },
   {
     id: 'final',
     stages: ['context', 'task', 'combined'],
     lines: [
-      '`await final(message: string)` — Signal completion when no extra context object is needed. The responder will turn this into the final output.',
-      '`await final(outputGenerationTask: string, context: object)` — Signal completion with raw gathered evidence for the responder to synthesize into the output fields.',
+      '`await final(task: string, context?: object)` — Signal completion. Pass a concise instruction and the raw evidence; the responder synthesizes the output. Omit `context` when the answer is directly known.',
     ],
   },
   {
@@ -70,7 +69,7 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
     id: 'askClarification',
     stages: ['context', 'task', 'combined'],
     lines: [
-      "`await askClarification(spec: string | { question: string, type?: 'text' | 'date' | 'number' | 'single_choice' | 'multiple_choice', choices?: (string | { label: string, value?: string })[] }): void` — Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.",
+      "`await askClarification(spec: string | { question: string, type?: 'text'|'date'|'number'|'single_choice'|'multiple_choice', choices?: string[] }): void` — Ask the user for clarification when genuinely blocked on an ambiguity you cannot resolve.",
     ],
   },
   {

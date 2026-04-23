@@ -6796,9 +6796,7 @@ describe('axBuildActorDefinition', () => {
 
   it('should document final()/askClarification() exit signals', () => {
     const result = axBuildActorDefinition(undefined, [], [], {});
-    expect(result).toContain(
-      'final(outputGenerationTask: string, context: object)'
-    );
+    expect(result).toContain('final(task: string, context?: object)');
     expect(result).toContain('askClarification');
     expect(result).not.toContain('guideAgent(');
   });
@@ -11227,8 +11225,8 @@ describe('axBuildActorDefinition - Available Sub-Agents and Tool Functions', () 
     });
 
     expect(simple).toContain('llmQuery` interprets');
-    // "delegate focused subtasks" still appears in the primitives list
-    expect(simple).toContain('delegate focused subtasks');
+    // "delegate focused subtasks" was removed from the primitives list
+    expect(simple).not.toContain('delegate focused subtasks');
   });
 
   it('should render modules only in discovery mode', () => {
