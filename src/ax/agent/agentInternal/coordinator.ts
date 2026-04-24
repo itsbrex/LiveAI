@@ -20,8 +20,11 @@ import { toCamelCase } from '../runtimeDiscovery.js';
 import type {
   AxAgentDemos,
   AxAgentEvalDataset,
+  AxAgentEvalPrediction,
+  AxAgentEvalTask,
   AxAgentIdentity,
   AxAgentic,
+  AxAgentJudgeOptions,
   AxAgentOptimizeOptions,
   AxAgentOptimizeResult,
   AxAgentOptions,
@@ -31,6 +34,12 @@ import type {
   AxContextFieldInput,
 } from './agentPublicTypes.js';
 import type { AxAgentInternalRunner } from './forwardMethods.js';
+import {
+  createAgentOptimizeMetric,
+  createOptimizationProgram,
+  optimizeAgent,
+} from './optimizer.js';
+import type { AxAgentOptimizationTargetDescriptor } from './types.js';
 
 /**
  * Knobs the coordinator passes from top-level `AxAgentOptions` down to
@@ -100,7 +109,8 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   implements AxAgentic<IN, OUT>
 {
   private readonly ctxAgent?: AxAgentInternal<any, any> & AxAgentInternalRunner;
-  private readonly taskAgent?: AxAgentInternal<any, any> & AxAgentInternalRunner;
+  private readonly taskAgent?: AxAgentInternal<any, any> &
+    AxAgentInternalRunner;
   private readonly primaryAgent: AxAgentInternal<any, any> &
     AxAgentInternalRunner;
   private readonly contextFieldNames: Set<string>;
@@ -170,19 +180,16 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
       // are all task-only and intentionally NOT propagated to ctx.
       const shared = pickShared(options);
       const ctxOverrides = options.contextOptions ?? {};
-      this.ctxAgent = new AxAgentInternal(
-        { ...init, signature: ctxSig },
-        {
-          ...shared,
-          ...ctxOverrides,
-          contextFields: [...ctxFieldInputs],
-          actorTemplateVariant: 'context',
-          // Let ctx short-circuit the downstream task stage via
-          // finalForUser(...) when the answer is already obvious from
-          // distillation alone.
-          hasFinalForUser: true,
-        } as any
-      ) as AxAgentInternal<any, any> & AxAgentInternalRunner;
+      this.ctxAgent = new AxAgentInternal({ ...init, signature: ctxSig }, {
+        ...shared,
+        ...ctxOverrides,
+        contextFields: [...ctxFieldInputs],
+        actorTemplateVariant: 'context',
+        // Let ctx short-circuit the downstream task stage via
+        // finalForUser(...) when the answer is already obvious from
+        // distillation alone.
+        hasFinalForUser: true,
+      } as any) as AxAgentInternal<any, any> & AxAgentInternalRunner;
 
       const taskSig = f()
         .addInputFields(nonCtxInputFields)
@@ -570,23 +577,109 @@ export class AxAgent<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public applyOptimization(optimizedProgram: any): void {
-    this.primaryAgent.applyOptimization(optimizedProgram);
+    this.applyOptimizedComponents(optimizedProgram?.componentMap ?? {});
+    if (!optimizedProgram?.componentMap) {
+      this.primaryAgent.applyOptimization(optimizedProgram);
+    }
+  }
+
+  public getOptimizableComponents(): readonly any[] {
+    const out: any[] = [];
+    if (this.ctxAgent) out.push(...this.ctxAgent.getOptimizableComponents());
+    if (this.taskAgent) out.push(...this.taskAgent.getOptimizableComponents());
+    if (
+      this.primaryAgent !== this.ctxAgent &&
+      this.primaryAgent !== this.taskAgent
+    ) {
+      out.push(...this.primaryAgent.getOptimizableComponents());
+    }
+    return out;
+  }
+
+  public applyOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    if (this.ctxAgent) this.ctxAgent.applyOptimizedComponents(updates);
+    if (this.taskAgent) this.taskAgent.applyOptimizedComponents(updates);
+    if (
+      this.primaryAgent !== this.ctxAgent &&
+      this.primaryAgent !== this.taskAgent
+    ) {
+      this.primaryAgent.applyOptimizedComponents(updates);
+    }
   }
 
   public async optimize(
     dataset: Readonly<AxAgentEvalDataset<IN>>,
     options?: Readonly<AxAgentOptimizeOptions<IN, OUT>>
   ): Promise<AxAgentOptimizeResult<OUT>> {
-    // Delegate the heavy lifting to primaryAgent but suppress auto-apply so
-    // the coordinator's own applyOptimization() is called (allowing spies to fire).
-    const result = await this.primaryAgent.optimize(dataset, {
+    const result = await optimizeAgent<IN, OUT>(this, dataset, {
       ...options,
+      studentAI: options?.studentAI ?? (this.primaryAgent as any).ai,
+      judgeAI: options?.judgeAI ?? (this.primaryAgent as any).judgeAI,
+      teacherAI: options?.teacherAI ?? (this.primaryAgent as any).judgeAI,
       apply: false,
     });
     if (options?.apply !== false && result.optimizedProgram) {
       this.applyOptimization(result.optimizedProgram);
     }
     return result;
+  }
+
+  private _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {
+    return this.namedProgramInstances().map((entry: any) => ({
+      id: entry.id,
+      signature: entry.signature,
+      program: entry.program,
+    }));
+  }
+
+  private _createOptimizationProgram(
+    targetIds: readonly string[],
+    descriptors: readonly AxAgentOptimizationTargetDescriptor[]
+  ) {
+    return createOptimizationProgram<IN, OUT>(this, targetIds, descriptors);
+  }
+
+  private _createAgentOptimizeMetric(
+    judgeAI: Readonly<AxAIService>,
+    judgeOptions: Readonly<AxAgentJudgeOptions>
+  ) {
+    return createAgentOptimizeMetric<IN, OUT>(this, judgeAI, judgeOptions);
+  }
+
+  private async _forwardForEvaluation<T extends Readonly<AxAIService>>(
+    parentAi: T,
+    task: Readonly<AxAgentEvalTask<IN>>,
+    options?: Readonly<AxProgramForwardOptionsWithModels<T>>
+  ): Promise<AxAgentEvalPrediction<OUT>> {
+    if (!this.ctxAgent) {
+      return (this.primaryAgent as any)._forwardForEvaluation(
+        parentAi,
+        task,
+        options
+      );
+    }
+
+    const output = await this.forward(parentAi, task.input, options);
+    const chatLog = this.getChatLog();
+    const actionLog = chatLog.actor
+      .map((entry) => String((entry as any).content ?? ''))
+      .filter((entry) => entry.length > 0)
+      .join('\n');
+    return {
+      completionType: 'final',
+      output,
+      actionLog,
+      functionCalls: [],
+      toolErrors: [],
+      turnCount: chatLog.actor.length,
+      usage: [
+        ...((this.ctxAgent.getUsage() as AxAgentUsage).actor ?? []),
+        ...((this.taskAgent?.getUsage() as AxAgentUsage | undefined)?.actor ??
+          []),
+      ],
+    };
   }
 
   public async test(

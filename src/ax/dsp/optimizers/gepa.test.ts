@@ -8,7 +8,7 @@ const createSingleRootProgram = (
   forwardImpl: (instruction: string, example: any) => Promise<any> | any
 ) => {
   let id = 'root';
-  let instruction = '';
+  let instruction = baseInstruction;
 
   const program = {
     getId: () => id,
@@ -24,6 +24,17 @@ const createSingleRootProgram = (
       toString: () => `\"${baseInstruction}\" question:string -> answer:string`,
     }),
     namedProgramInstances: () => [{ id, program }],
+    getOptimizableComponents: () => [
+      {
+        key: `${id}::instruction`,
+        kind: 'instruction',
+        current: instruction,
+      },
+    ],
+    applyOptimizedComponents: (updates: Readonly<Record<string, string>>) => {
+      const k = `${id}::instruction`;
+      if (typeof updates[k] === 'string') instruction = updates[k]!;
+    },
     forward: async (_ai: AxAIService, example: any) =>
       await forwardImpl(instruction, example),
     getTraces: () => [],
@@ -52,6 +63,17 @@ const createInstructionNode = (id: string, description: string) => {
       getDescription: () => description,
       toString: () => `\"${description}\" input:string -> output:string`,
     }),
+    getOptimizableComponents: () => [
+      {
+        key: `${nodeId}::instruction`,
+        kind: 'instruction',
+        current: instruction,
+      },
+    ],
+    applyOptimizedComponents: (updates: Readonly<Record<string, string>>) => {
+      const k = `${nodeId}::instruction`;
+      if (typeof updates[k] === 'string') instruction = updates[k]!;
+    },
     getTraces: () => [],
     setDemos: () => {},
     applyOptimization: () => {},
@@ -63,59 +85,25 @@ const createInstructionNode = (id: string, description: string) => {
 };
 
 describe('AxGEPA Optimizer', () => {
-  describe('getBaseInstruction', () => {
-    it('should use the description from the signature when available', async () => {
-      // Create a program with a signature that has a description
+  describe('discovery', () => {
+    it('exposes the program’s description and instruction as components', () => {
       const program = ax(
         '"This is my custom task description" question:string -> answer:string'
       );
-
-      // Access the private method via cast
-      const optimizer = new AxGEPA({
-        studentAI: {} as AxAIService,
-        teacherAI: {} as AxAIService,
-      });
-
-      // Call getBaseInstruction
-      const instruction = await (optimizer as any).getBaseInstruction(program);
-
-      // It should return the description from the signature, not the default
-      expect(instruction).toBe('This is my custom task description');
-      expect(instruction).not.toBe(
-        'Follow the task precisely. Be concise, correct, and consistent.'
-      );
+      const components = program.getOptimizableComponents();
+      const byKind = (kind: string) =>
+        components.find((c) => c.kind === kind)?.current;
+      expect(byKind('description')).toBe('This is my custom task description');
+      expect(byKind('instruction') ?? '').toBe('');
     });
 
-    it('should fall back to default when signature has no description', async () => {
-      // Create a program without a description
-      const program = ax('question:string -> answer:string');
-
-      const optimizer = new AxGEPA({
-        studentAI: {} as AxAIService,
-        teacherAI: {} as AxAIService,
-      });
-
-      const instruction = await (optimizer as any).getBaseInstruction(program);
-
-      // Should use the default fallback
-      expect(instruction).toBe(
-        'Follow the task precisely. Be concise, correct, and consistent.'
-      );
-    });
-
-    it('should use custom instruction when set via setInstruction', async () => {
+    it('reflects setInstruction in the instruction component', () => {
       const program = ax('question:string -> answer:string');
       program.setInstruction('My explicitly set custom instruction');
-
-      const optimizer = new AxGEPA({
-        studentAI: {} as AxAIService,
-        teacherAI: {} as AxAIService,
-      });
-
-      const instruction = await (optimizer as any).getBaseInstruction(program);
-
-      // Should return the custom instruction
-      expect(instruction).toBe('My explicitly set custom instruction');
+      const components = program.getOptimizableComponents();
+      expect(components.find((c) => c.kind === 'instruction')?.current).toBe(
+        'My explicitly set custom instruction'
+      );
     });
   });
 
@@ -147,7 +135,9 @@ describe('AxGEPA Optimizer', () => {
       expect(result.bestScore).toBe(1);
       expect(result.paretoFront[0]?.scores).toEqual({ score: 1 });
       expect(result.optimizedProgram?.instruction).toBe('task');
-      expect(result.optimizedProgram?.instructionMap).toEqual({ root: 'task' });
+      expect(result.optimizedProgram?.componentMap).toEqual({
+        'root::instruction': 'task',
+      });
     });
 
     it('treats forward failures as zero-score rows instead of aborting the optimization', async () => {
@@ -182,7 +172,86 @@ describe('AxGEPA Optimizer', () => {
 
       expect(result.bestScore).toBe(0.5);
       expect(result.paretoFront[0]?.scores).toEqual({ score: 0.5 });
-      expect(result.optimizedProgram?.instructionMap).toEqual({ root: 'task' });
+      expect(result.optimizedProgram?.componentMap).toEqual({
+        'root::instruction': 'task',
+      });
+    });
+
+    it('bootstraps successful traces into demos and saves them on the optimized artifact', async () => {
+      const optimizer = new AxGEPA({
+        studentAI: {} as AxAIService,
+        teacherAI: {} as AxAIService,
+        numTrials: 0,
+      });
+
+      let id = 'root';
+      let instruction = 'task';
+      let latestTraces: Array<{ trace: any; programId: string }> = [];
+      let appliedDemos: any[] = [];
+      const program = {
+        getId: () => id,
+        setId: (nextId: string) => {
+          id = nextId;
+        },
+        getSignature: () => ({
+          getDescription: () => 'task',
+          toString: () => '"task" question:string -> answer:string',
+        }),
+        getOptimizableComponents: () => [
+          {
+            key: `${id}::instruction`,
+            kind: 'instruction',
+            current: instruction,
+          },
+        ],
+        applyOptimizedComponents: (updates: Readonly<Record<string, string>>) => {
+          const key = `${id}::instruction`;
+          if (typeof updates[key] === 'string') instruction = updates[key]!;
+        },
+        forward: async (_ai: AxAIService, example: any) => {
+          latestTraces = [
+            {
+              programId: 'root',
+              trace: {
+                question: example.question,
+                answer: example.answer,
+              },
+            },
+          ];
+          return { answer: example.answer };
+        },
+        getTraces: () => latestTraces,
+        setDemos: (demos: any[]) => {
+          appliedDemos = demos;
+        },
+        applyOptimization: () => {},
+        getUsage: () => [],
+        resetUsage: () => {},
+      };
+
+      const result = await optimizer.compile(
+        program as any,
+        [
+          { question: 'q1', answer: 'a1' },
+          { question: 'q2', answer: 'a2' },
+        ],
+        async ({ prediction, example }) =>
+          (prediction as any).answer === (example as any).answer ? 1 : 0,
+        {
+          bootstrap: true,
+          maxMetricCalls: 2,
+        }
+      );
+
+      expect(appliedDemos).toHaveLength(1);
+      expect(appliedDemos[0]).toEqual({
+        programId: 'root',
+        traces: [
+          { question: 'q1', answer: 'a1' },
+          { question: 'q2', answer: 'a2' },
+        ],
+      });
+      expect(result.optimizedProgram?.demos).toEqual(appliedDemos);
     });
 
     it('throws before spending calls when maxMetricCalls cannot cover the initial Pareto set', async () => {
@@ -235,7 +304,9 @@ describe('AxGEPA Optimizer', () => {
 
       expect(result.bestScore).toBe(0);
       expect(result.optimizedProgram?.instruction).toBe('task');
-      expect(result.optimizedProgram?.instructionMap).toEqual({ root: 'task' });
+      expect(result.optimizedProgram?.componentMap).toEqual({
+        'root::instruction': 'task',
+      });
     });
 
     it('does not score feedback-only examples that are outside the training pool', async () => {
@@ -276,7 +347,7 @@ describe('AxGEPA Optimizer', () => {
       expect(seenQuestions).not.toContain('update');
     });
 
-    it('optimizes registered descendant instructions and returns an instructionMap', async () => {
+    it('optimizes registered descendant components and returns a componentMap', async () => {
       const classifier = createInstructionNode(
         'root.classifier',
         'base-classify'
@@ -297,6 +368,16 @@ describe('AxGEPA Optimizer', () => {
           { id: classifier.getId(), program: classifier },
           { id: rationale.getId(), program: rationale },
         ],
+        getOptimizableComponents: () => [
+          ...classifier.getOptimizableComponents(),
+          ...rationale.getOptimizableComponents(),
+        ],
+        applyOptimizedComponents: (
+          updates: Readonly<Record<string, string>>
+        ) => {
+          classifier.applyOptimizedComponents(updates);
+          rationale.applyOptimizedComponents(updates);
+        },
         forward: async () => ({
           score:
             (classifier.getInstruction() === 'better-classify' ? 1 : 0) +
@@ -318,7 +399,7 @@ describe('AxGEPA Optimizer', () => {
         seed: 1,
       });
       (optimizer as any).reflectTargetInstruction = async (targetId: string) =>
-        targetId.endsWith('classifier')
+        targetId.includes('classifier')
           ? 'better-classify'
           : 'better-rationale';
 
@@ -331,9 +412,9 @@ describe('AxGEPA Optimizer', () => {
 
       expect(result.bestScore).toBe(2);
       expect(result.optimizedProgram?.instruction).toBeUndefined();
-      expect(result.optimizedProgram?.instructionMap).toEqual({
-        'root.classifier': 'better-classify',
-        'root.rationale': 'better-rationale',
+      expect(result.optimizedProgram?.componentMap).toEqual({
+        'root.classifier::instruction': 'better-classify',
+        'root.rationale::instruction': 'better-rationale',
       });
     });
 

@@ -13,7 +13,7 @@ import type { AxMemory } from '../mem/memory.js';
 import { axGlobals } from './globals.js';
 import { validateJSONSchema } from './jsonSchema.js';
 import type { AxStepContextImpl } from './stepContext.js';
-import type { AxProgramForwardOptions } from './types.js';
+import type { AxFunctionCallTrace, AxProgramForwardOptions } from './types.js';
 
 export class AxStopFunctionCallException extends Error {
   public readonly calls: ReadonlyArray<{
@@ -311,6 +311,9 @@ type ProcessFunctionsArgs = {
   stopFunctionNames?: readonly string[];
   step?: AxStepContextImpl;
   abortSignal?: AbortSignal;
+  onFunctionCall?: (
+    call: Readonly<AxFunctionCallTrace>
+  ) => void | Promise<void>;
 };
 
 export const processFunctions = async ({
@@ -329,6 +332,7 @@ export const processFunctions = async ({
   stopFunctionNames,
   step,
   abortSignal,
+  onFunctionCall,
 }: Readonly<ProcessFunctionsArgs>) => {
   const funcProc = new AxFunctionProcessor(functionList);
   const functionsExecuted = new Set<string>();
@@ -337,6 +341,32 @@ export const processFunctions = async ({
     args: unknown;
     result: unknown;
   }> = [];
+
+  const parseTraceArgs = (func: Readonly<AxChatResponseFunctionCall>) => {
+    if (typeof func.args !== 'string') return func.args;
+    try {
+      return func.args.length > 0 ? JSON.parse(func.args) : {};
+    } catch {
+      return func.args;
+    }
+  };
+
+  const emitFunctionTrace = async (
+    startedAt: number,
+    func: Readonly<AxChatResponseFunctionCall>,
+    call: Omit<AxFunctionCallTrace, 'fn' | 'ms'>
+  ): Promise<void> => {
+    if (!onFunctionCall) return;
+    const spec = findFunctionSpec(func.name);
+    try {
+      await onFunctionCall({
+        fn: func.name,
+        componentId: spec?.componentId,
+        ms: Date.now() - startedAt,
+        ...call,
+      });
+    } catch {}
+  };
 
   const findFunctionSpec = (name: string): Readonly<AxFunction> | undefined => {
     const normalize = (s: string) =>
@@ -353,6 +383,7 @@ export const processFunctions = async ({
       throw new Error(`Function ${func.name} did not return an ID`);
     }
 
+    const startedAt = Date.now();
     const tracer = ai.getOptions().tracer ?? axGlobals.tracer;
 
     if (!tracer) {
@@ -378,6 +409,11 @@ export const processFunctions = async ({
           }) => {
             functionsExecuted.add(func.name.toLowerCase());
             step?._recordFunctionCall(func.name, parsedArgs, rawResult);
+            void emitFunctionTrace(startedAt, func, {
+              args: parsedArgs,
+              result: rawResult,
+              ok: true,
+            });
             if (stopFunctionNames?.includes(func.name.toLowerCase())) {
               const spec = findFunctionSpec(func.name);
               if (spec) {
@@ -412,9 +448,19 @@ export const processFunctions = async ({
         )
         .catch((e) => {
           if (!(e instanceof FunctionError)) {
+            void emitFunctionTrace(startedAt, func, {
+              args: parseTraceArgs(func),
+              result: e,
+              ok: false,
+            });
             throw e;
           }
           const result = e.getFixingInstructions();
+          void emitFunctionTrace(startedAt, func, {
+            args: parseTraceArgs(func),
+            result,
+            ok: false,
+          });
           if (span) {
             const errorEventData: {
               name: string;
@@ -471,6 +517,11 @@ export const processFunctions = async ({
 
           functionsExecuted.add(func.name.toLowerCase());
           step?._recordFunctionCall(func.name, parsedArgs, rawResult);
+          await emitFunctionTrace(startedAt, func, {
+            args: parsedArgs,
+            result: rawResult,
+            ok: true,
+          });
           if (stopFunctionNames?.includes(func.name.toLowerCase())) {
             const spec = findFunctionSpec(func.name);
             if (spec) {
@@ -514,6 +565,11 @@ export const processFunctions = async ({
           toolSpan?.recordException?.(e as Error);
           if (e instanceof FunctionError) {
             const result = e.getFixingInstructions();
+            await emitFunctionTrace(startedAt, func, {
+              args: parseTraceArgs(func),
+              result,
+              ok: false,
+            });
             const errorEventData: {
               name: string;
               args?: string;
@@ -541,6 +597,11 @@ export const processFunctions = async ({
               role: 'function' as const,
             };
           }
+          await emitFunctionTrace(startedAt, func, {
+            args: parseTraceArgs(func),
+            result: e,
+            ok: false,
+          });
           throw e;
         } finally {
           toolSpan?.end?.();

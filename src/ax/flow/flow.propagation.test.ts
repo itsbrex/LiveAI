@@ -60,6 +60,10 @@ class TestProgram
     return [];
   }
   resetUsage(): void {}
+  getOptimizableComponents(): readonly any[] {
+    return [];
+  }
+  applyOptimizedComponents(): void {}
 }
 
 describe('AxFlow propagation and instrumentation', () => {
@@ -124,7 +128,7 @@ describe('AxFlow propagation and instrumentation', () => {
     ).toBe(classifier);
   });
 
-  it('applyOptimization uses instructionMap for registered nodes', () => {
+  it('applyOptimization uses componentMap for registered nodes', () => {
     const classifier = ax('inputText:string -> outputText:string');
     const rationale = ax('inputText:string -> outputText:string');
     classifier.setInstruction('before-classifier');
@@ -138,9 +142,9 @@ describe('AxFlow propagation and instrumentation', () => {
     wf.applyOptimization({
       bestScore: 1,
       stats: {} as any,
-      instructionMap: {
-        'root.classifier': 'after-classifier',
-        'root.rationale': 'after-rationale',
+      componentMap: {
+        'root.classifier::instruction': 'after-classifier',
+        'root.rationale::instruction': 'after-rationale',
       },
       optimizerType: 'GEPA',
       optimizationTime: 0,
@@ -277,6 +281,10 @@ describe('AxFlow propagation and instrumentation', () => {
         return [];
       }
       resetUsage(): void {}
+      getOptimizableComponents(): readonly any[] {
+        return [];
+      }
+      applyOptimizedComponents(): void {}
     }
 
     const wf = flow<{ userInput: string }>()

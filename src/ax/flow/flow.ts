@@ -14,6 +14,7 @@ import type {
 } from '../ai/types.js';
 import type { AxGen } from '../dsp/generate.js';
 import { axGlobals } from '../dsp/globals.js';
+import type { AxOptimizableComponent } from '../dsp/optimizable.js';
 import type { AxOptimizedProgram } from '../dsp/optimizer.js';
 import { AxProgram } from '../dsp/program.js';
 import type { AxFieldType } from '../dsp/sig.js';
@@ -1958,6 +1959,37 @@ export class AxFlow<
   public applyOptimization(optimizedProgram: AxOptimizedProgram<any>): void {
     if (this.program && 'applyOptimization' in this.program) {
       (this.program as any).applyOptimization(optimizedProgram);
+    }
+    for (const node of this.nodeGenerators.values()) {
+      if (typeof (node as any).applyOptimization === 'function') {
+        (node as any).applyOptimization(optimizedProgram);
+      }
+    }
+  }
+
+  public getOptimizableComponents(): readonly AxOptimizableComponent[] {
+    const out: AxOptimizableComponent[] = [];
+    if (this.program && typeof (this.program as any).getOptimizableComponents === 'function') {
+      out.push(...(this.program as any).getOptimizableComponents());
+    }
+    for (const node of this.nodeGenerators.values()) {
+      if (typeof (node as any).getOptimizableComponents === 'function') {
+        out.push(...(node as any).getOptimizableComponents());
+      }
+    }
+    return out;
+  }
+
+  public applyOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    if (this.program && typeof (this.program as any).applyOptimizedComponents === 'function') {
+      (this.program as any).applyOptimizedComponents(updates);
+    }
+    for (const node of this.nodeGenerators.values()) {
+      if (typeof (node as any).applyOptimizedComponents === 'function') {
+        (node as any).applyOptimizedComponents(updates);
+      }
     }
   }
 

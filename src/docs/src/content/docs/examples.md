@@ -89,11 +89,8 @@ This page lists every runnable example in [`src/examples/`](https://github.com/a
 
 ## Optimization, Training, and Evaluation
 
-- **[teacher-student-optimization.ts](https://github.com/ax-llm/ax/tree/main/src/examples/teacher-student-optimization.ts)** - MiPRO teacher-student optimization with a small model target.
-- **[mipro-python-optimizer.ts](https://github.com/ax-llm/ax/tree/main/src/examples/mipro-python-optimizer.ts)** - Run MiPRO with the Python optimizer backend.
 - **[simple-optimizer-test.ts](https://github.com/ax-llm/ax/tree/main/src/examples/simple-optimizer-test.ts)** - Minimal optimizer setup for a classification task.
 - **[optimizer-metrics.ts](https://github.com/ax-llm/ax/tree/main/src/examples/optimizer-metrics.ts)** - Track and inspect optimizer metrics over time.
-- **[checkpoint-recovery.ts](https://github.com/ax-llm/ax/tree/main/src/examples/checkpoint-recovery.ts)** - Save and restore optimization checkpoints.
 - **[gepa.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gepa.ts)** - Introductory GEPA optimization example.
 - **[gepa-flow.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gepa-flow.ts)** - Apply GEPA optimization to a flow-based program.
 - **[gepa-train-inference.ts](https://github.com/ax-llm/ax/tree/main/src/examples/gepa-train-inference.ts)** - Train with GEPA and reuse the result for inference.

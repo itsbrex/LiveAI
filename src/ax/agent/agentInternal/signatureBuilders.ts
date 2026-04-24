@@ -187,6 +187,8 @@ export function buildSplitPrograms(self: any): void {
     availableModules,
     agents: agentMeta,
     agentFunctions: agentFunctionMeta,
+    templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),
+    primitiveOverrides: s._primitiveOverrides,
   };
 
   const variant = s.options?.actorTemplateVariant ?? 'combined';
@@ -226,7 +228,10 @@ export function buildSplitPrograms(self: any): void {
 
   const responderDef = axBuildResponderDefinition(
     s.responderDescription,
-    contextFieldMeta
+    contextFieldMeta,
+    {
+      templateOverride: s._actorTemplateOverrides?.get('rlm/responder.md'),
+    }
   );
 
   if (s.actorProgram) {

@@ -468,6 +468,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
   stopFunctionNames,
   stepContext,
   abortSignal,
+  onFunctionCall,
 }: FinalizeStreamingResponseArgs) {
   // Prefer native function calls when provided
   const funcs = !signatureToolCallingManager
@@ -494,6 +495,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
       stopFunctionNames,
       step: stepContext,
       abortSignal,
+      onFunctionCall,
     });
     state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
     // Clear accumulated function calls after processing to avoid re-execution
@@ -641,6 +643,7 @@ export async function* finalizeStreamingResponse<OUT extends AxGenOut>({
           stopFunctionNames,
           step: stepContext,
           abortSignal,
+          onFunctionCall,
         });
         state.functionsExecuted = new Set([...state.functionsExecuted, ...fx]);
 
@@ -727,6 +730,7 @@ export async function* processResponse<OUT>({
   disableMemoryCleanup,
   stepContext,
   abortSignal,
+  onFunctionCall,
 }: Readonly<AxResponseHandlerArgs<AxChatResponse>> & {
   states: InternalAxGenState[];
   usage: AxModelUsage[];
@@ -886,6 +890,7 @@ export async function* processResponse<OUT>({
             stopFunctionNames,
             step: stepContext,
             abortSignal,
+            onFunctionCall,
           });
         } catch (e) {
           // On function error, tag and append correction prompt for next step

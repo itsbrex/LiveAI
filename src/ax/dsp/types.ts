@@ -9,6 +9,7 @@ import type { AxAIMemory } from '../mem/types.js';
 import type { AxAssertion, AxStreamingAssertion } from './asserts.js';
 import type { AxInputFunctionType } from './functions.js';
 import type { AxGen } from './generate.js';
+import type { AxOptimizableComponent } from './optimizable.js';
 import type { AxOptimizedProgram } from './optimizer.js';
 import type { AxPromptTemplate } from './prompt.js';
 import type { AxSignature, AxSignatureBuilder } from './sig.js';
@@ -161,6 +162,15 @@ export type AxResultPickerFunction<OUT> = (
     | AxResultPickerFunctionFunctionResults
 ) => number | Promise<number>;
 
+export type AxFunctionCallTrace = {
+  fn: string;
+  componentId?: string;
+  args: unknown;
+  result: unknown;
+  ok: boolean;
+  ms: number;
+};
+
 export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   // Execution control
   maxRetries?: number;
@@ -181,6 +191,9 @@ export type AxProgramForwardOptions<MODEL> = AxAIServiceOptions & {
   functionCall?: AxChatRequest['functionCall'];
   stopFunction?: string | string[];
   functionResultFormatter?: (result: unknown) => string;
+  onFunctionCall?: (
+    call: Readonly<AxFunctionCallTrace>
+  ) => void | Promise<void>;
 
   // Behavior control
   fastFail?: boolean;
@@ -308,6 +321,24 @@ export interface AxTunable<IN, OUT> {
     options?: { modelConfig?: Record<string, unknown> }
   ): void;
   applyOptimization(optimizedProgram: AxOptimizedProgram<OUT>): void;
+
+  /**
+   * Enumerate all string-valued artifacts this program tree exposes for
+   * reflective optimization (instructions, signature descriptions, function
+   * names/descriptions, agent system prompts, etc.). Composite programs
+   * flat-map their children's components and append their own.
+   *
+   * The optimizer never walks the tree — traversal is encapsulated here.
+   */
+  getOptimizableComponents(): readonly AxOptimizableComponent[];
+
+  /**
+   * Apply a map of `componentKey → newValue` updates produced by an optimizer.
+   * Each program filters keys belonging to itself and dispatches internally.
+   * Unknown keys are silently ignored, which lets parents broadcast a single
+   * map across the whole subtree.
+   */
+  applyOptimizedComponents(updates: Readonly<Record<string, string>>): void;
 }
 
 export type AxNamedProgramInstance<IN = any, OUT = any> = {

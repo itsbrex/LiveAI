@@ -241,6 +241,7 @@ export type AxFunctionJSONSchema = {
 export type AxFunction = {
   name: string;
   description: string;
+  componentId?: string;
   parameters?: AxFunctionJSONSchema;
   returns?: AxFunctionJSONSchema;
   namespace?: string;

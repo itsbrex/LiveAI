@@ -115,6 +115,19 @@ import {
   axBuildTaskActorDefinition,
 } from './rlm.js';
 import {
+  type AxOptimizableComponent,
+  axOptimizableValidators,
+} from '../dsp/optimizable.js';
+import {
+  type AxRuntimePrimitiveStage,
+  visibleRuntimePrimitives,
+} from './runtimePrimitives.js';
+import { promptTemplates, type TemplateId } from './templates.generated.js';
+import {
+  requiredTemplateVariables,
+  validatePromptTemplateSyntax,
+} from './templateEngine.js';
+import {
   buildBootstrapRuntimeGlobals,
   buildContextFieldPromptInlineValue,
   buildInternalSummaryRequestOptions,
@@ -371,6 +384,138 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
     | undefined;
   private func: AxFunction | undefined;
 
+  /** Per-instance overrides for shipped RLM template sources, keyed by TemplateId. */
+  public _actorTemplateOverrides: Map<TemplateId, string> | undefined;
+  /** Per-instance overrides for primitive bullet line(s), keyed by primitive id. */
+  public _primitiveOverrides: Map<string, readonly string[]> | undefined;
+
+  /** Returns the actor template id this agent's variant renders. */
+  public _actorTemplateId(): TemplateId {
+    const variant = (this as any).options?.actorTemplateVariant ?? 'combined';
+    if (variant === 'context') return 'rlm/context-actor.md';
+    if (variant === 'task') return 'rlm/task-actor.md';
+    return 'rlm/ctx-actor.md';
+  }
+
+  private _actorPrimitiveStage(): AxRuntimePrimitiveStage {
+    const variant = (this as any).options?.actorTemplateVariant ?? 'combined';
+    if (variant === 'context') return 'context';
+    if (variant === 'task') return 'task';
+    return 'combined';
+  }
+
+  private _primitiveFlags(): Record<string, boolean | undefined> {
+    const opts = this.actorDefinitionBuildOptions;
+    return {
+      hasInspectRuntime: Boolean(opts?.hasInspectRuntime),
+      hasAgentStatusCallback: Boolean(opts?.hasAgentStatusCallback),
+      discoveryMode: Boolean(opts?.discoveryMode),
+      hasFinalForUser: Boolean((this as any).options?.hasFinalForUser),
+    };
+  }
+
+  /**
+   * Components owned by this agent (not by its sub-programs): the RLM actor
+   * template, the responder template, and each runtime primitive that would
+   * be rendered for the current variant + flag set.
+   */
+  private _localOptimizableComponents(): readonly AxOptimizableComponent[] {
+    const id = this.getId();
+    const out: AxOptimizableComponent[] = [];
+
+    const actorTplId = this._actorTemplateId();
+    const responderTplId: TemplateId = 'rlm/responder.md';
+
+    for (const tplId of [actorTplId, responderTplId] as const) {
+      const current =
+        this._actorTemplateOverrides?.get(tplId) ?? promptTemplates[tplId];
+      const requiredVariables = requiredTemplateVariables(tplId);
+      out.push({
+        key: `${id}::actor-tpl:${tplId}`,
+        kind: 'actor-tpl',
+        current,
+        description: `RLM template '${tplId}' rendered as the ${
+          tplId === responderTplId ? 'responder' : 'actor'
+        } system prompt.`,
+        constraints:
+          'Preserve the full set of `{{var}}` placeholders the renderer expects; the result must be a valid template that parses cleanly.',
+        validate: (value) =>
+          validatePromptTemplateSyntax(
+            value,
+            `template-validate:${tplId}`,
+            requiredVariables
+          ),
+      });
+    }
+
+    const stage = this._actorPrimitiveStage();
+    const flags = this._primitiveFlags();
+    for (const p of visibleRuntimePrimitives(stage, flags)) {
+      const lines = this._primitiveOverrides?.get(p.id) ?? p.lines;
+      out.push({
+        key: `${id}::primitive:${p.id}`,
+        kind: 'primitive',
+        current: lines.join('\n'),
+        description: `Runtime primitive \`${p.id}\` advertised in the actor prompt. Each newline-separated line becomes a markdown bullet.`,
+        constraints:
+          'Newline-separated bullets; each line should start with a backtick-wrapped signature followed by a short purpose statement.',
+        validate: axOptimizableValidators.nonEmpty(),
+      });
+    }
+
+    return out;
+  }
+
+  /** Apply this agent's own override updates and return whether any changed. */
+  private _applyLocalOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): boolean {
+    const id = this.getId();
+    const tplPrefix = `${id}::actor-tpl:`;
+    const primPrefix = `${id}::primitive:`;
+    let changed = false;
+
+    for (const [key, value] of Object.entries(updates)) {
+      if (typeof value !== 'string') continue;
+
+      if (key.startsWith(tplPrefix)) {
+        const tplId = key.slice(tplPrefix.length) as TemplateId;
+        if (!(tplId in promptTemplates)) continue;
+        if (
+          validatePromptTemplateSyntax(
+            value,
+            `template-validate:${tplId}`,
+            requiredTemplateVariables(tplId)
+          ) !== true
+        ) {
+          continue;
+        }
+        if (!this._actorTemplateOverrides) {
+          this._actorTemplateOverrides = new Map();
+        }
+        this._actorTemplateOverrides.set(tplId, value);
+        changed = true;
+        continue;
+      }
+
+      if (key.startsWith(primPrefix)) {
+        const pid = key.slice(primPrefix.length);
+        if (!this._primitiveOverrides) {
+          this._primitiveOverrides = new Map();
+        }
+        const lines = value
+          .split('\n')
+          .map((s) => s.replace(/^[-*]\s+/, '').trim())
+          .filter((s) => s.length > 0);
+        if (lines.length === 0) continue;
+        this._primitiveOverrides.set(pid, lines);
+        changed = true;
+      }
+    }
+
+    return changed;
+  }
+
   private shouldBubbleUserError(err: unknown): boolean {
     if (!this.bubbleErrors || this.bubbleErrors.length === 0) return false;
     return this.bubbleErrors.some((ErrorClass) => err instanceof ErrorClass);
@@ -504,7 +649,7 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public setState(state?: AxAgentState): void {
-    return setStateImpl(this, state);
+    setStateImpl(this, state);
   }
 
   private _listOptimizationTargetDescriptors(): AxAgentOptimizationTargetDescriptor[] {
@@ -617,7 +762,43 @@ export class AxAgentInternal<IN extends AxGenIn, OUT extends AxGenOut>
   }
 
   public applyOptimization(optimizedProgram: any): void {
-    return applyOptimizationImpl(this, optimizedProgram);
+    applyOptimizationImpl(this, optimizedProgram);
+  }
+
+  public getOptimizableComponents(): readonly any[] {
+    const out: any[] = [];
+    if (this.program) out.push(...this.program.getOptimizableComponents());
+    if (this.actorProgram)
+      out.push(...this.actorProgram.getOptimizableComponents());
+    if (this.responderProgram)
+      out.push(...this.responderProgram.getOptimizableComponents());
+    if (this.agents) {
+      for (const a of this.agents) {
+        const fn = (a as any).getOptimizableComponents;
+        if (typeof fn === 'function') out.push(...fn.call(a));
+      }
+    }
+    out.push(...this._localOptimizableComponents());
+    return out;
+  }
+
+  public applyOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    if (this.program) this.program.applyOptimizedComponents(updates);
+    if (this.actorProgram) this.actorProgram.applyOptimizedComponents(updates);
+    if (this.responderProgram)
+      this.responderProgram.applyOptimizedComponents(updates);
+    if (this.agents) {
+      for (const a of this.agents) {
+        const fn = (a as any).applyOptimizedComponents;
+        if (typeof fn === 'function') fn.call(a, updates);
+      }
+    }
+    const ownChanged = this._applyLocalOptimizedComponents(updates);
+    if (ownChanged) {
+      this._buildSplitPrograms();
+    }
   }
 
   // ----- Forward (split architecture) -----

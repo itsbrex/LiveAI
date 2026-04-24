@@ -10,7 +10,11 @@ import type {
   AxLoggerData,
 } from '../ai/types.js';
 import { AxGen } from '../dsp/generate.js';
-import { AxOptimizedProgramImpl } from '../dsp/optimizer.js';
+import {
+  AxOptimizedProgramImpl,
+  axDeserializeOptimizedProgram,
+  axSerializeOptimizedProgram,
+} from '../dsp/optimizer.js';
 import { AxGEPA } from '../dsp/optimizers/gepa.js';
 import { toFieldType } from '../dsp/prompt.js';
 import type { AxIField } from '../dsp/sig.js';
@@ -74,13 +78,15 @@ const makeOptimizationStats = () => ({
 });
 
 const makeOptimizedProgram = (
-  instructionMap: Record<string, string> = { 'root.actor': 'optimized actor' }
+  componentMap: Record<string, string> = {
+    'root.actor::instruction': 'optimized actor',
+  }
 ) =>
   new AxOptimizedProgramImpl({
     bestScore: 0.9,
     stats: makeOptimizationStats(),
-    instruction: instructionMap['root.actor'],
-    instructionMap,
+    instruction: componentMap['root.actor::instruction'],
+    componentMap,
     demos: [],
     optimizerType: 'GEPA',
     optimizationTime: 1,
@@ -6886,7 +6892,7 @@ describe('axBuildResponderDefinition', () => {
   it('should instruct to use available evidence', () => {
     const result = axBuildResponderDefinition(undefined, []);
     expect(result).toContain(
-      'give the best possible answer from what\'s available'
+      "give the best possible answer from what's available"
     );
   });
 
@@ -7010,7 +7016,6 @@ describe('RLM llmQuery runtime behavior', () => {
       runtime,
       maxTurns: 1,
       maxSubAgentCalls: 1,
-      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7149,7 +7154,6 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7227,7 +7231,6 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7310,7 +7313,6 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      
     });
 
     await testAgent.forward(testMockAI, {
@@ -7403,10 +7405,8 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      
-      recursionOptions: {
-        
-      },
+
+      recursionOptions: {},
     });
 
     await testAgent.forward(testMockAI, {
@@ -7537,7 +7537,6 @@ describe('RLM llmQuery runtime behavior', () => {
       contextFields: ['context'],
       runtime,
       maxTurns: 1,
-      
     });
 
     await testAgent.forward(testMockAI, {
@@ -8620,7 +8619,6 @@ describe('actorTurnCallback', () => {
       isError: false,
     });
   });
-
 });
 
 // ----- inputUpdateCallback tests -----
@@ -10253,13 +10251,17 @@ describe('judgeOptions / optimize', () => {
   const recursiveRuntime = new AxJSRuntime();
 
   const makeRecursiveOptimizedProgram = (
-    instructionMap: Record<string, string> = {
-      [AX_AGENT_RECURSIVE_TARGET_IDS.shared]: 'shared recursive guidance',
-      [AX_AGENT_RECURSIVE_TARGET_IDS.root]: 'root decomposition guidance',
-      [AX_AGENT_RECURSIVE_TARGET_IDS.recursive]: 'recursive branch guidance',
-      [AX_AGENT_RECURSIVE_TARGET_IDS.terminal]:
+    componentMap: Record<string, string> = {
+      [`${AX_AGENT_RECURSIVE_TARGET_IDS.shared}::instruction`]:
+        'shared recursive guidance',
+      [`${AX_AGENT_RECURSIVE_TARGET_IDS.root}::instruction`]:
+        'root decomposition guidance',
+      [`${AX_AGENT_RECURSIVE_TARGET_IDS.recursive}::instruction`]:
+        'recursive branch guidance',
+      [`${AX_AGENT_RECURSIVE_TARGET_IDS.terminal}::instruction`]:
         'terminal direct-answer guidance',
-      [AX_AGENT_RECURSIVE_TARGET_IDS.responder]: 'responder answer guidance',
+      [`${AX_AGENT_RECURSIVE_TARGET_IDS.responder}::instruction`]:
+        'responder answer guidance',
     },
     overrides?: Partial<{
       artifactFormatVersion: number;
@@ -10269,7 +10271,7 @@ describe('judgeOptions / optimize', () => {
     new AxOptimizedProgramImpl({
       bestScore: 0.95,
       stats: makeOptimizationStats(),
-      instructionMap,
+      componentMap,
       demos: [],
       optimizerType: 'GEPA',
       optimizationTime: 1,
@@ -10417,6 +10419,19 @@ describe('judgeOptions / optimize', () => {
           expect(
             program.namedProgramInstances?.().map((entry) => entry.id)
           ).toEqual(['root.actor']);
+          expect(
+            program.getOptimizableComponents?.().map((entry) => entry.key)
+          ).toEqual(
+            expect.arrayContaining([
+              'root.actor::instruction',
+              'root.actor::description',
+            ])
+          );
+          expect(
+            program
+              .getOptimizableComponents?.()
+              .every((entry) => entry.key.startsWith('root.actor::'))
+          ).toBe(true);
           expect(compileOptions?.maxMetricCalls).toBeGreaterThan(0);
 
           return {
@@ -10447,6 +10462,138 @@ describe('judgeOptions / optimize', () => {
     expect(applySpy).toHaveBeenCalledOnce();
   });
 
+  it('should optimize both ctx and task actors for staged coordinator actor target', async () => {
+    const studentAI = makeStudentAI();
+
+    const compileSpy = vi
+      .spyOn(AxGEPA.prototype, 'compile')
+      .mockImplementation(
+        async (program, _examples, _metric, compileOptions) => {
+          const ids = program
+            .namedProgramInstances?.()
+            .map((entry) => entry.id);
+          expect(ids).toEqual(['ctx.root.actor', 'task.root.actor']);
+
+          const componentKeys = program
+            .getOptimizableComponents?.()
+            .map((entry) => entry.key);
+          expect(componentKeys).toEqual(
+            expect.arrayContaining([
+              'root.actor::instruction',
+              'root.actor::description',
+            ])
+          );
+          expect(
+            componentKeys?.every((key) => key.startsWith('root.actor::'))
+          ).toBe(true);
+          expect(compileOptions?.maxMetricCalls).toBeGreaterThan(0);
+
+          return {
+            demos: [],
+            stats: makeOptimizationStats(),
+            bestScore: 0.9,
+            paretoFront: [],
+            paretoFrontSize: 0,
+            finalConfiguration: {},
+            optimizedProgram: makeOptimizedProgram(),
+          } as any;
+        }
+      );
+
+    const stagedAgent = agent('context:string, query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: ['context'],
+      runtime: optimizeRuntime,
+      functions: [sendEmailFn],
+    });
+
+    await stagedAgent.optimize([makeTask()], {
+      target: 'actor',
+      metric: async () => 1,
+    });
+
+    expect(compileSpy).toHaveBeenCalledOnce();
+  });
+
+  it('should optimize task responder by default for staged coordinator responder target', async () => {
+    const studentAI = makeStudentAI();
+
+    const compileSpy = vi
+      .spyOn(AxGEPA.prototype, 'compile')
+      .mockImplementation(async (program) => {
+        expect(
+          program.namedProgramInstances?.().map((entry) => entry.id)
+        ).toEqual(['task.root.responder']);
+
+        return {
+          demos: [],
+          stats: makeOptimizationStats(),
+          bestScore: 0.9,
+          paretoFront: [],
+          paretoFrontSize: 0,
+          finalConfiguration: {},
+          optimizedProgram: makeOptimizedProgram({
+            'root.responder::instruction': 'optimized responder',
+          }),
+        } as any;
+      });
+
+    const stagedAgent = agent('context:string, query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: ['context'],
+      runtime: optimizeRuntime,
+      functions: [sendEmailFn],
+    });
+
+    await stagedAgent.optimize([makeTask()], {
+      target: 'responder',
+      metric: async () => 1,
+    });
+
+    expect(compileSpy).toHaveBeenCalledOnce();
+  });
+
+  it('should include ctx and task responders when staged coordinator target is all', async () => {
+    const studentAI = makeStudentAI();
+
+    const compileSpy = vi
+      .spyOn(AxGEPA.prototype, 'compile')
+      .mockImplementation(async (program) => {
+        expect(
+          program.namedProgramInstances?.().map((entry) => entry.id)
+        ).toEqual([
+          'ctx.root.actor',
+          'ctx.root.responder',
+          'task.root.actor',
+          'task.root.responder',
+        ]);
+
+        return {
+          demos: [],
+          stats: makeOptimizationStats(),
+          bestScore: 0.9,
+          paretoFront: [],
+          paretoFrontSize: 0,
+          finalConfiguration: {},
+          optimizedProgram: makeOptimizedProgram(),
+        } as any;
+      });
+
+    const stagedAgent = agent('context:string, query:string -> answer:string', {
+      ai: studentAI,
+      contextFields: ['context'],
+      runtime: optimizeRuntime,
+      functions: [sendEmailFn],
+    });
+
+    await stagedAgent.optimize([makeTask()], {
+      target: 'all',
+      metric: async () => 1,
+    });
+
+    expect(compileSpy).toHaveBeenCalledOnce();
+  });
+
   it('should forward GEPA logging and progress options through agent.optimize()', async () => {
     const studentAI = makeStudentAI();
     const optimizerLogger = vi.fn();
@@ -10474,8 +10621,11 @@ describe('judgeOptions / optimize', () => {
         expect(this.minImprovementThreshold).toBe(0.05);
         expect(this.sampleCount).toBe(1);
         expect(this.rngState).toBe(7);
+        expect(compileOptions?.bootstrap).toEqual({
+          scoreThreshold: 0.9,
+          maxBootstrapDemos: 2,
+        });
         expect(compileOptions?.verbose).toBe(true);
-
         return {
           demos: [],
           stats: makeOptimizationStats(),
@@ -10508,6 +10658,10 @@ describe('judgeOptions / optimize', () => {
       minImprovementThreshold: 0.05,
       sampleCount: 1,
       seed: 7,
+      bootstrap: {
+        scoreThreshold: 0.9,
+        maxBootstrapDemos: 2,
+      },
     });
 
     expect(compileSpy).toHaveBeenCalledOnce();
@@ -11027,20 +11181,46 @@ describe('judgeOptions / optimize', () => {
     expect(actorProgram?.getInstruction?.()).toBe('optimized actor');
   });
 
+  it('should serialize and deserialize optimized artifacts with demos for browser-safe storage', () => {
+    const optimizedProgram = new AxOptimizedProgramImpl({
+      bestScore: 0.9,
+      stats: makeOptimizationStats(),
+      componentMap: { 'root.actor::instruction': 'optimized actor' },
+      demos: [
+        {
+          programId: 'root.actor',
+          traces: [{ javascriptCode: 'final("ok", {})', query: 'hello' }],
+        },
+      ],
+      optimizerType: 'GEPA',
+      optimizationTime: 1,
+      totalRounds: 1,
+      converged: true,
+    });
+
+    const serialized = axSerializeOptimizedProgram(optimizedProgram);
+    const restored = axDeserializeOptimizedProgram(serialized);
+
+    expect(serialized.demos).toEqual(optimizedProgram.demos);
+    expect(serialized.componentMap).toEqual(optimizedProgram.componentMap);
+    expect(restored.demos).toEqual(optimizedProgram.demos);
+    expect(restored.componentMap).toEqual(optimizedProgram.componentMap);
+  });
+
   it('should allow advanced recursive agents to apply legacy optimized artifacts', async () => {
     const studentAI = makeRecursiveStudentAI();
     const testAgent = agent('query:string -> answer:string', {
       ai: studentAI,
       contextFields: [],
       runtime: recursiveRuntime,
-      
+
       recursionOptions: {},
     });
 
     testAgent.applyOptimization(
       makeOptimizedProgram({
-        'root.actor': 'legacy actor instruction',
-        'root.responder': 'legacy responder instruction',
+        'root.actor::instruction': 'legacy actor instruction',
+        'root.responder::instruction': 'legacy responder instruction',
       })
     );
 
@@ -11058,9 +11238,7 @@ describe('judgeOptions / optimize', () => {
       'legacy responder instruction'
     );
   });
-
 });
-
 
 // ----- A/An article grammar tests (unchanged) -----
 
@@ -13674,7 +13852,7 @@ describe('AxFunction', () => {
       contextFields: [],
       runtime,
       functions: [completeChildFn],
-      
+
       recursionOptions: {},
     });
 

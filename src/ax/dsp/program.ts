@@ -1,3 +1,4 @@
+import type { AxOptimizableComponent } from './optimizable.js';
 import type { AxOptimizedProgram } from './optimizer.js';
 import { AxInstanceRegistry } from './registry.js';
 import type { AxSignatureConfig } from './sig.js';
@@ -350,26 +351,115 @@ export class AxProgram<IN = any, OUT = any>
       });
     }
 
-    const anySelf = this as any;
-    if (typeof anySelf.setInstruction === 'function') {
-      const mappedInstruction = optimizedProgram.instructionMap?.[this.key.id];
-      const nextInstruction =
-        typeof mappedInstruction === 'string'
-          ? mappedInstruction
-          : optimizedProgram.instruction;
-      if (typeof nextInstruction === 'string' && nextInstruction.length > 0) {
-        anySelf.setInstruction(nextInstruction);
-      }
+    if (
+      optimizedProgram.componentMap &&
+      Object.keys(optimizedProgram.componentMap).length > 0
+    ) {
+      this.applyOptimizedComponents(optimizedProgram.componentMap);
     }
 
-    const childOptimization = {
-      ...optimizedProgram,
-      ...(hasDemos ? { demos: undefined } : {}),
-      ...(hasModelConfig ? { modelConfig: undefined } : {}),
-    } as AxOptimizedProgram<OUT>;
+    const instructionKey = `${this.key.id}::instruction`;
+    if (
+      typeof optimizedProgram.instruction === 'string' &&
+      optimizedProgram.instruction.length > 0 &&
+      optimizedProgram.componentMap?.[instructionKey] === undefined
+    ) {
+      this.applyOptimizedComponents({
+        [instructionKey]: optimizedProgram.instruction,
+      });
+    }
+  }
 
+  /**
+   * Walks the program tree and emits one `AxOptimizableComponent` per
+   * string-valued artifact reachable from this node. Subclasses override
+   * `localOptimizableComponents()` to add their own; tree traversal is
+   * handled here so callers never need to recurse.
+   */
+  public getOptimizableComponents(): readonly AxOptimizableComponent[] {
+    const out: AxOptimizableComponent[] = [];
+    out.push(...this.localOptimizableComponents());
     for (const child of Array.from(this.children)) {
-      child?.applyOptimization(childOptimization as any);
+      const fn = (child as Partial<AxTunable<IN, OUT>>)
+        .getOptimizableComponents;
+      if (typeof fn === 'function') {
+        out.push(...fn.call(child));
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Components owned directly by this node (excluding children). Subclasses
+   * override this to append their own kinds (e.g. AxGen adds `fn-desc:*`).
+   */
+  protected localOptimizableComponents(): readonly AxOptimizableComponent[] {
+    const out: AxOptimizableComponent[] = [];
+    const id = this.key.id;
+    const anySelf = this as any;
+
+    const description = this.signature.getDescription();
+    if (typeof description === 'string') {
+      out.push({
+        key: `${id}::description`,
+        kind: 'description',
+        current: description,
+        description:
+          'Module role/task description. Appears in parent agents’ tool menus and as the top-level task definition for this module.',
+      });
+    }
+
+    if (typeof anySelf.getInstruction === 'function') {
+      const current = (anySelf.getInstruction() as string | undefined) ?? '';
+      out.push({
+        key: `${id}::instruction`,
+        kind: 'instruction',
+        current,
+        description:
+          'High-level instruction prepended to every prompt for this module. Use for strategy and rules; per-field guidance belongs in the signature.',
+      });
+    }
+
+    return out;
+  }
+
+  /**
+   * Broadcast component updates across this subtree. Each node filters keys
+   * belonging to itself and dispatches via `applyLocalOptimizedComponents`.
+   */
+  public applyOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    this.applyLocalOptimizedComponents(updates);
+    for (const child of Array.from(this.children)) {
+      const fn = (child as Partial<AxTunable<IN, OUT>>)
+        .applyOptimizedComponents;
+      if (typeof fn === 'function') {
+        fn.call(child, updates);
+      }
+    }
+  }
+
+  /**
+   * Apply only this node's own components. Subclasses override to add their
+   * own dispatch (e.g. AxGen handles `fn-desc:*` and `fn-name:*`).
+   */
+  protected applyLocalOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    const id = this.key.id;
+    const anySelf = this as any;
+
+    const descKey = `${id}::description`;
+    if (typeof updates[descKey] === 'string') {
+      this.setDescription(updates[descKey]!);
+    }
+
+    if (typeof anySelf.setInstruction === 'function') {
+      const instrKey = `${id}::instruction`;
+      if (typeof updates[instrKey] === 'string') {
+        anySelf.setInstruction(updates[instrKey]!);
+      }
     }
   }
 }

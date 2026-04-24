@@ -425,32 +425,6 @@ const result = await rag.forward(ai: AxAI, {
 
 ## Optimization
 
-### AxMiPRO - MiPRO v2 Optimizer
-
-```typescript
-const optimizer = new AxMiPRO({
-  studentAI: AxAI,
-  teacherAI?: AxAI,
-  examples: Array<Example>,
-  options?: {
-    maxBootstrapAttempts?: number,
-    maxLabeledCandidates?: number,
-    maxErrors?: number,
-    maxRoundsPerDepth?: number,
-    minDatapointsPerDepth?: number[],
-    requiredDatapointsPerDepth?: number[],
-    endWhenOptimal?: boolean,
-    checkpointCallback?: (state: CheckpointState) => void
-  }
-});
-
-const result = await optimizer.compile(
-  program: AxGen,
-  examples: Array<Example>,
-  metric: (prediction: any, example: any) => number
-);
-```
-
 ### AxBootstrapFewShot - Bootstrap Optimizer
 
 ```typescript
@@ -458,10 +432,9 @@ const optimizer = new AxBootstrapFewShot({
   ai: AxAI,
   examples: Array<Example>,
   options?: {
-    maxBootstrappedDemos?: number,
-    maxLabeledDemos?: number,
     maxRounds?: number,
-    maxErrors?: number
+    maxExamples?: number,
+    maxDemos?: number
   }
 });
 
@@ -469,6 +442,29 @@ const result = await optimizer.compile(
   program: AxGen,
   examples: Array<Example>,
   metric: MetricFunction
+);
+```
+
+### AxGEPA - Generic Component Optimizer
+
+```typescript
+const optimizer = new AxGEPA({
+  studentAI: AxAI,
+  teacherAI?: AxAI
+});
+
+const result = await optimizer.compile(
+  program: AxProgrammable,
+  examples: Array<Example>,
+  metric: MetricFunction,
+  {
+    bootstrap?: boolean | {
+      scoreThreshold?: number,
+      maxBootstrapDemos?: number,
+      maxBootstrapMetricCalls?: number
+    },
+    maxMetricCalls?: number
+  }
 );
 ```
 

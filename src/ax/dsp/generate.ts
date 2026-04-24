@@ -80,6 +80,10 @@ import {
   processStreamingResponse,
   shouldContinueSteps,
 } from './processResponse.js';
+import {
+  type AxOptimizableComponent,
+  axOptimizableValidators,
+} from './optimizable.js';
 import { AxProgram } from './program.js';
 import { AxPromptTemplate, type AxRenderedPrompt } from './prompt.js';
 import { selectFromSamples, selectFromSamplesInMemory } from './samples.js';
@@ -94,6 +98,7 @@ import type {
   AxGenDeltaOut,
   AxGenOut,
   AxGenStreamingOut,
+  AxFunctionCallTrace,
   AxMessage,
   AxProgramExamples,
   AxProgramForwardOptions,
@@ -129,6 +134,9 @@ export interface AxResponseHandlerArgs<T> {
   span?: Span;
   logger: AxLoggerFunction;
   debugPromptMetrics?: Readonly<AxPromptMetrics>;
+  onFunctionCall?: (
+    call: Readonly<AxFunctionCallTrace>
+  ) => void | Promise<void>;
 }
 
 export interface AxStreamingEvent<T> {
@@ -165,6 +173,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
   private streamingAsserts: AxStreamingAssertion[];
   private options?: Omit<AxProgramForwardOptions<any>, 'functions'>;
   private functions: AxFunction[];
+  private functionComponentIds = new WeakMap<AxFunction, string>();
   private fieldProcessors: AxFieldProcessor[] = [];
   private streamingFieldProcessors: AxFieldProcessor[] = [];
   private excludeContentFromTrace = false;
@@ -204,6 +213,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
     this.functions = options?.functions
       ? parseFunctions(options.functions)
       : [];
+    this.ensureFunctionComponentIds();
     this.usage = [];
   }
 
@@ -229,6 +239,136 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
 
   public clearInstruction(): void {
     this.promptTemplate.clearInstruction();
+  }
+
+  private static stableFunctionComponentBase(name: string): string {
+    const normalized = name
+      .trim()
+      .replace(/[^a-zA-Z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .toLowerCase();
+    return normalized || 'tool';
+  }
+
+  private ensureFunctionComponentIds(): void {
+    const used = new Set<string>();
+    for (const fn of this.functions) {
+      const existing = this.functionComponentIds.get(fn);
+      if (existing) {
+        fn.componentId = existing;
+        used.add(existing);
+        continue;
+      }
+
+      const base = AxGen.stableFunctionComponentBase(fn.name);
+      let id = base;
+      let suffix = 2;
+      while (used.has(id)) {
+        id = `${base}_${suffix++}`;
+      }
+      used.add(id);
+      this.functionComponentIds.set(fn, id);
+      fn.componentId = id;
+    }
+  }
+
+  private validateFunctionNameCandidate(
+    fn: AxFunction,
+    value: string
+  ): true | string {
+    const shape = axOptimizableValidators.snakeCaseIdentifier(32)(value);
+    if (shape !== true) return shape;
+    const trimmed = value.trim();
+    const collides = this.functions.some(
+      (other) => other !== fn && other.name === trimmed
+    );
+    return collides ? 'identifier must be distinct from sibling tools' : true;
+  }
+
+  protected override localOptimizableComponents(): readonly AxOptimizableComponent[] {
+    const out: AxOptimizableComponent[] = [
+      ...super.localOptimizableComponents(),
+    ];
+    const id = this.getId();
+    this.ensureFunctionComponentIds();
+    for (const fn of this.functions) {
+      const functionId = this.functionComponentIds.get(fn)!;
+      out.push({
+        key: `${id}::fn:${functionId}:desc`,
+        kind: 'fn-desc',
+        current: fn.description ?? '',
+        traceId: functionId,
+        description: `Tool description shown to caller LLM to decide WHEN to invoke \`${fn.name}\`.`,
+        constraints:
+          'Concise; describe the tool’s purpose and inputs in one or two sentences.',
+        preserve: [],
+        maxLength: 320,
+        validate: axOptimizableValidators.nonEmpty(),
+      });
+      out.push({
+        key: `${id}::fn:${functionId}:name`,
+        kind: 'fn-name',
+        current: fn.name,
+        traceId: functionId,
+        description: `Identifier the LLM uses to invoke this tool. Renaming changes how the model addresses it.`,
+        constraints:
+          'snake_case identifier, ≤32 chars, distinct from siblings.',
+        maxLength: 32,
+        format: 'snake_case',
+        validate: (value) => this.validateFunctionNameCandidate(fn, value),
+      });
+    }
+    return out;
+  }
+
+  protected override applyLocalOptimizedComponents(
+    updates: Readonly<Record<string, string>>
+  ): void {
+    super.applyLocalOptimizedComponents(updates);
+
+    const id = this.getId();
+    this.ensureFunctionComponentIds();
+    const renames: Array<{ from: string; to: string }> = [];
+
+    for (const fn of this.functions) {
+      const functionId = this.functionComponentIds.get(fn)!;
+      const descKey = `${id}::fn:${functionId}:desc`;
+      if (typeof updates[descKey] === 'string') {
+        fn.description = updates[descKey]!;
+      }
+    }
+
+    const proposedNames = new Map<AxFunction, string>();
+    for (const fn of this.functions) {
+      const functionId = this.functionComponentIds.get(fn)!;
+      const nameKey = `${id}::fn:${functionId}:name`;
+      const proposed = updates[nameKey];
+      if (typeof proposed !== 'string' || proposed === fn.name) continue;
+
+      const trimmed = proposed.trim();
+      const valid = axOptimizableValidators.snakeCaseIdentifier(32)(trimmed);
+      if (valid !== true) continue;
+      proposedNames.set(fn, trimmed);
+    }
+
+    if (proposedNames.size > 0) {
+      const finalNames = this.functions.map(
+        (fn) => proposedNames.get(fn) ?? fn.name
+      );
+      if (new Set(finalNames).size === finalNames.length) {
+        for (const [fn, proposed] of proposedNames.entries()) {
+          renames.push({ from: fn.name, to: proposed });
+          fn.name = proposed;
+        }
+      }
+    }
+
+    if (renames.length > 0) {
+      // Strip stale demo entries — function-call traces under the old name
+      // would mislead the LLM if the underlying tool now has a different
+      // identifier. Cheaper to drop than to rewrite ambiguously.
+      this.demos = [];
+    }
   }
 
   private getEffectiveContextCache(
@@ -1047,6 +1187,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         signature: this.signature,
         logger,
         debugPromptMetrics,
+        onFunctionCall: options.onFunctionCall,
         debug,
         functionResultFormatter,
         signatureToolCallingManager,
@@ -1099,6 +1240,7 @@ export class AxGen<IN = any, OUT extends AxGenOut = any>
         signature: this.signature,
         logger,
         debugPromptMetrics,
+        onFunctionCall: options.onFunctionCall,
         debug,
         functionResultFormatter,
         signatureToolCallingManager,

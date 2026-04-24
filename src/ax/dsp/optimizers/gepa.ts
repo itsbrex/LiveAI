@@ -14,15 +14,30 @@ import {
   type AxParetoResult,
 } from '../optimizer.js';
 import { ax } from '../template.js';
-import type {
-  AxGenOut,
-  AxNamedProgramInstance,
-  AxProgrammable,
-} from '../types.js';
+import type { AxGenOut, AxProgrammable } from '../types.js';
+import {
+  applyGEPAComponentConfig,
+  getGEPAOptimizationTargets,
+} from './gepaComponents.js';
+import {
+  bootstrapGEPADemos,
+  resolveBootstrapOptions,
+} from './gepaBootstrap.js';
+import { getGEPAUpdateGroup } from './gepaDependencies.js';
+import {
+  evaluateGEPABatch,
+  normalizeGEPAScores,
+  scalarizeGEPAScores,
+  type AxGEPABatchEvaluation,
+} from './gepaEvaluation.js';
 import type { AxGEPAAdapter } from './gepaAdapter.js';
 import {
+  proposeGEPAComponentValue,
+  renderReflectiveValue,
+} from './gepaReflection.js';
+import { AxGEPAComponentSelector } from './gepaSelection.js';
+import {
   average,
-  avgVec,
   buildParetoFront,
   hypervolume2D,
   removeDominatedProgramsByInstanceFronts,
@@ -116,52 +131,11 @@ export function displayGEPAReport(report: AxGEPAOptimizationReport): void {
   console.log(`\n${'═'.repeat(60)}\n`);
 }
 
-type AxGEPAInstructionTarget = AxNamedProgramInstance<any, any> & {
-  program: AxNamedProgramInstance<any, any>['program'] & {
-    getInstruction?: () => string | undefined;
-    setInstruction?: (instruction: string) => void;
-    getSignature?: () => { getDescription?: () => string | undefined };
-  };
-};
-
-type AxGEPABatchRow = {
-  input: AxExample;
-  prediction: unknown;
-  scores: Record<string, number>;
-  scalar: number;
-};
-
-function zeroScoreVector(
-  knownKeys: ReadonlySet<string>
-): Record<string, number> {
-  if (knownKeys.size === 0) {
-    return { score: 0 };
-  }
-
-  return Object.fromEntries([...knownKeys].map((key) => [key, 0]));
-}
-
-function renderReflectiveValue(value: unknown, maxChars = 800): string {
-  if (typeof value === 'string') {
-    const trimmed = value.trim();
-    return trimmed.length <= maxChars
-      ? trimmed
-      : `${trimmed.slice(0, Math.max(0, maxChars - 3))}...`;
-  }
-
-  try {
-    const rendered = JSON.stringify(value, null, 2).trim();
-    return rendered.length <= maxChars
-      ? rendered
-      : `${rendered.slice(0, Math.max(0, maxChars - 3))}...`;
-  } catch {
-    const fallback = String(value).trim();
-    return fallback.length <= maxChars
-      ? fallback
-      : `${fallback.slice(0, Math.max(0, maxChars - 3))}...`;
-  }
-}
-
+/**
+ * Internal target descriptor used by AxGEPA: each "target" is one optimizable
+ * component (a string-valued artifact identified by a globally unique key) plus
+ * the metadata needed by the reflection LLM to mutate it intelligently.
+ */
 /** Single-module GEPA (reflective prompt evolution with Pareto sampling) */
 export class AxGEPA extends AxBaseOptimizer {
   // Core knobs
@@ -340,53 +314,21 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         : examples;
     const effectiveFeedbackSet =
       feedbackSet.length > 0 ? feedbackSet : examples;
-    const targets = this.getInstructionTargets(program);
+    const targets = getGEPAOptimizationTargets(program);
     if (targets.length === 0) {
       throw new Error(
-        'AxGEPA: program has no instruction-bearing nodes to optimize'
+        'AxGEPA: program exposes no optimizable components (implement getOptimizableComponents on AxProgram subclasses)'
       );
     }
     const targetIds = targets.map((target) => target.id);
+    const componentSelector = new AxGEPAComponentSelector(targets);
 
     const applyConfig = (cfg: Readonly<Record<string, string>>): void => {
-      for (const target of targets) {
-        const instruction = cfg[target.id];
-        if (typeof instruction === 'string') {
-          target.program.setInstruction?.(instruction);
-        }
-      }
-    };
-
-    const normalizeScores = async (
-      prediction: unknown,
-      example: AxExample
-    ): Promise<Record<string, number>> => {
-      const raw = await (metricFn as any)({ prediction, example });
-      if (typeof raw === 'number') {
-        return Number.isFinite(raw) ? { score: raw } : {};
-      }
-      if (!raw || typeof raw !== 'object') {
-        return {};
-      }
-      const out: Record<string, number> = {};
-      for (const [key, value] of Object.entries(raw)) {
-        if (typeof value === 'number' && Number.isFinite(value)) {
-          out[key] = value;
-        }
-      }
-      return out;
+      applyGEPAComponentConfig(program, cfg);
     };
 
     const scalarize = (v: Readonly<Record<string, number>>): number => {
-      const key = (options as any)?.paretoMetricKey as string | undefined;
-      const fn = (options as any)?.paretoScalarize as
-        | ((scores: Readonly<Record<string, number>>) => number)
-        | undefined;
-      if (typeof fn === 'function') return fn(v);
-      if (key)
-        return Number.isFinite(v[key] as number) ? (v[key] as number) : 0;
-      const vals = Object.values(v);
-      return vals.length ? vals.reduce((a, b) => a + b, 0) / vals.length : 0;
+      return scalarizeGEPAScores(v, options as any);
     };
 
     const optLogger = this.getOptimizerLogger(options);
@@ -395,88 +337,72 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         ? (msg: string) => console.log(`[GEPA] ${msg}`)
         : (_msg: string) => {};
 
-    const observedScoreKeys = new Set<string>();
+    const gepaAdapter = (options as any)?.gepaAdapter as
+      | AxGEPAAdapter
+      | undefined;
+
+    const evaluationState = {
+      totalCalls: this.stats.totalCalls,
+      observedScoreKeys: new Set<string>(),
+    };
+    let bootstrapMetricCalls = 0;
 
     const evalBatch = async (
       cfg: Readonly<Record<string, string>>,
       set: readonly AxTypedExample<IN>[],
       _phase: string,
-      throwIfInsufficient = false
-    ): Promise<
-      | {
-          rows: AxGEPABatchRow[];
-          avg: Record<string, number>;
-          scalars: number[];
-          sum: number;
-        }
-      | undefined
-    > => {
-      const requiredCalls = set.length;
-      if (this.stats.totalCalls + requiredCalls > rolloutBudgetPareto) {
-        if (throwIfInsufficient) {
-          throw new Error(
-            `AxGEPA: options.maxMetricCalls=${rolloutBudgetPareto} is too small to evaluate the initial Pareto set; need at least ${requiredCalls} metric calls`
-          );
-        }
-        return undefined;
-      }
-
-      const rows: AxGEPABatchRow[] = [];
-      verboseLog(
-        `${_phase}: evaluating ${set.length} example${set.length === 1 ? '' : 's'}`
-      );
-
-      for (const [index, ex] of set.entries()) {
-        applyConfig(cfg);
-        let prediction: unknown;
-        let scores: Record<string, number>;
-
-        try {
-          prediction = await program.forward(
-            this.studentAI,
-            ex as IN,
-            {
-              sampleCount: this.sampleCount,
-            } as any
-          );
-          scores = await normalizeScores(prediction, ex as AxExample);
-          for (const key of Object.keys(scores)) {
-            observedScoreKeys.add(key);
-          }
-        } catch (error) {
-          const message =
-            error instanceof Error ? error.message : String(error);
-          prediction = { error: message };
-          scores = zeroScoreVector(observedScoreKeys);
-          verboseLog(
-            `Evaluation failed during ${_phase}; scoring this example as zero. Error: ${message}`
-          );
-        }
-
-        this.stats.totalCalls += 1;
-        const scalar = scalarize(scores);
-        rows.push({
-          input: ex as AxExample,
-          prediction,
-          scores,
-          scalar,
-        });
-        verboseLog(
-          `${_phase}: completed ${index + 1}/${set.length} (score=${scalar.toFixed(3)})`
-        );
-      }
-
-      return {
-        rows,
-        avg: avgVec(rows.map((row) => row.scores)),
-        scalars: rows.map((row) => row.scalar),
-        sum: rows.reduce((total, row) => total + row.scalar, 0),
-      };
+      throwIfInsufficient = false,
+      captureTraces = false
+    ): Promise<AxGEPABatchEvaluation | undefined> => {
+      const result = await evaluateGEPABatch({
+        program,
+        ai: this.studentAI,
+        metricFn,
+        adapter: gepaAdapter,
+        cfg,
+        set,
+        phase: _phase,
+        sampleCount: this.sampleCount,
+        maxMetricCalls: rolloutBudgetPareto,
+        state: evaluationState,
+        applyConfig,
+        scalarize,
+        verboseLog,
+        throwIfInsufficient,
+        captureTraces,
+      });
+      this.stats.totalCalls = bootstrapMetricCalls + evaluationState.totalCalls;
+      return result;
     };
 
     const baseCfg: Record<string, string> = {};
     for (const target of targets) {
-      baseCfg[target.id] = await this.getBaseInstruction(target.program as any);
+      baseCfg[target.id] = target.current;
+    }
+
+    const bootstrapOptions = resolveBootstrapOptions(
+      (options as any)?.bootstrap,
+      examples.length
+    );
+    let bootstrappedDemos: any[] = [];
+    if (bootstrapOptions) {
+      const bootstrapResult = await bootstrapGEPADemos({
+        program,
+        ai: this.studentAI,
+        examples,
+        metricFn,
+        cfg: baseCfg,
+        applyConfig,
+        options: bootstrapOptions,
+        state: evaluationState,
+        sampleCount: this.sampleCount,
+      });
+      bootstrappedDemos = bootstrapResult.demos;
+      bootstrapMetricCalls = bootstrapResult.metricCalls;
+      this.stats.totalCalls = bootstrapMetricCalls;
+      if (bootstrappedDemos.length > 0) {
+        program.setDemos(bootstrappedDemos);
+      }
     }
 
     const baseEval = await evalBatch(
@@ -767,7 +693,9 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       const parentMiniEval = await evalBatch(
         candidates[parentIdx]!.cfg,
         mini as readonly AxTypedExample<IN>[],
-        'parent minibatch'
+        'parent minibatch',
+        false,
+        true
       );
       if (!parentMiniEval) break;
 
@@ -786,15 +714,12 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       };
       const strategy: 'reflective_mutation' | 'system_merge' =
         'reflective_mutation';
-      // For adapter-based strict acceptance
-      let adapterParentSum: number | undefined;
-      let adapterChildSum: number | undefined;
-      const target = targets[t % targets.length]!;
-      const currentInstruction = candidates[parentIdx]!.cfg[target.id]!;
-      const adapter = (options as any)?.gepaAdapter as
-        | AxGEPAAdapter
-        | undefined;
-      let newInstruction: string | undefined;
+      const target = componentSelector.pick(t, () => this.rand());
+      const targetGroup = getGEPAUpdateGroup(target, targets);
+      for (const groupTarget of targetGroup) {
+        componentSelector.recordProposal(groupTarget.id);
+      }
+      const adapter = gepaAdapter;
 
       const parentTuples = parentMiniEval.rows.map((row) => ({
         input: row.input,
@@ -802,68 +727,95 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         score: row.scalar,
       }));
 
+      const parentEvaluationForAdapter = {
+        outputs: parentMiniEval.rows.map((row) => row.prediction),
+        scores: parentMiniEval.scalars,
+        scoreVectors: parentMiniEval.rows.map((row) => row.scores),
+        trajectories: parentMiniEval.trajectories,
+      };
+
+      const defaultReflectiveDataset = Object.fromEntries(
+        targetGroup.map((groupTarget) => {
+          const rows = (parentMiniEval.trajectories ?? [])
+            .map((trace: any, index) => ({
+              score: parentMiniEval.scalars[index] ?? 0,
+              calls: Array.isArray(trace?.calls) ? trace.calls : [],
+              output: trace?.output,
+              error: trace?.error,
+            }))
+            .filter((trace) => {
+              if (!groupTarget.traceId) return true;
+              return (
+                trace.score === 0 ||
+                trace.calls.some(
+                  (call: any) => call?.componentId === groupTarget.traceId
+                )
+              );
+            });
+          return [groupTarget.id, rows];
+        })
+      );
+
+      let reflectiveDataset = defaultReflectiveDataset;
       if (adapter) {
         try {
-          const evalParent = await adapter.evaluate(
-            mini as any,
+          reflectiveDataset = adapter.make_reflective_dataset(
             { ...candidates[parentIdx]!.cfg },
-            true
+            parentEvaluationForAdapter as any,
+            targetGroup.map((groupTarget) => groupTarget.id)
           );
-          adapterParentSum = Array.isArray(evalParent?.scores)
-            ? evalParent.scores.reduce(
-                (sum, score) => sum + (Number(score) || 0),
-                0
-              )
-            : undefined;
-          const reflDs = adapter.make_reflective_dataset(
+          const proposedMap = (await adapter.propose_new_texts?.(
             { ...candidates[parentIdx]!.cfg },
-            evalParent as any,
-            [target.id]
-          );
-          const proposedMap = await (adapter.propose_new_texts?.(
-            { ...candidates[parentIdx]!.cfg },
-            reflDs,
-            [target.id]
-          ) as any);
-          const proposedText =
-            proposedMap?.[target.id] ??
-            (proposedMap ? (Object.values(proposedMap)[0] as any) : undefined);
-          if (typeof proposedText === 'string' && proposedText.length > 0) {
-            newInstruction = proposedText;
+            reflectiveDataset,
+            targetGroup.map((groupTarget) => groupTarget.id)
+          )) as Record<string, string> | undefined;
+          if (proposedMap) {
+            for (const groupTarget of targetGroup) {
+              const proposed = proposedMap[groupTarget.id];
+              if (typeof proposed === 'string' && proposed.length > 0) {
+                proposedCfg[groupTarget.id] = proposed;
+              }
+            }
           }
         } catch {}
       }
 
-      if (!newInstruction) {
-        newInstruction = await this.reflectTargetInstruction(
-          target.id,
-          currentInstruction,
+      for (const groupTarget of targetGroup) {
+        if (
+          proposedCfg[groupTarget.id] !==
+          candidates[parentIdx]!.cfg[groupTarget.id]
+        ) {
+          continue;
+        }
+        const currentValue = candidates[parentIdx]!.cfg[groupTarget.id]!;
+        proposedCfg[groupTarget.id] = await this.reflectTargetInstruction(
+          groupTarget.id,
+          currentValue,
           program,
           applyConfig,
           { ...candidates[parentIdx]!.cfg },
           mini,
           async ({ prediction, example }) =>
-            scalarize(await normalizeScores(prediction, example)),
-          options,
-          parentTuples
-        );
-      }
-      proposedCfg[target.id] = newInstruction;
-
-      if (adapter && adapterParentSum !== undefined) {
-        try {
-          const evalChild = await adapter.evaluate(
-            mini as any,
-            proposedCfg,
-            false
-          );
-          adapterChildSum = Array.isArray(evalChild?.scores)
-            ? evalChild.scores.reduce(
-                (sum, score) => sum + (Number(score) || 0),
-                0
+            scalarize(
+              await normalizeGEPAScores(
+                metricFn,
+                prediction,
+                example as AxExample
               )
-            : undefined;
-        } catch {}
+            ),
+          options,
+          parentTuples,
+          {
+            kind: groupTarget.kind,
+            description: groupTarget.description,
+            constraints: groupTarget.constraints,
+            traceDataset: reflectiveDataset[groupTarget.id],
+            validate: groupTarget.validate,
+            preserve: groupTarget.preserve,
+            maxLength: groupTarget.maxLength,
+            format: groupTarget.format,
+          }
+        );
       }
 
       const childMiniEval = await evalBatch(
@@ -878,8 +830,10 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         this.currentRound,
         childMiniEval.sum,
         {
-          instructionLen: newInstruction.length,
-          target: target.id,
+          instructionLen: targetGroup
+            .map((groupTarget) => proposedCfg[groupTarget.id]?.length ?? 0)
+            .reduce((sum, length) => sum + length, 0),
+          target: targetGroup.map((groupTarget) => groupTarget.id).join(','),
           parent: parentIdx,
           totalRounds: this.numTrials,
         },
@@ -891,19 +845,24 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         },
         childMiniEval.sum,
         {
-          instructionLen: currentInstruction.length,
+          instructionLen: targetGroup
+            .map(
+              (groupTarget) =>
+                candidates[parentIdx]!.cfg[groupTarget.id]?.length ?? 0
+            )
+            .reduce((sum, length) => sum + length, 0),
           idx: parentIdx,
         },
         { ...(options ?? {}), maxIterations: this.numTrials }
       );
 
       const accepted =
-        childMiniEval.sum > parentMiniEval.sum + this.minImprovementThreshold &&
-        (adapterParentSum === undefined ||
-          adapterChildSum === undefined ||
-          adapterChildSum > adapterParentSum + this.minImprovementThreshold);
+        childMiniEval.sum > parentMiniEval.sum + this.minImprovementThreshold;
 
       if (!accepted) {
+        for (const groupTarget of targetGroup) {
+          componentSelector.recordResult(groupTarget.id, false, t);
+        }
         verboseLog(
           `Iteration ${t + 1}: Rejected (child=${childMiniEval.sum.toFixed(3)} <= parent=${parentMiniEval.sum.toFixed(3)})`
         );
@@ -919,6 +878,9 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       verboseLog(
         `Iteration ${t + 1}: Accepted (child=${childMiniEval.sum.toFixed(3)} > parent=${parentMiniEval.sum.toFixed(3)})`
       );
+      for (const groupTarget of targetGroup) {
+        componentSelector.recordResult(groupTarget.id, true, t);
+      }
 
       // Full evaluation on validation set (vector) and archive update
       const childEval = await evalBatch(
@@ -1023,8 +985,9 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
               targets.length === 1
                 ? candidates[bestCandidateIdx]!.cfg[targetIds[0]!]
                 : undefined,
-            instructionMap: { ...candidates[bestCandidateIdx]!.cfg },
-            demos: [],
+            componentMap: { ...candidates[bestCandidateIdx]!.cfg },
+            selectorState: componentSelector.snapshot(),
+            demos: bootstrappedDemos,
             examples: examples as unknown as any[],
             modelConfig: undefined,
             optimizerType: 'GEPA',
@@ -1043,15 +1006,15 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
     );
 
     return {
-      demos: [],
+      demos: bootstrappedDemos,
       stats: this.stats,
       bestScore,
       paretoFront: pareto.map((p) => ({
-        demos: [],
+        demos: bootstrappedDemos,
         scores: p.scores,
         configuration: {
           candidate: p.idx,
-          instructionMap: { ...candidates[p.idx]!.cfg },
+          componentMap: { ...candidates[p.idx]!.cfg },
           ...(targets.length === 1
             ? { instruction: candidates[p.idx]!.cfg[targetIds[0]!] }
             : {}),
@@ -1064,6 +1027,7 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         strategy: 'gepa',
         candidates: candidates.length,
         tunables: targets.length,
+        bootstrappedDemos: bootstrappedDemos.length,
       },
       // Extra field (not part of AxParetoResult): unified optimized program for easy save/apply
       optimizedProgram,
@@ -1094,65 +1058,6 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
   }
 
   // --- Helpers ---
-
-  private async getBaseInstruction<IN, OUT extends AxGenOut>(
-    program: Readonly<AxGen<IN, OUT>>
-  ): Promise<string> {
-    // First check for custom instruction set via setInstruction()
-    const customInstruction = program.getInstruction?.();
-    if (customInstruction && customInstruction.length > 0) {
-      return customInstruction;
-    }
-
-    // Fall back to signature description
-    const sig = program.getSignature?.();
-    const description = sig?.getDescription?.();
-    if (description && description.length > 0) {
-      return description;
-    }
-
-    return 'Follow the task precisely. Be concise, correct, and consistent.';
-  }
-
-  private getInstructionTargets<IN, OUT extends AxGenOut>(
-    program: Readonly<AxProgrammable<IN, OUT>>
-  ): AxGEPAInstructionTarget[] {
-    const seen = new Set<string>();
-    const out: AxGEPAInstructionTarget[] = [];
-    const maybeAdd = (id: string | undefined, prog: unknown): void => {
-      const instructionProgram = prog as AxGEPAInstructionTarget['program'];
-      if (
-        !id ||
-        seen.has(id) ||
-        typeof instructionProgram?.setInstruction !== 'function'
-      ) {
-        return;
-      }
-      seen.add(id);
-      out.push({
-        id,
-        program: instructionProgram,
-        signature: instructionProgram.getSignature?.()?.toString?.(),
-      });
-    };
-
-    if (
-      'namedProgramInstances' in program &&
-      typeof (program as any).namedProgramInstances === 'function'
-    ) {
-      const namedProgramInstances =
-        ((program as any).namedProgramInstances() as
-          | AxNamedProgramInstance[]
-          | undefined
-          | null) ?? [];
-      for (const entry of namedProgramInstances) {
-        maybeAdd(entry?.id, entry?.program);
-      }
-    }
-
-    maybeAdd((program as any).getId?.(), program);
-    return out;
-  }
 
   private async evaluateOnSet<IN, OUT extends AxGenOut>(
     program: Readonly<AxGen<IN, OUT>>,
@@ -1230,6 +1135,16 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
       input: AxExample;
       prediction: unknown;
       score: number;
+    }>,
+    targetMeta?: Readonly<{
+      kind: string;
+      description?: string;
+      constraints?: string;
+      preserve?: readonly string[];
+      maxLength?: number;
+      format?: string;
+      validate?: (value: string) => true | string;
+      traceDataset?: readonly unknown[];
     }>
   ): Promise<string> {
     const tuples: Array<{
@@ -1307,25 +1222,27 @@ Your task is to write a new instruction for the assistant. Read the inputs caref
         (out?.feedbackSummary as string | undefined)?.trim() || '';
     } catch {}
 
-    const refl = ax(
-      `targetId:string "Target program ID", currentInstruction:string "Current instruction", feedbackSummary?:string "Summarized feedback", minibatch:json "Array of {input,prediction,score}" -> newInstruction:string "Improved instruction (1-6 sentences) for the target program"`
-    );
+    const proposed = await proposeGEPAComponentValue({
+      ai: aiToUse,
+      target: {
+        id: targetId,
+        kind: targetMeta?.kind ?? 'component',
+        current: currentInstruction,
+        description: targetMeta?.description,
+        constraints: targetMeta?.constraints,
+        preserve: targetMeta?.preserve,
+        maxLength: targetMeta?.maxLength,
+        format: targetMeta?.format,
+        validate: targetMeta?.validate,
+      },
+      currentValue: currentInstruction,
+      tuples,
+      feedbackSummary,
+      traceDataset: targetMeta?.traceDataset,
+      maxAttempts: 2,
+    });
 
-    try {
-      const out = (await refl.forward(aiToUse, {
-        targetId,
-        currentInstruction,
-        feedbackSummary,
-        minibatch: tuples,
-      } as any)) as any;
-      const instr = (out?.newInstruction as string | undefined)?.trim();
-      if (instr && instr.length > 16) return instr;
-    } catch {}
-
-    return `${currentInstruction.trim()} Focus on step-by-step, target-specific reasoning and factual grounding.`.slice(
-      0,
-      2000
-    );
+    return proposed ?? currentInstruction;
   }
 
   private async reflectInstruction<IN, OUT extends AxGenOut>(

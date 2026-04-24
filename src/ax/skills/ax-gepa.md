@@ -17,20 +17,22 @@ Use this skill to generate direct `AxGEPA` optimization code. Prefer short, mode
 - Always set `maxMetricCalls` to bound optimizer cost.
 - Use scalar metrics for one objective and object metrics for Pareto optimization.
 - Apply results with `program.applyOptimization(result.optimizedProgram!)`.
-- For tree-wide runs, expect `optimizedProgram.instructionMap`.
+- For tree-wide runs, expect `optimizedProgram.componentMap`.
+- Persist artifacts with `axSerializeOptimizedProgram(...)` and restore them with `axDeserializeOptimizedProgram(...)` so the same flow works in browsers and Node.
 
 ## Critical Rules
 
-- `AxGEPA.compile()` works for a single generator and for tree-aware roots such as flows or agents with registered instruction-bearing descendants.
+- `AxGEPA.compile()` works for a single generator and for tree-aware roots such as flows or agents with registered optimizable descendants.
 - There is no separate flow-only GEPA optimizer. Use `AxGEPA` for flows too.
 - The metric may return either `number` or `Record<string, number>`.
 - Keep metrics deterministic and cheap by default.
 - Avoid extra LLM calls inside the metric unless the user explicitly wants judge-based evaluation.
 - If the user needs LLM-as-judge scoring for a non-agent GEPA run, prefer a plain typed `AxGen` evaluator instead of writing a custom judge abstraction.
 - `maxMetricCalls` must be large enough to cover the initial validation pass over `validationExamples`.
-- GEPA optimizes instructions. If a tree has no instruction-bearing nodes, optimization will fail.
+- GEPA optimizes generic string components exposed by `getOptimizableComponents()`. If a tree exposes no components, optimization will fail.
 - Use held-out validation examples for selection. Do not reuse the training set as `validationExamples`.
 - `result.optimizedProgram` is the easy-to-apply best candidate. `result.paretoFront` is the full trade-off set for multi-objective runs.
+- `bootstrap: true` can seed GEPA with demos collected from successful runs on the provided training tasks.
 
 ## Metric Selection
 
@@ -39,12 +41,12 @@ Choose the evaluation path deliberately:
 - Prefer a deterministic metric when correctness can be read directly from `prediction` and `example`.
 - Prefer a deterministic metric when cost, latency, recursion depth, or tool count matters.
 - Use a plain typed `AxGen` evaluator only when the task is genuinely qualitative and hard to score exactly.
-- For `agent.optimize(...)`, prefer the built-in judge path instead of manually wrapping a judge metric.
+- For `agent.optimize(...)`, prefer the built-in judge path instead of manually wrapping a judge metric. Normal agent users usually do not need to set `target` or `metric` at all.
 
 Rule of thumb:
 
 - `AxGEPA` on `AxGen` or flow: use a metric first, optionally a plain typed `AxGen` evaluator if needed.
-- `agent.optimize(...)`: use custom `metric` for crisp scoring, otherwise `judgeAI` plus `judgeOptions`.
+- `agent.optimize(...)`: use custom `metric` for crisp scoring, otherwise let the built-in judge handle scoring. Add `judgeAI` plus `judgeOptions` only when you want a stronger or separate judge model.
 
 ## Canonical Scalar Pattern
 
@@ -169,7 +171,7 @@ for (const point of result.paretoFront) {
 }
 
 wf.applyOptimization(result.optimizedProgram!);
-console.log(result.optimizedProgram?.instructionMap);
+console.log(result.optimizedProgram?.componentMap);
 ```
 
 ## Metric Patterns
@@ -209,9 +211,9 @@ const loaded = JSON.parse(saved);
 program.applyOptimization(loaded);
 ```
 
-- Single-target runs usually populate both `optimizedProgram.instruction` and `optimizedProgram.instructionMap`.
-- Tree-wide runs rely on `instructionMap`, keyed by full program ID.
-- Pareto points expose candidate configs under `point.configuration.instructionMap`.
+- Single-target runs usually populate both `optimizedProgram.instruction` and `optimizedProgram.componentMap`.
+- Tree-wide runs rely on `componentMap`, keyed by full component key.
+- Pareto points expose candidate configs under `point.configuration.componentMap`.
 
 ## Useful Options
 
@@ -244,13 +246,16 @@ const optimizer = new AxGEPA({
 - Size `maxMetricCalls` for at least one full validation pass plus several rounds.
 - If the user wants a strict budget, say so explicitly and set `maxMetricCalls`.
 - For expensive trees, start with `auto: 'light'` or fewer `numTrials`, then scale up.
+- GEPA selects among exposed components using measured accept/reject history, not LLM-generated numeric scores. The LLM proposes component text; metrics decide whether to keep it.
+- Function/tool trace reflection is keyed by stable component IDs where available, so function renames do not break saved candidate maps.
 
 ## Troubleshooting
 
 - Error about `maxMetricCalls` being too small: increase it until the initial validation pass fits.
 - Empty or poor Pareto front: verify the metric returns numbers for every example.
-- No tree optimization effect: ensure child programs are registered under the root and have instructions to mutate.
-- Saved optimization applies only partly: use `program.applyOptimization(...)`, not just `setInstruction(...)`, so `instructionMap` reaches the full tree.
+- No tree optimization effect: ensure child programs are registered under the root and expose optimizable components.
+- Saved optimization applies only partly: use `program.applyOptimization(...)`, not just `setInstruction(...)`, so `componentMap` reaches the full tree.
+- Agent target seems too broad: when using `agent.optimize(...)`, set `target: 'actor'`, `'responder'`, `'all'`, or explicit program IDs. The wrapper filters GEPA components to the selected target.
 
 ## Good Example Targets
 
@@ -258,3 +263,4 @@ const optimizer = new AxGEPA({
 - `/Users/vr/src/ax/src/examples/gepa-flow.ts`
 - `/Users/vr/src/ax/src/examples/gepa-train-inference.ts`
 - `/Users/vr/src/ax/src/examples/gepa-quality-vs-speed-optimization.ts`
+- `/Users/vr/src/ax/src/examples/axagent-gepa-optimization.ts`

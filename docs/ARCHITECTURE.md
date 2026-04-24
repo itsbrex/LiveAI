@@ -190,7 +190,7 @@ src/ax/
 │   ├── optimizer.ts   # Optimization framework
 │   ├── optimizers/    # Optimization strategies
 │   │   ├── bootstrapFewshot.ts
-│   │   ├── miproV2.ts
+│   │   ├── gepa.ts
 │   │   ├── ace.ts
 │   │   └── gepa.ts
 │   ├── functions.ts   # Function calling support

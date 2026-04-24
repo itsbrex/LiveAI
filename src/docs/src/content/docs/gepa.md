@@ -26,7 +26,7 @@ GEPA (Genetic Evolutionary Programming with Agents) provides multi-objective opt
 
 **The Solution**: Use `AxGEPA` (single-module) or `AxGEPAFlow` (multi-module) with a multi-objective metric. Both use `compile(...)` and return a Pareto frontier of trade-offs plus hypervolume metrics.
 
-**NEW in v14.0.24+**: GEPA now returns the same unified `optimizedProgram` interface as MiPRO, enabling consistent save/load/apply workflows across all optimizers.
+GEPA returns the same unified `optimizedProgram` interface as MiPRO, enabling consistent save/load/apply workflows across optimizers. Modern GEPA artifacts store optimized strings in `optimizedProgram.componentMap`; single-component runs may also expose `instruction` for compatibility. Use `axSerializeOptimizedProgram(...)` and `axDeserializeOptimizedProgram(...)` for browser-safe artifact persistence.
 
 > Note: Pass `maxMetricCalls` in `compile` options to bound evaluation cost.
 
@@ -41,9 +41,11 @@ GEPA (Genetic Evolutionary Programming with Agents) provides multi-objective opt
 
 ❌ **Skip for:**
 
-- Single clear objective (use regular `AxMiPRO.compile`)
+- Single clear objective with lightweight optimization needs
 - When one objective is clearly most important
 - Quick prototyping (multi-objective adds complexity)
+
+For `agent.optimize(...)`, the common path is simpler than raw `AxGEPA`: give the agent a few task records with `criteria`, let the actor target default, and use the built-in judge unless you have a crisp deterministic scorer.
 
 ## Understanding Pareto Optimization
 
@@ -66,7 +68,7 @@ Both return a Pareto frontier of solutions and use the same unified `optimizedPr
 
 ## Complete Working Example
 
-**GEPA now returns the same unified `optimizedProgram` interface as MiPRO**, making save/load/apply workflows consistent across optimizers.
+**GEPA returns the same unified `optimizedProgram` interface as MiPRO**, making save/load/apply workflows consistent across optimizers. Save the full artifact so `componentMap` is preserved.
 
 > **📖 Full Example**: For a comprehensive multi-objective optimization demonstration, see `src/examples/gepa-quality-vs-speed-optimization.ts` which shows GEPA optimizing code review quality vs speed trade-offs with detailed Pareto frontier analysis.
 
@@ -154,6 +156,7 @@ if (result.optimizedProgram) {
       version: "2.0",
       bestScore: result.optimizedProgram.bestScore,
       instruction: result.optimizedProgram.instruction,
+      componentMap: result.optimizedProgram.componentMap,
       demos: result.optimizedProgram.demos,
       examples: result.optimizedProgram.examples, // GEPA includes training examples
       modelConfig: result.optimizedProgram.modelConfig,
@@ -267,7 +270,7 @@ console.log(`Total candidates evaluated: ${result.finalConfiguration?.candidates
 // Each frontier solution contains:
 result.paretoFront.forEach((solution) => {
   solution.scores; // Scores for each objective
-  solution.configuration; // Candidate identifier for this solution
+  solution.configuration; // Candidate identifier plus componentMap for this solution
   solution.dominatedSolutions; // How many others this point dominates
 });
 ```
@@ -295,7 +298,6 @@ const optimizer = new AxGEPA({
 - **`mergeMax`**: Enables the merge strategy (default: 5). GEPA can combine two Pareto-optimal candidates by selecting instructions from their common ancestor lineage. Set to 0 to disable merging.
 - **`verbose`**: When enabled, prints detailed logs about parent selection, acceptance/rejection, and archive improvements.
 - **`feedbackFn`**: Optional function in `compile()` options that provides textual feedback for each evaluation, which GEPA uses to guide reflection.
-
 ## Performance Considerations
 
 - **Runtime**: GEPA/GEPA-Flow perform reflective evolution with Pareto sampling; time scales with `numTrials`, validation size, and `maxMetricCalls`.
@@ -303,6 +305,7 @@ const optimizer = new AxGEPA({
 - **Scalability**: Works best with 2–4 objectives; hypervolume reporting is 2D.
 - **Determinism**: Provide `seed` for reproducibility; `tieEpsilon` resolves near-ties.
 - **Merge Strategy**: The default `mergeMax: 5` enables evolutionary crossover. This combines successful candidates to potentially discover better solutions faster.
+- **Generic Components**: GEPA optimizes every string component exposed by the program tree, including instructions, descriptions, tool metadata, and agent-owned prompt/runtime components when present. The metric, not the LLM, decides whether a proposal is accepted.
 
 ## Tips for Success
 
@@ -315,6 +318,5 @@ const optimizer = new AxGEPA({
 ## See Also
 
 - [OPTIMIZE.md](/optimize/) - Main optimization guide
-- [MIPRO.md](/mipro/) - MiPRO optimizer documentation
 - [ACE.md](/ace/) - Agentic Context Engineering
 - `src/examples/gepa-quality-vs-speed-optimization.ts` - Complete working example

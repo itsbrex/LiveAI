@@ -5,7 +5,6 @@ import type { AxAIService } from '../ai/types.js';
 import type { AxOptimizer } from './optimizer.js';
 import { AxBootstrapFewShot } from './optimizers/bootstrapFewshot.js';
 import { AxACE } from './optimizers/ace.js';
-import { AxMiPRO } from './optimizers/miproV2.js';
 import { f } from './sig.js';
 import { ax } from './template.js';
 
@@ -76,60 +75,27 @@ describe('Optimizer Interface', () => {
     expect(typeof typedOptimizer.getStats).toBe('function');
   });
 
-  it('AxMiPRO implements AxOptimizer interface', () => {
-    const optimizer = new AxMiPRO({
-      studentAI: mockAI,
-      examples: mockExamples,
-    });
-
-    // TypeScript check - this should compile without errors
-    const typedOptimizer: AxOptimizer = optimizer;
-
-    expect(typedOptimizer).toBeDefined();
-    expect(typeof typedOptimizer.compile).toBe('function');
-    expect(typeof typedOptimizer.getStats).toBe('function');
-  });
-
-  it('Both optimizers have compatible compile method signatures', () => {
+  it('bootstrap optimizer has a compatible compile method signature', () => {
     const bootstrap = new AxBootstrapFewShot({
       studentAI: mockAI,
       examples: mockExamples,
     });
 
-    const mipro = new AxMiPRO({
-      studentAI: mockAI,
-      examples: mockExamples,
-    });
+    const optimizers: AxOptimizer[] = [bootstrap];
 
-    // Type check: both should be assignable to the common interface
-    const optimizers: AxOptimizer[] = [bootstrap, mipro];
-
-    expect(optimizers).toHaveLength(2);
-
-    // Both should have the same compile method signature
-    for (const optimizer of optimizers) {
-      expect(typeof optimizer.compile).toBe('function');
-      expect(optimizer.compile).toHaveLength(4); // program, examples, metricFn and options
-    }
+    expect(optimizers).toHaveLength(1);
+    expect(typeof bootstrap.compile).toBe('function');
+    expect(bootstrap.compile).toHaveLength(4);
   });
 
-  it('Both optimizers support getStats method', () => {
+  it('bootstrap optimizer supports getStats', () => {
     const bootstrap = new AxBootstrapFewShot({
       studentAI: mockAI,
       examples: mockExamples,
     });
 
-    const mipro = new AxMiPRO({
-      studentAI: mockAI,
-      examples: mockExamples,
-    });
-
-    // getStats should be available (may return undefined before compilation)
     const bootstrapStats = bootstrap.getStats();
-    const miproStats = mipro.getStats();
 
-    // Stats can be undefined before compilation, but method should exist
     expect(bootstrapStats !== null).toBe(true);
-    expect(miproStats !== null).toBe(true);
   });
 });

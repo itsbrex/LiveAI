@@ -114,15 +114,33 @@ export const axRuntimePrimitives: readonly AxRuntimePrimitive[] = [
  */
 export function renderPrimitivesList(
   stage: AxRuntimePrimitiveStage,
-  flags: Readonly<Record<string, boolean | undefined>>
+  flags: Readonly<Record<string, boolean | undefined>>,
+  overrides?: ReadonlyMap<string, readonly string[]>
 ): string {
   const bullets: string[] = [];
   for (const p of axRuntimePrimitives) {
     if (!p.stages.includes(stage)) continue;
     if (p.enabledBy && !flags[p.enabledBy]) continue;
-    for (const line of p.lines) {
+    const lines = overrides?.get(p.id) ?? p.lines;
+    for (const line of lines) {
       bullets.push(`- ${line}`);
     }
   }
   return bullets.join('\n');
+}
+
+/**
+ * Returns the list of primitive ids that *would* be rendered for the given
+ * stage and flag set. Used by AxAgent to enumerate which primitives are
+ * candidates for optimization in the current configuration.
+ */
+export function visibleRuntimePrimitives(
+  stage: AxRuntimePrimitiveStage,
+  flags: Readonly<Record<string, boolean | undefined>>
+): readonly AxRuntimePrimitive[] {
+  return axRuntimePrimitives.filter((p) => {
+    if (!p.stages.includes(stage)) return false;
+    if (p.enabledBy && !flags[p.enabledBy]) return false;
+    return true;
+  });
 }

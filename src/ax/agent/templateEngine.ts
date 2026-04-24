@@ -332,6 +332,43 @@ function parseTemplate(
   return result.nodes;
 }
 
+function collectTemplateVariableNamesFromNodes(
+  nodes: readonly TemplateNode[],
+  out: Set<string>
+): void {
+  for (const node of nodes) {
+    if (node.type === 'var') {
+      out.add(node.name);
+      continue;
+    }
+    if (node.type === 'if') {
+      const equalityMatch = STRING_EQUALITY_PATTERN.exec(node.condition);
+      out.add(equalityMatch?.[1] ?? node.condition);
+      collectTemplateVariableNamesFromNodes(node.thenNodes, out);
+      collectTemplateVariableNamesFromNodes(node.elseNodes, out);
+    }
+  }
+}
+
+export function collectTemplateVariableNames(
+  source: string,
+  context = 'template-vars'
+): readonly string[] {
+  const ast = parseTemplate(source, context);
+  const out = new Set<string>();
+  collectTemplateVariableNamesFromNodes(ast, out);
+  return [...out].sort();
+}
+
+export function requiredTemplateVariables(
+  templateId: TemplateId
+): readonly string[] {
+  return collectTemplateVariableNames(
+    promptTemplates[templateId],
+    `template-required-vars:${templateId}`
+  );
+}
+
 export function renderTemplateContent(
   template: string,
   vars: Readonly<TemplateVars> = {},
@@ -341,10 +378,39 @@ export function renderTemplateContent(
   return renderNodes(ast, vars, template, context);
 }
 
+/**
+ * Parse-only validator for prompt template sources. Returns `true` when the
+ * source parses cleanly, or an error message otherwise. Used by the optimizer
+ * to reject malformed proposed templates before they reach a forward call.
+ */
+export function validatePromptTemplateSyntax(
+  source: string,
+  context = 'template-validate',
+  requiredVariables: readonly string[] = []
+): true | string {
+  try {
+    const present = new Set(collectTemplateVariableNames(source, context));
+    for (const variable of requiredVariables) {
+      if (!present.has(variable)) {
+        return `must preserve template variable {{${variable}}}`;
+      }
+    }
+    return true;
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 export function renderPromptTemplate(
   templateId: TemplateId,
-  vars: Readonly<TemplateVars> = {}
+  vars: Readonly<TemplateVars> = {},
+  overrideSource?: string
 ): string {
+  if (typeof overrideSource === 'string') {
+    const ctx = `template-override:${templateId}`;
+    return renderTemplateContent(overrideSource, vars, ctx);
+  }
+
   const template = promptTemplates[templateId];
   const context = `template:${templateId}`;
 

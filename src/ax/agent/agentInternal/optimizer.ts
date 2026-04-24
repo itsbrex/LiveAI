@@ -125,6 +125,7 @@ export async function optimizeAgent<IN extends AxGenIn, OUT extends AxGenOut>(
     normalizedDataset.train as readonly AxTypedExample<AxAgentEvalTask<IN>>[],
     metric,
     {
+      bootstrap: options?.bootstrap,
       validationExamples: normalizedDataset.validation as
         | readonly AxTypedExample<AxAgentEvalTask<IN>>[]
         | undefined,
@@ -153,6 +154,14 @@ export function createOptimizationProgram<
   descriptors: readonly AxAgentOptimizationTargetDescriptor[]
 ): AxProgrammable<AxAgentEvalTask<IN>, AxAgentEvalPrediction<OUT>> {
   const s = self as any;
+  const selectedDescriptors = descriptors.filter((entry) =>
+    targetIds.includes(entry.id)
+  );
+  const allDescriptorIds = new Set(descriptors.map((entry) => entry.id));
+  const targetsAllDescriptors =
+    targetIds.length === allDescriptorIds.size &&
+    targetIds.every((id) => allDescriptorIds.has(id));
+
   return {
     getId: () => s.getId(),
     setId: (id: string) => s.setId(id),
@@ -180,14 +189,18 @@ export function createOptimizationProgram<
       };
     },
     getTraces: () =>
-      s.getTraces() as unknown as AxProgramTrace<
+      (targetsAllDescriptors
+        ? s.getTraces()
+        : s
+            .getTraces()
+            .filter((trace: AxProgramTrace<any, any>) =>
+              targetIds.includes(trace.programId)
+            )) as unknown as AxProgramTrace<
         AxAgentEvalTask<IN>,
         AxAgentEvalPrediction<OUT>
       >[],
     namedProgramInstances: () =>
-      descriptors.filter((entry) => targetIds.includes(entry.id)) as
-        | AxNamedProgramInstance<any, any>[]
-        | any,
+      selectedDescriptors as AxNamedProgramInstance<any, any>[] | any,
     setDemos: (demos, demoOptions) =>
       s.setDemos(
         demos as unknown as readonly AxProgramDemos<IN, OUT>[],
@@ -195,6 +208,18 @@ export function createOptimizationProgram<
       ),
     applyOptimization: (optimizedProgram) =>
       s.applyOptimization(optimizedProgram as any),
+    getOptimizableComponents: () =>
+      targetsAllDescriptors && typeof s.getOptimizableComponents === 'function'
+        ? s.getOptimizableComponents()
+        : selectedDescriptors.flatMap((entry) => {
+            const fn = (entry.program as any).getOptimizableComponents;
+            return typeof fn === 'function' ? fn.call(entry.program) : [];
+          }),
+    applyOptimizedComponents: (updates: Readonly<Record<string, string>>) => {
+      if (typeof s.applyOptimizedComponents === 'function') {
+        s.applyOptimizedComponents(updates);
+      }
+    },
     getUsage: () => s.getUsage(),
     resetUsage: () => s.resetUsage(),
   };

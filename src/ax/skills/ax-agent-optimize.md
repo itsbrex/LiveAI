@@ -18,21 +18,27 @@ Your job is to help the model choose a good optimization setup for the user's ac
 ## Use These Defaults
 
 - Use `agent.optimize(...)` only after the agent is already configured and runnable.
-- Prefer a deterministic custom `metric` when success is easy to score from the prediction and task record.
-- Prefer the built-in judge path for open-ended assistant tasks: `judgeAI` plus `judgeOptions`.
+- Prefer the built-in judge path first for normal agent tuning. Most users should start with tasks that include `input` and `criteria`, then let `agent.optimize(...)` use its default actor target and judge-based metric.
+- Prefer a deterministic custom `metric` only when success is easy to score from the prediction and task record.
+- Add `judgeAI` plus `judgeOptions` when the judge should run on a stronger or separate model than the agent runtime model.
 - Only reach for a plain typed `AxGen` evaluator when the user needs LLM-as-judge behavior outside the built-in `agent.optimize(...)` flow.
-- Default optimize target is `root.actor`; use `target: 'responder'` or explicit program IDs only when the user clearly asks for that.
+- Default optimize target is the actor path; do not surface `target` unless the user clearly wants responder-only tuning or explicit program IDs.
 - Use eval-safe tools or in-memory mocks because optimization replays tasks many times.
 - Prefer precise tool return schemas such as `f.object(...)` over vague `f.json(...)` whenever the agent must reason about returned fields.
 - Prefer task wording with canonical entity names like "the Atlas project" instead of ambiguous labels like "Atlas" when ambiguity could trigger pointless clarification.
-- Save `result.optimizedProgram`, then restore with `new AxOptimizedProgramImpl(...)` and `agent.applyOptimization(...)`.
+- Save artifacts with `axSerializeOptimizedProgram(result.optimizedProgram!)`, then restore with `axDeserializeOptimizedProgram(saved)` and `agent.applyOptimization(...)`.
+- For browser-safe persistence, let the caller store the serialized JSON anywhere they want such as localStorage, IndexedDB, or a backend.
+- If `bootstrap` is enabled, bootstrapped demos are persisted inside `result.optimizedProgram.demos`; raw failed traces are not saved in v1.
+- For first examples, pass a plain task array instead of splitting into `train` and `validation` unless the user already has a holdout set.
+- GEPA-backed `agent.optimize(...)` now optimizes generic components exposed by the selected target programs; `target: 'actor'` only tunes actor components, `target: 'responder'` only tunes responder components, and `target: 'all'` broadens the component set.
+- `result.optimizedProgram.componentMap` is the canonical saved artifact for agent GEPA runs. It may include actor instructions, descriptions, tool descriptions/names, templates, or runtime primitives depending on what the selected target exposes.
 - When recursive behavior matters, keep `mode: 'advanced'` on the agent and tune against realistic `recursionOptions`.
 
 ## Decision Guide
 
 Pick the optimization shape from the user's need:
 
-- "Make the agent use tools correctly" -> optimize `root.actor` with `expectedActions` and `forbiddenActions`.
+- "Make the agent use tools correctly" -> keep the default actor target and use `expectedActions` and `forbiddenActions`.
 - "Make final answers read better" -> consider `target: 'responder'`, but only if the task is not mostly tool-selection or clarification behavior.
 - "Make the whole agent better" -> use the default actor target first; only broaden target selection when the user clearly wants that extra scope.
 - "Tune recursive delegation" -> keep `mode: 'advanced'` and use tasks that actually exercise recursion depth, fan-out, and termination choices.
@@ -101,12 +107,13 @@ Important:
 import {
   AxAIGoogleGeminiModel,
   AxJSRuntime,
-  AxOptimizedProgramImpl,
   axDefaultOptimizerLogger,
   agent,
   ai,
   f,
   fn,
+  axDeserializeOptimizedProgram,
+  axSerializeOptimizedProgram,
 } from '@ax-llm/ax';
 
 const tools = [
@@ -159,21 +166,37 @@ const tasks = [
 ];
 
 const result = await assistant.optimize(tasks, {
-  target: 'actor',
   maxMetricCalls: 12,
   verbose: true,
-  optimizerLogger: axDefaultOptimizerLogger,
-  onProgress: (progress) => {
-    console.log(
-      `round ${progress.round}/${progress.totalRounds} current=${progress.currentScore} best=${progress.bestScore}`
-    );
-  },
 });
 
-const saved = JSON.stringify(result.optimizedProgram, null, 2);
-const restored = new AxOptimizedProgramImpl(JSON.parse(saved));
+const saved = axSerializeOptimizedProgram(result.optimizedProgram!);
+const restored = axDeserializeOptimizedProgram(saved);
 assistant.applyOptimization(restored);
 ```
+
+## Minimal Normal-User Pattern
+
+Start here unless the user clearly needs a hand-built scorer:
+
+```typescript
+const tasks = [
+  {
+    input: { query: 'Send an email to Jim saying good morning.' },
+    criteria: 'Use the email tool and send the message to Jim.',
+    expectedActions: ['email.sendEmail'],
+  },
+];
+
+const result = await assistant.optimize(tasks);
+assistant.applyOptimization(result.optimizedProgram!);
+```
+
+- `target` defaults to actor optimization.
+- `metric` defaults to the built-in LLM judge.
+- `judgeAI` is optional; if omitted, the agent falls back to its configured judge model or runtime model.
+- `bootstrap: true` is a good next step for tool-heavy agents when you want GEPA to start from successful traces from the provided tasks.
+- The one thing users still need is realistic task records with clear `criteria`.
 
 ## Deterministic Metric Pattern
 
@@ -319,12 +342,14 @@ Decision rules:
 
 - Save `result.optimizedProgram` if the user wants portable artifacts.
 - Restore artifacts with `new AxOptimizedProgramImpl(...)`, then call `agent.applyOptimization(...)`.
+- Preserve the full optimized program when saving GEPA artifacts; `componentMap` reapplies the learned strings.
 - For demonstrations, use fresh eval-safe tool state for baseline, optimize, and restored replay so side effects do not leak across phases.
 - If the user wants to show improvement, run a held-out task before optimization, then replay it on a freshly restored optimized agent.
 
 ## Examples
 
 - [RLM Agent Optimize](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-agent-optimize.ts) — Gemini office-assistant tuning with save/load
+- [AxAgent GEPA Component Optimization](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/axagent-gepa-optimization.ts) — compact support-agent GEPA run with deterministic metric and artifact replay
 - [RLM Agent Recursive Optimize](https://raw.githubusercontent.com/ax-llm/ax/refs/heads/main/src/examples/rlm-agent-recursive-optimize.ts) — recursive-slot optimization artifacts
 
 ## Do Not Generate

@@ -1,5 +1,6 @@
 import type { AxFunction as _AxFunction, AxAIService } from '../../ai/types.js';
 import type {
+  AxGEPABootstrapOptions,
   AxMetricFn,
   AxOptimizationProgress,
   AxOptimizationStats,
@@ -112,12 +113,16 @@ export type AxAgentOptimizeOptions<
   _OUT extends AxGenOut = AxGenOut,
 > = {
   studentAI?: Readonly<AxAIService>;
+  /** Optional separate judge model. Defaults to the agent's `judgeAI`, then `teacherAI`, then the student model. */
   judgeAI?: Readonly<AxAIService>;
   teacherAI?: Readonly<AxAIService>;
   judgeOptions?: AxAgentJudgeOptions;
+  /** Optional optimization scope. Defaults to `'actor'`. */
   target?: AxAgentOptimizeTarget;
   apply?: boolean;
   maxMetricCalls?: number;
+  bootstrap?: boolean | AxGEPABootstrapOptions;
+  /** Optional deterministic scorer. If omitted, optimize() uses the built-in LLM judge. */
   metric?: AxMetricFn;
   verbose?: boolean;
   debugOptimizer?: boolean;

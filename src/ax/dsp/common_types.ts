@@ -67,6 +67,12 @@ export interface AxOptimizationCheckpoint {
   examples: readonly AxExample[];
 }
 
+export interface AxGEPABootstrapOptions {
+  scoreThreshold?: number;
+  maxBootstrapDemos?: number;
+  maxBootstrapMetricCalls?: number;
+}
+
 export type AxCheckpointSaveFn = (
   checkpoint: Readonly<AxOptimizationCheckpoint>
 ) => Promise<string>;
@@ -110,13 +116,8 @@ export interface AxOptimizationStats {
 export type AxOptimizerArgs = {
   studentAI: AxAIService;
   teacherAI?: AxAIService;
-  optimizerEndpoint?: string;
-  optimizerTimeout?: number;
-  optimizerRetries?: number;
   numCandidates?: number;
   initTemperature?: number;
-  maxBootstrappedDemos?: number;
-  maxLabeledDemos?: number;
   numTrials?: number;
   minibatch?: boolean;
   minibatchSize?: number;
@@ -128,17 +129,9 @@ export type AxOptimizerArgs = {
   fewshotAwareProposer?: boolean;
   earlyStoppingTrials?: number;
   minImprovementThreshold?: number;
-  bayesianOptimization?: boolean;
-  acquisitionFunction?:
-    | 'expected_improvement'
-    | 'upper_confidence_bound'
-    | 'probability_improvement';
-  explorationWeight?: number;
   sampleCount?: number;
   // Optional: custom picker used when sampleCount > 1
-  // If omitted, MiPRO uses a default majority-vote picker
   resultPicker?: AxResultPickerFunction<any>;
-  // Optional: include topP in the Python optimizer search space (0.7–1.0)
   optimizeTopP?: boolean;
   minSuccessRate?: number;
   targetScore?: number;
@@ -176,6 +169,7 @@ export interface AxCompileOptions {
   saveCheckpointOnComplete?: boolean;
   // GEPA core options (adapter-based)
   gepaAdapter?: AxGEPAAdapter<any, any, any>;
+  bootstrap?: boolean | AxGEPABootstrapOptions;
   validationExamples?: readonly AxTypedExample<any>[];
   feedbackExamples?: readonly AxTypedExample<any>[];
   feedbackFn?: (

@@ -435,6 +435,5 @@ const delta = await optimizer.applyOnlineUpdate({ example, prediction, feedback 
 ## See Also
 
 - [OPTIMIZE.md](/optimize/) - Main optimization guide
-- [MIPRO.md](/mipro/) - MiPRO optimizer documentation
 - [GEPA.md](/gepa/) - Multi-objective optimization
 - `src/examples/ace-train-inference.ts` - Complete working example

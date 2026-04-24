@@ -24,6 +24,7 @@ import { AxGen } from './generate.js';
 import { axGlobals } from './globals.js';
 import { axDefaultOptimizerLogger } from './optimizerLogging.js';
 import type { AxOptimizerLoggerFunction } from './optimizerTypes.js';
+import type { AxGEPAComponentBanditState } from './optimizers/gepaSelection.js';
 import type { AxGenOut, AxProgramDemos } from './types.js';
 
 // Shared optimizer-related types are exported exclusively from `common_types.ts`
@@ -810,7 +811,13 @@ export interface AxOptimizedProgram<OUT = any> {
 
   // Program configuration
   instruction?: string;
-  instructionMap?: Record<string, string>;
+  /**
+   * Generic component map produced by reflective optimizers (e.g. GEPA).
+   * Keys follow the `${programId}::${kind}[:${subKey}]` grammar from
+   * `AxOptimizableComponent`. Applied via `program.applyOptimizedComponents`.
+   */
+  componentMap?: Record<string, string>;
+  selectorState?: Record<string, AxGEPAComponentBanditState>;
   demos?: AxProgramDemos<any, OUT>[];
 
   // Model configuration
@@ -841,6 +848,11 @@ export interface AxOptimizedProgram<OUT = any> {
   applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void;
 }
 
+export type AxSerializedOptimizedProgram<OUT = any> = Omit<
+  AxOptimizedProgram<OUT>,
+  'applyTo'
+>;
+
 // Concrete implementation of AxOptimizedProgram
 export class AxOptimizedProgramImpl<OUT = any>
   implements AxOptimizedProgram<OUT>
@@ -848,7 +860,8 @@ export class AxOptimizedProgramImpl<OUT = any>
   public readonly bestScore: number;
   public readonly stats: AxOptimizationStats;
   public readonly instruction?: string;
-  public readonly instructionMap?: Record<string, string>;
+  public readonly componentMap?: Record<string, string>;
+  public readonly selectorState?: Record<string, AxGEPAComponentBanditState>;
   public readonly demos?: AxProgramDemos<any, OUT>[];
   public readonly examples?: AxExample[];
   public readonly modelConfig?: {
@@ -874,7 +887,8 @@ export class AxOptimizedProgramImpl<OUT = any>
     bestScore: number;
     stats: AxOptimizationStats;
     instruction?: string;
-    instructionMap?: Record<string, string>;
+    componentMap?: Record<string, string>;
+    selectorState?: Record<string, AxGEPAComponentBanditState>;
     demos?: AxProgramDemos<any, OUT>[];
     examples?: AxExample[];
     modelConfig?: AxOptimizedProgram<OUT>['modelConfig'];
@@ -890,7 +904,8 @@ export class AxOptimizedProgramImpl<OUT = any>
     this.bestScore = config.bestScore;
     this.stats = config.stats;
     this.instruction = config.instruction;
-    this.instructionMap = config.instructionMap;
+    this.componentMap = config.componentMap;
+    this.selectorState = config.selectorState;
     this.demos = config.demos;
     this.examples = config.examples;
     this.modelConfig = config.modelConfig;
@@ -907,6 +922,22 @@ export class AxOptimizedProgramImpl<OUT = any>
   public applyTo<IN, T extends AxGenOut>(program: AxGen<IN, T>): void {
     (program as any).applyOptimization?.(this);
   }
+}
+
+export function axSerializeOptimizedProgram<OUT = any>(
+  optimizedProgram: Readonly<AxOptimizedProgram<OUT>>
+): AxSerializedOptimizedProgram<OUT> {
+  return JSON.parse(
+    JSON.stringify(optimizedProgram)
+  ) as AxSerializedOptimizedProgram<OUT>;
+}
+
+export function axDeserializeOptimizedProgram<OUT = any>(
+  serialized: Readonly<AxSerializedOptimizedProgram<OUT>>
+): AxOptimizedProgramImpl<OUT> {
+  return new AxOptimizedProgramImpl<OUT>(
+    axSerializeOptimizedProgram(serialized as AxOptimizedProgram<OUT>)
+  );
 }
 
 // Pareto optimization result for multi-objective optimization
@@ -939,7 +970,7 @@ export interface AxParetoResult<OUT = any> extends AxOptimizerResult<OUT> {
  *
  * @example Basic optimization
  * ```typescript
- * const optimizer = new AxBootstrapFewShot({ maxBootstrappedDemos: 4 });
+ * const optimizer = new AxBootstrapFewShot({ maxDemos: 4 });
  *
  * const result = await optimizer.compile(
  *   program,
@@ -1124,36 +1155,6 @@ export interface AxBootstrapOptimizerOptions {
   dynamicTemperature?: boolean;
   qualityThreshold?: number;
   diversityWeight?: number;
-}
-
-export interface AxMiPROOptimizerOptions {
-  numCandidates?: number;
-  initTemperature?: number;
-  maxBootstrappedDemos?: number;
-  maxLabeledDemos?: number;
-  numTrials?: number;
-  minibatch?: boolean;
-  minibatchSize?: number;
-  minibatchFullEvalSteps?: number;
-  programAwareProposer?: boolean;
-  dataAwareProposer?: boolean;
-  viewDataBatchSize?: number;
-  tipAwareProposer?: boolean;
-  fewshotAwareProposer?: boolean;
-  verbose?: boolean;
-  earlyStoppingTrials?: number;
-  minImprovementThreshold?: number;
-
-  // Enhanced options
-  bayesianOptimization?: boolean;
-  acquisitionFunction?:
-    | 'expected_improvement'
-    | 'upper_confidence_bound'
-    | 'probability_improvement';
-  explorationWeight?: number;
-
-  // New option: number of samples to generate per forward call for self-consistency
-  sampleCount?: number;
 }
 
 // Default cost tracker implementation

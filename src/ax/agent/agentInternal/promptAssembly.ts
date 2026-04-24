@@ -16,6 +16,8 @@ export function renderActorDefinition(self: any): string {
     discoveredDocsMarkdown: renderDiscoveryPromptMarkdown(
       s.currentDiscoveryPromptState
     ),
+    templateOverride: s._actorTemplateOverrides?.get(s._actorTemplateId()),
+    primitiveOverrides: s._primitiveOverrides,
   };
   const variant = s.options?.actorTemplateVariant ?? 'combined';
   if (variant === 'context') {

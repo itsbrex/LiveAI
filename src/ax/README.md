@@ -143,7 +143,7 @@ console.log(result.translation); // "Hola mundo"
 - ✅ **Type-Safe Everything** - Full TypeScript support with auto-completion
 - ✅ **Streaming First** - Real-time responses with validation
 - ✅ **Multi-Modal** - Images, audio, text in the same signature
-- ✅ **Smart Optimization** - Automatic prompt tuning with MiPRO
+- ✅ **Smart Optimization** - Automatic prompt tuning with GEPA and bootstrap demos
 - ✅ **Production Observability** - OpenTelemetry tracing built-in
 - ✅ **Advanced Workflows** - Compose complex pipelines with AxFlow
 - ✅ **Enterprise RAG** - Multi-hop retrieval with quality loops
@@ -196,7 +196,7 @@ OPENAI_APIKEY=your-key npm run tsx ./src/examples/[example-name].ts
   with tools
 - [simple-optimizer-test.ts](src/examples/simple-optimizer-test.ts) - Automatic
   optimization
-- [mipro-python-optimizer.ts](src/examples/mipro-python-optimizer.ts) - Advanced
+- [axagent-gepa-optimization.ts](src/examples/axagent-gepa-optimization.ts) - Agent optimization with GEPA
   MIPRO optimization
 - [ax-flow-enhanced-demo.ts](src/examples/ax-flow-enhanced-demo.ts) - Complex
   workflows

@@ -317,6 +317,10 @@ export function axBuildActorDefinition(
     }>;
     /** Discovery docs accumulated during the current run. */
     discoveredDocsMarkdown?: string;
+    /** Optional override for the `rlm/ctx-actor.md` template source. */
+    templateOverride?: string;
+    /** Optional per-primitive override map keyed by primitive id. */
+    primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
   }>
 ): string {
   //   const maxSubAgentCalls = options.maxSubAgentCalls ?? 50;
@@ -367,18 +371,24 @@ export function axBuildActorDefinition(
         .sort((a, b) => a.localeCompare(b))
         .map((namespace) => ({ namespace }));
 
-  const actorBody = renderPromptTemplate('rlm/ctx-actor.md', {
+  const actorBody = renderPromptTemplate(
+    'rlm/ctx-actor.md',
+    {
     contextVarList,
     responderOutputFieldTitles,
     promptLevel: options.promptLevel ?? 'default',
     llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
     discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
-    primitivesList: renderPrimitivesList('combined', {
+    primitivesList: renderPrimitivesList(
+      'combined',
+      {
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
       hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
       discoveryMode,
-    }),
+      },
+      options.primitiveOverrides
+    ),
     hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
     agentModuleNamespace,
     agentFunctionsList: sortedAgents
@@ -416,7 +426,9 @@ export function axBuildActorDefinition(
     hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
     hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
     hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
-  })
+    },
+    options.templateOverride
+  )
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -439,6 +451,10 @@ export function axBuildContextActorDefinition(
     hasCompressedActionReplay?: boolean;
     /** When true, advertise `finalForUser(...)` so ctx can short-circuit. */
     hasFinalForUser?: boolean;
+    /** Optional override for the `rlm/context-actor.md` template source. */
+    templateOverride?: string;
+    /** Optional per-primitive override map keyed by primitive id. */
+    primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
   }>
 ): string {
   const contextVarList =
@@ -453,18 +469,26 @@ export function axBuildContextActorDefinition(
           .join('\n')
       : '(none)';
 
-  const actorBody = renderPromptTemplate('rlm/context-actor.md', {
+  const actorBody = renderPromptTemplate(
+    'rlm/context-actor.md',
+    {
     contextVarList,
     promptLevel: options.promptLevel ?? 'default',
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
     hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
     hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
-    primitivesList: renderPrimitivesList('context', {
+    primitivesList: renderPrimitivesList(
+      'context',
+      {
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
       hasFinalForUser: Boolean(options.hasFinalForUser),
-    }),
+      },
+      options.primitiveOverrides
+    ),
     runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
-  })
+    },
+    options.templateOverride
+  )
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -511,6 +535,10 @@ export function axBuildTaskActorDefinition(
     agentModuleNamespace?: string;
     /** When true, a prior ctx stage produced `inputs.contextData`. */
     hasDistilledContext?: boolean;
+    /** Optional override for the `rlm/task-actor.md` template source. */
+    templateOverride?: string;
+    /** Optional per-primitive override map keyed by primitive id. */
+    primitiveOverrides?: ReadonlyMap<string, readonly string[]>;
   }>
 ): string {
   type AvailableModule = { namespace: string; selectionCriteria?: string };
@@ -557,18 +585,24 @@ export function axBuildTaskActorDefinition(
         .sort((a, b) => a.localeCompare(b))
         .map((namespace) => ({ namespace }));
 
-  const actorBody = renderPromptTemplate('rlm/task-actor.md', {
+  const actorBody = renderPromptTemplate(
+    'rlm/task-actor.md',
+    {
     contextVarList,
     responderOutputFieldTitles,
     promptLevel: options.promptLevel ?? 'default',
     llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
     discoveryMode,
     hasInspectRuntime: Boolean(options.hasInspectRuntime),
-    primitivesList: renderPrimitivesList('task', {
+    primitivesList: renderPrimitivesList(
+      'task',
+      {
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
       hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
       discoveryMode,
-    }),
+      },
+      options.primitiveOverrides
+    ),
     hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
     agentModuleNamespace,
     agentFunctionsList: sortedAgents
@@ -607,7 +641,9 @@ export function axBuildTaskActorDefinition(
     hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
     hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
     hasDistilledContext: Boolean(options.hasDistilledContext),
-  })
+    },
+    options.templateOverride
+  )
     .replace(/\n{3,}/g, '\n\n')
     .trim();
 
@@ -620,7 +656,11 @@ export function axBuildTaskActorDefinition(
  */
 export function axBuildResponderDefinition(
   baseDefinition: string | undefined,
-  contextFields: readonly AxIField[]
+  contextFields: readonly AxIField[],
+  options?: Readonly<{
+    /** Optional override for the `rlm/responder.md` template source. */
+    templateOverride?: string;
+  }>
 ): string {
   const contextVarSummary =
     contextFields.length > 0
@@ -633,9 +673,11 @@ export function axBuildResponderDefinition(
           .join('\n')
       : '(none)';
 
-  const responderBody = renderPromptTemplate('rlm/responder.md', {
-    contextVarSummary,
-  }).trim();
+  const responderBody = renderPromptTemplate(
+    'rlm/responder.md',
+    { contextVarSummary },
+    options?.templateOverride
+  ).trim();
 
   return baseDefinition
     ? `${responderBody}\n\n${baseDefinition}`

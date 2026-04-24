@@ -10,7 +10,7 @@ Prompt tuning is the process of automatically improving your prompts to get bett
 This guide will cover:
 - Why prompt tuning matters
 - Basic tuning with `AxBootstrapFewShot`
-- Advanced tuning with `AxMiPRO` (Model Instruction Program Optimization v2)
+- Component optimization with `AxGEPA`
 - How to apply tuned prompts to your applications
 - Best practices for effective tuning
 
@@ -142,121 +142,61 @@ program.setDemos([
 
 For multi-program hierarchies (agents with children, flows with nodes), `programId` uses dot-separated paths like `'root.actor'`. Use `namedPrograms()` to discover valid IDs. Unknown programIds throw a descriptive error at runtime, and TypeScript catches typos at compile time on `AxAgent` and `AxFlow`.
 
-## Advanced Tuning with AxMiPRO v2
+## Component Optimization with AxGEPA
 
-While `AxBootstrapFewShot` is powerful, `AxMiPRO` (Model Instruction Program Optimization v2) takes prompt tuning to the next level. This Bayesian optimization framework systematically explores different combinations of instructions, demonstrations, and examples to find the optimal configuration.
-
-### Key Features of MiPRO v2
-
-- **Instruction optimization**: Automatically generates and tests multiple instruction candidates
-- **Few-shot example selection**: Finds optimal demonstrations from your dataset
-- **Smart Bayesian optimization**: Efficiently explores the configuration space
-- **Early stopping**: Halts optimization when improvements plateau to save compute
-- **Program and data-aware**: Considers program structure and dataset characteristics
+`AxGEPA` is the main optimizer for evolving instructions, descriptions, tool metadata, and other string components in Ax programs. It works especially well when you have realistic eval tasks and want the optimizer to refine the current program instead of hand-tuning prompts yourself.
 
 ### Example: Sentiment Analysis Optimization
 
 ```typescript
-import fs from 'node:fs'
 import {
   AxAI,
-  AxChainOfThought,
-  AxMiPRO,
-  type AxMetricFn
+  AxGEPA,
+  type AxMetricFn,
+  ax,
 } from '@ax-llm/ax'
 
-// 1. Create your training data
 const trainingData = [
   { productReview: 'This product is amazing!', label: 'positive' },
   { productReview: 'Completely disappointed by the quality.', label: 'negative' },
   { productReview: 'Best purchase ever.', label: 'positive' },
-  { productReview: 'I really hate how this turned out.', label: 'negative' },
-  // Additional examples...
 ]
 
-const validationData = [
-  { productReview: 'Very happy with the results.', label: 'positive' },
-  { productReview: 'Terrible experience, not recommended.', label: 'negative' },
-  // Additional validation examples...
-]
-
-// 2. Setup AI service
 const ai = new AxAI({
   name: 'google-gemini',
   apiKey: process.env.GOOGLE_APIKEY
 })
 
-// 3. Create sentiment analysis program
-const classifyProgram = new AxChainOfThought<
-  { productReview: string },
-  { label: string }
->(`productReview -> label:string "positive" or "negative"`)
+const classifyProgram = ax(
+  'productReview:string -> label:string "positive" or "negative"'
+)
 
-// 4. Configure MiPRO optimizer
-const optimizer = new AxMiPRO({
-  ai,
-  program: classifyProgram,
-  examples: trainingData,
-  options: {
-    numCandidates: 3,       // Number of instruction candidates
-    numTrials: 10,          // Number of optimization trials
-    maxBootstrappedDemos: 2, // Maximum demos to bootstrap
-    maxLabeledDemos: 3,     // Maximum labeled examples
-    earlyStoppingTrials: 3, // Stop after 3 trials with no improvement
-    programAwareProposer: true,
-    dataAwareProposer: true,
-    verbose: true
+const metricFn: AxMetricFn = ({ prediction, example }) =>
+  prediction.label === example.label ? 1 : 0
+
+const optimizer = new AxGEPA({
+  studentAI: ai,
+})
+
+const result = await optimizer.compile(
+  classifyProgram,
+  trainingData,
+  metricFn,
+  {
+    bootstrap: true,
+    maxMetricCalls: 24,
   }
-})
+)
 
-// 5. Define evaluation metric
-const metricFn: AxMetricFn = ({ prediction, example }) => {
-  return prediction.label === example.label
-}
-
-// 6. Run the optimization
-const optimizedProgram = await optimizer.compile(metricFn, {
-  valset: validationData,
-  auto: 'medium'  // Balanced optimization level
-})
-
-// 7. Save the optimized configuration
-const programConfig = JSON.stringify(optimizedProgram, null, 2)
-await fs.promises.writeFile('./mipro-optimized-config.json', programConfig)
+classifyProgram.applyOptimization(result.optimizedProgram!)
 ```
 
-### MiPRO Configuration Options
+### When to Reach for GEPA
 
-MiPRO v2 offers extensive configuration options to tailor the optimization process:
-
-| Option | Description | Default |
-|--------|-------------|---------|
-| `numCandidates` | Number of instruction candidates to generate | 5 |
-| `numTrials` | Number of optimization trials | 30 |
-| `maxBootstrappedDemos` | Maximum number of bootstrapped demonstrations | 3 |
-| `maxLabeledDemos` | Maximum number of labeled examples | 4 |
-| `minibatch` | Use minibatching for faster evaluation | true |
-| `minibatchSize` | Size of evaluation minibatches | 25 |
-| `earlyStoppingTrials` | Stop if no improvement after N trials | 5 |
-| `minImprovementThreshold` | Minimum score improvement threshold | 0.01 |
-| `programAwareProposer` | Use program structure for better proposals | true |
-| `dataAwareProposer` | Consider dataset characteristics | true |
-| `verbose` | Show detailed optimization progress | false |
-
-### Optimization Levels
-
-For convenience, MiPRO offers pre-configured optimization intensities using the `auto` parameter:
-
-```typescript
-// 1. Light optimization (faster, less thorough)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: 'light' })
-
-// 2. Medium optimization (balanced)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: 'medium' })
-
-// 3. Heavy optimization (slower, more thorough)
-const optimizedProgram = await optimizer.compile(metricFn, { auto: 'heavy' })
-```
+- You want the optimizer to refine instructions or tool descriptions directly
+- You have a metric or judge and a representative set of tasks
+- You want browser-safe artifact persistence through `axSerializeOptimizedProgram(...)`
+- You want optional bootstrap demos before reflective optimization begins
 
 ## How MiPRO v2 Works
 
@@ -291,7 +231,7 @@ Select a metric that truly measures success for your task:
 ### 3. Balance Compute and Quality
 
 - For quick improvements, use `AxBootstrapFewShot` with fewer examples
-- For production-critical applications, use `AxMiPRO` with the "heavy" optimization level
+- For production-critical applications, use representative eval sets and holdout tasks
 - Consider running optimization overnight for complex tasks
 - Save and version your optimized configurations for reuse
 
@@ -305,4 +245,4 @@ Select a metric that truly measures success for your task:
 
 Prompt tuning is a powerful technique to improve the performance of your language model applications. Ax provides both simple and advanced optimization tools that can significantly enhance your results while potentially reducing costs.
 
-Start with `AxBootstrapFewShot` for quick improvements, then explore `AxMiPRO` for more comprehensive optimization. By following the best practices outlined in this guide, you'll be able to create prompts that maximize the effectiveness of your language models for your specific tasks.
+Start with `AxBootstrapFewShot` for quick improvements, then explore `AxGEPA` when you want the optimizer to refine components and artifacts more directly. By following the best practices outlined in this guide, you'll be able to create prompts that maximize the effectiveness of your language models for your specific tasks.

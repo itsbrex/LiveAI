@@ -389,7 +389,7 @@ optimizedAgent.applyOptimization(restoredProgram);
 
 console.log(
   'Optimized instruction slots:',
-  Object.keys(restoredProgram.instructionMap ?? {})
+  Object.keys(restoredProgram.componentMap ?? {})
 );
 
 const showcase = await optimizedAgent.forward(studentAI, {

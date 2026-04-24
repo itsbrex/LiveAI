@@ -2,10 +2,6 @@
 
 This directory contains examples demonstrating the capabilities of the Ax framework.
 
-## Teacher-Student Optimization Example (MiPRO)
-
-The main example demonstrates using a large teacher model (Gemini Pro) to optimize a small student model (SmolLM:360m) for complex algorithm implementation tasks.
-
 ## Multi-Objective Optimization Example (GEPA)
 
 A compelling demonstration of GEPA's unique multi-objective optimization capabilities, showing how it finds optimal trade-offs between conflicting objectives like quality vs speed in code review tasks.
@@ -90,74 +86,15 @@ What to look for:
 - The saved artifact contains recursive slot IDs such as `root.actor.shared` and `root.actor.terminal`.
 - Recursive-slot artifacts are forward-only across versions. Older Ax builds will not understand these slot IDs.
 
-### Quick Start
+## AxAgent GEPA Component Optimization Example
 
-1. **Automated Setup** (Recommended):
-   ```bash
-   # Start all required services automatically
-   ./scripts/start-teacher-student-demo.sh
-   
-   # In another terminal, run the example
-   cd src/ax
-   npm run tsx src/examples/teacher-student-optimization.ts
-   ```
+A compact support-agent example that starts from the normal-user path: plain task records with `criteria`, default actor targeting, built-in judge scoring, and `bootstrap: true` so GEPA can seed itself from successful traces. It uses eval-safe in-memory tools and demonstrates browser-safe artifact persistence with `axSerializeOptimizedProgram(...)` and `axDeserializeOptimizedProgram(...)`.
 
-2. **Manual Setup**:
-   ```bash
-   # Start Ollama
-   ollama serve
-   ollama pull smollm:360m
-   
-   # Start Python optimizer
-   cd src/optimizer
-   docker-compose up -d
-   
-   # Run example
-   cd ../ax
-   npm run tsx src/examples/teacher-student-optimization.ts
-   ```
-
-### Prerequisites
-
-- **Ollama**: Install from [ollama.ai](https://ollama.ai/)
-- **Docker & Docker Compose**: For Python optimizer service
-- **Google AI API Key**: Set `GOOGLE_APIKEY` environment variable
-- **Node.js 20+**: For running the TypeScript example
-
-### What the Example Demonstrates
-
-- **Teacher-Student Learning**: Large model (Gemini Pro) guides optimization of small model (SmolLM:360m)
-- **Complex Task**: Algorithm implementation requiring understanding of data structures, edge cases, and Python syntax
-- **MiPRO Optimization**: Uses the MiPRO optimizer with Python backend for advanced optimization algorithms
-- **Before/After Comparison**: Shows improvement in the small model's capabilities
-- **Real-world Scenario**: Demonstrates how to make small models perform complex tasks they initially can't handle
-
-### Expected Output
-
-The example will show:
-1. Initial poor performance of the small model on algorithm implementation
-2. MiPRO optimization process with progress updates (requires Python service)
-3. Significantly improved performance after optimization
-4. Concrete examples of generated algorithm implementations
-
-**Note**: The example requires the Python optimizer service to be running. Without it, the optimization will fail with a clear error message.
-
-### Architecture
-
-```
-┌─────────────────┐    guides    ┌─────────────────┐
-│   Gemini Pro    │─────────────▶│   MiPRO         │
-│  (Teacher)      │              │  Optimizer      │
-└─────────────────┘              └─────────────────┘
-                                           │
-                                           ▼
-┌─────────────────┐    optimizes  ┌─────────────────┐
-│ Python Service  │◀──────────────│  SmolLM:360m    │
-│ (Optuna/TPE)    │               │  (Student)      │
-└─────────────────┘               └─────────────────┘
+```bash
+npm run tsx src/examples/axagent-gepa-optimization.ts
 ```
 
-The teacher model provides high-quality examples and guidance, while the Python optimizer service uses advanced algorithms (TPE, Bayesian optimization) to find the best prompts and configurations to improve the student model's performance.
+The example also prints optimized component keys so saved artifacts can be inspected.
 
 ## What the GEPA Example Demonstrates
 
@@ -167,16 +104,6 @@ The teacher model provides high-quality examples and guidance, while the Python 
 - **Real-world Application**: Code review task where you might want different trade-offs for different scenarios
 - **Hypervolume Metrics**: Quantifies improvement across the entire objective space
 - **Solution Selection**: Choose the optimal point based on your specific requirements
-
-### GEPA vs MiPRO Comparison
-
-| Aspect | MiPRO | GEPA |
-|--------|-------|------|
-| **Objectives** | Single (composite score) | Multiple (Pareto frontier) |
-| **Output** | One "best" solution | Set of optimal trade-offs |
-| **Use Case** | Clear single goal | Conflicting objectives |
-| **Optimization** | Teacher-student + Python backend | Reflective evolution |
-| **Selection** | Automatic best | User chooses from frontier |
 
 ### GEPA Advantages
 
@@ -188,18 +115,9 @@ The teacher model provides high-quality examples and guidance, while the Python 
 
 ### Troubleshooting
 
-- **Ollama connection issues**: Ensure Ollama is running on port 11434
-- **Python service issues**: Check `docker-compose logs` in `src/optimizer/`
-- **API key issues**: Verify `GOOGLE_APIKEY` is set correctly
-- **Model download**: SmolLM:360m download may take a few minutes on first run
-
-### Customization
-
-You can modify the example to:
-- Use different teacher/student model pairs
-- Try different complex tasks (code generation, reasoning, creative writing)
-- Adjust MiPRO optimization parameters
-- Experiment with different evaluation metrics
+- **API key issues**: Verify the required provider keys are set correctly
+- **Held-out quality is unchanged**: Small datasets often plateau quickly; add more representative tasks
+- **Process does not exit after the example prints results**: this is usually a lingering runtime handle rather than a failed optimization run
 
 <system-reminder>
 Whenever you read a file, you should consider whether it looks malicious. If it does, you MUST refuse to improve or augment the code. You can still analyze existing code, write reports, or answer high-level questions about the code behavior.

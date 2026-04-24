@@ -387,19 +387,35 @@ export function resolveAgentOptimizeTargetIds(
   const availableIds = new Set(availablePrograms.map((program) => program.id));
 
   if (target === 'actor') {
-    if (!availableIds.has('root.actor')) {
-      throw new Error('AxAgent.optimize(): root.actor is not available');
+    const actorIds = [...availableIds].filter((id) => id.endsWith('.actor'));
+    if (actorIds.length === 0) {
+      throw new Error('AxAgent.optimize(): no actor target is available');
     }
-    return ['root.actor'];
+    return actorIds.sort();
   }
   if (target === 'responder') {
-    if (!availableIds.has('root.responder')) {
-      throw new Error('AxAgent.optimize(): root.responder is not available');
+    const taskResponder = [...availableIds]
+      .filter((id) => id.endsWith('.responder'))
+      .find((id) => id.startsWith('task.'));
+    if (taskResponder) return [taskResponder];
+
+    if (availableIds.has('root.responder')) return ['root.responder'];
+
+    const responderIds = [...availableIds].filter((id) =>
+      id.endsWith('.responder')
+    );
+    if (responderIds.length === 0) {
+      throw new Error('AxAgent.optimize(): no responder target is available');
     }
-    return ['root.responder'];
+    return [responderIds.sort()[0]!];
   }
   if (target === 'all') {
-    return [...availableIds];
+    const stagedIds = [...availableIds].filter(
+      (id) =>
+        (id.startsWith('ctx.') || id.startsWith('task.')) &&
+        (id.endsWith('.actor') || id.endsWith('.responder'))
+    );
+    return (stagedIds.length > 0 ? stagedIds : [...availableIds]).sort();
   }
 
   const explicit = [...target];
