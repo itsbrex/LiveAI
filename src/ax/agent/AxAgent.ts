@@ -2,32 +2,19 @@ import type {
   AxAgentCompletionProtocol,
   AxAIService,
   AxFunction,
-  AxFunctionHandler,
   AxFunctionJSONSchema,
 } from '../ai/types.js';
-import type {
-  AxMetricFn,
-  AxOptimizationProgress,
-  AxOptimizationStats,
-  AxOptimizerArgs,
-  AxTypedExample,
-} from '../dsp/common_types.js';
+import type { AxMetricFn } from '../dsp/common_types.js';
 import type { AxGen } from '../dsp/generate.js';
-import type { AxJudgeOptions } from '../dsp/judgeTypes.js';
 import {
-  type AxOptimizedProgram,
-  AxOptimizedProgramImpl,
-  type AxParetoResult,
-} from '../dsp/optimizer.js';
-import { AxGEPA } from '../dsp/optimizers/gepa.js';
-import type { AxOptimizerLoggerFunction } from '../dsp/optimizerTypes.js';
+  type AxOptimizableComponent,
+  axOptimizableValidators,
+} from '../dsp/optimizable.js';
 import type { AxIField, AxSignatureConfig } from '../dsp/sig.js';
-import { AxSignature, f } from '../dsp/sig.js';
-import type { ParseSignature } from '../dsp/sigtypes.js';
+import { AxSignature } from '../dsp/sig.js';
 import type {
   AxAgentUsage,
   AxChatLogEntry,
-  AxFieldValue,
   AxGenIn,
   AxGenOut,
   AxGenStreamingOut,
@@ -38,148 +25,22 @@ import type {
   AxProgramForwardOptionsWithModels,
   AxProgrammable,
   AxProgramStreamingForwardOptionsWithModels,
-  AxProgramTrace,
   AxProgramUsage,
-  AxTunable,
-  AxUsable,
 } from '../dsp/types.js';
-import { AxJSRuntime } from '../funcs/jsRuntime.js';
-import { mergeAbortSignals } from '../util/abort.js';
-import { AxAIServiceAbortedError } from '../util/apicall.js';
-import {
-  type AxAgentGuidancePayload,
-  type AxAgentInternalCompletionPayload,
-  AxAgentProtocolCompletionSignal,
-  type createCompletionBindings,
-  normalizeClarificationForError,
-} from './completion.js';
-import {
-  computeEffectiveChatBudget,
-  DEFAULT_AGENT_MODULE_NAMESPACE,
-  DEFAULT_CONTEXT_FIELD_PROMPT_MAX_CHARS,
-  DEFAULT_RLM_BATCH_CONCURRENCY,
-  DEFAULT_RLM_MAX_LLM_CALLS,
-  DEFAULT_RLM_MAX_LLM_CALLS_PER_CHILD,
-  DEFAULT_RLM_MAX_TURNS,
-  getActorModelConsecutiveErrorTurns,
-  getActorModelMatchedNamespaces,
-  normalizeRestoredActorModelState,
-  resetActorModelErrorTurns,
-  resolveActorModelPolicy,
-  resolveContextPolicy,
-  selectActorModelFromPolicy,
-  updateActorModelErrorTurns,
-  updateActorModelMatchedNamespaces,
-} from './config.js';
+import type { createCompletionBindings } from './completion.js';
+import { DEFAULT_AGENT_MODULE_NAMESPACE } from './config.js';
 import type { ActionLogEntry } from './contextManager.js';
-import {
-  buildActionEvidenceSummary,
-  buildActionLogParts,
-  buildActionLogReplayPlan,
-  buildActionLogWithPolicy,
-  buildInspectRuntimeBaselineCode,
-  buildInspectRuntimeCode,
-  buildRuntimeStateProvenance,
-  type CheckpointSummaryState,
-  generateCheckpointSummaryAsync,
-  getPromptFacingActionLogEntries,
-  manageContext,
-  type RuntimeStateVariableProvenance,
-} from './contextManager.js';
-import {
-  AX_AGENT_OPTIMIZE_JUDGE_EVAL_SIGNATURE,
-  AX_AGENT_OPTIMIZE_PROGRAM_SIGNATURE,
-  adjustEvalScoreForActions,
-  buildAgentJudgeCriteria,
-  buildAgentJudgeForwardOptions,
-  DEFAULT_AGENT_OPTIMIZE_MAX_METRIC_CALLS,
-  mapAgentJudgeQualityToScore,
-  normalizeActorJavascriptCode,
-  normalizeAgentEvalDataset,
-  resolveAgentOptimizeTargetIds,
-  serializeForEval,
-} from './optimize.js';
-import type {
-  AxCodeRuntime,
-  AxCodeSession,
-  AxCodeSessionSnapshotEntry,
-  AxContextPolicyBudget,
-  AxContextPolicyConfig,
-  AxContextPolicyPreset,
-  AxRLMConfig,
-} from './rlm.js';
-import {
-  axBuildActorDefinition,
-  axBuildContextActorDefinition,
-  axBuildResponderDefinition,
-  axBuildTaskActorDefinition,
-} from './rlm.js';
-import {
-  type AxOptimizableComponent,
-  axOptimizableValidators,
-} from '../dsp/optimizable.js';
+import type { AxCodeRuntime, AxRLMConfig } from './rlm.js';
 import {
   type AxRuntimePrimitiveStage,
   visibleRuntimePrimitives,
 } from './runtimePrimitives.js';
-import { promptTemplates, type TemplateId } from './templates.generated.js';
+import { cloneAgentState } from './state.js';
 import {
   requiredTemplateVariables,
   validatePromptTemplateSyntax,
 } from './templateEngine.js';
-import {
-  buildBootstrapRuntimeGlobals,
-  buildContextFieldPromptInlineValue,
-  buildInternalSummaryRequestOptions,
-  buildRLMVariablesInfo,
-  DISCOVERY_GET_FUNCTION_DEFINITIONS_NAME,
-  DISCOVERY_LIST_MODULE_FUNCTIONS_NAME,
-  formatBootstrapContextSummary,
-  formatBubbledActorTurnOutput,
-  formatInterpreterError,
-  formatInterpreterOutput,
-  formatLegacyRuntimeState,
-  formatStructuredRuntimeState,
-  hasCompletionSignalCall,
-  isExecutionTimedOutError,
-  isLikelyRuntimeErrorOutput,
-  isSessionClosedError,
-  isTransientError,
-  looksLikePromisePlaceholder,
-  normalizeContextFields,
-  parseRuntimeStateSnapshot,
-  RUNTIME_RESTART_NOTICE,
-  runWithConcurrency,
-  shouldEnforceIncrementalConsoleTurns,
-  TEST_HARNESS_LLM_QUERY_AI_REQUIRED_ERROR,
-  truncateText,
-  validateActorTurnCodePolicy,
-} from './runtime.js';
-import {
-  compareCanonicalDiscoveryStrings,
-  type DiscoveryCallableMeta,
-  normalizeAgentFunctionCollection,
-  normalizeAgentModuleNamespace,
-  normalizeAndSortDiscoveryFunctionIdentifiers,
-  normalizeDiscoveryCallableIdentifier,
-  normalizeDiscoveryStringInput,
-  renderDiscoveryFunctionDefinitionsMarkdown,
-  renderDiscoveryModuleListMarkdown,
-  resolveDiscoveryCallableNamespaces,
-  sortDiscoveryModules,
-  stripSchemaProperties,
-  toCamelCase,
-} from './runtimeDiscovery.js';
-import {
-  buildRuntimeRestoreNotice,
-  cloneAgentState,
-  deserializeAgentStateActionLogEntries,
-  mergeRuntimeStateProvenance,
-  runtimeStateProvenanceFromRecord,
-  runtimeStateProvenanceToRecord,
-  serializeAgentStateActionLogEntries,
-} from './state.js';
-import { computeDynamicRuntimeChars } from './truncate.js';
+import { promptTemplates, type TemplateId } from './templates.generated.js';
 
 /**
  * Interface for agents that can be used as child agents.
@@ -194,16 +55,7 @@ import {
   setState as setStateImpl,
   testAgent,
 } from './agentInternal/agentPublicMethods.js';
-import {
-  appendDiscoveryTurnSummary,
-  createDiscoveryTurnSummary,
-  createMutableDiscoveryPromptState,
-  formatDiscoveryTurnSummary,
-  renderDiscoveryPromptMarkdown,
-  restoreDiscoveryPromptState,
-  serializeDiscoveryPromptState,
-  stripDiscoveryTurnOutput,
-} from './agentInternal/discoveryHelpers.js';
+import { createMutableDiscoveryPromptState } from './agentInternal/discoveryHelpers.js';
 import {
   type AxAgentActorRun,
   type AxAgentInternalRunner,
@@ -212,12 +64,6 @@ import {
   runResponderOnly,
   streamingForwardAgent,
 } from './agentInternal/forwardMethods.js';
-import {
-  buildGuidanceActionLogCode,
-  buildGuidanceActionLogOutput,
-  renderGuidanceLog,
-  snapshotChatLogMessages,
-} from './agentInternal/guidanceHelpers.js';
 import { initializeAgentInternal } from './agentInternal/initialization.js';
 import {
   createAgentOptimizeMetric,
@@ -244,67 +90,36 @@ import {
   wrapFunction,
 } from './agentInternal/runtimeGlobals.js';
 import { buildSplitPrograms } from './agentInternal/signatureBuilders.js';
-import {
-  type AxActorDefinitionBuildOptions,
-  type AxActorModelPolicy,
-  type AxActorModelPolicyEntry,
-  type AxAgentActorResultPayload,
-  type AxAgentClarification,
-  type AxAgentClarificationChoice,
-  AxAgentClarificationError,
-  type AxAgentClarificationKind,
-  type AxAgentDemos,
-  type AxAgentDiscoveryPromptState,
-  type AxAgentEvalDataset,
-  type AxAgentEvalFunctionCall,
-  type AxAgentEvalPrediction,
-  type AxAgentEvalTask,
-  type AxAgentFunction,
-  type AxAgentFunctionCallRecorder,
-  type AxAgentFunctionCollection,
-  type AxAgentFunctionExample,
-  type AxAgentFunctionGroup,
-  type AxAgentFunctionModuleMeta,
-  type AxAgentGuidanceLogEntry,
-  type AxAgentGuidanceState,
-  type AxAgentIdentity,
-  type AxAgentInputUpdateCallback,
-  type AxAgentic,
-  type AxAgentJudgeEvalInput,
-  type AxAgentJudgeEvalOutput,
-  type AxAgentJudgeInput,
-  type AxAgentJudgeOptions,
-  type AxAgentJudgeOutput,
-  type AxAgentOptimizationTargetDescriptor,
-  type AxAgentOptimizeOptions,
-  type AxAgentOptimizeResult,
-  type AxAgentOptimizeTarget,
-  type AxAgentOptions,
-  type AxAgentRecursionOptions,
-  type AxAgentRuntimeCompletionState,
-  type AxAgentRuntimeExecutionContext,
-  type AxAgentRuntimeInputState,
-  type AxAgentState,
-  type AxAgentStateActionLogEntry,
-  type AxAgentStateActorModelState,
-  type AxAgentStateCheckpointState,
-  type AxAgentStateRuntimeEntry,
-  type AxAgentStructuredClarification,
-  type AxAgentTestCompletionPayload,
-  type AxAgentTestResult,
-  type AxAgentTurnCallbackArgs,
-  type AxAnyAgentic,
-  type AxContextFieldInput,
-  type AxContextFieldPromptConfig,
-  type AxDiscoveryTurnSummary,
-  type AxLlmQueryBudgetState,
-  type AxLlmQueryPromptMode,
-  type AxMutableDiscoveryPromptState,
-  type AxNormalizedAgentEvalDataset,
-  type AxPreparedRestoredState,
-  type AxResolvedActorModelPolicy,
-  type AxResolvedActorModelPolicyEntry,
-  type AxResolvedContextPolicy,
+import type {
+  AxActorDefinitionBuildOptions,
+  AxAgentActorResultPayload,
+  AxAgentDemos,
+  AxAgentEvalDataset,
+  AxAgentEvalFunctionCall,
+  AxAgentEvalPrediction,
+  AxAgentEvalTask,
+  AxAgentFunction,
+  AxAgentFunctionCallRecorder,
+  AxAgentFunctionModuleMeta,
+  AxAgentGuidanceState,
+  AxAgentIdentity,
+  AxAgentInputUpdateCallback,
+  AxAgentic,
+  AxAgentJudgeOptions,
+  AxAgentOptimizationTargetDescriptor,
+  AxAgentOptimizeOptions,
+  AxAgentOptimizeResult,
+  AxAgentOptions,
+  AxAgentRecursionOptions,
+  AxAgentRuntimeCompletionState,
+  AxAgentRuntimeExecutionContext,
+  AxAgentRuntimeInputState,
+  AxAgentState,
+  AxAgentTestResult,
+  AxAnyAgentic,
+  AxContextFieldPromptConfig,
+  AxLlmQueryBudgetState,
+  AxResolvedActorModelPolicy,
 } from './agentInternal/types.js';
 import {
   mergeAgentFunctionModuleMetadata,

@@ -1,4 +1,3 @@
-import type { AxFunctionJSONSchema } from '../ai/types.js';
 import type { AxIField } from '../dsp/sig.js';
 import type { AxProgramForwardOptions } from '../dsp/types.js';
 import {

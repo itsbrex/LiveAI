@@ -1,4 +1,4 @@
-import type { AxFunction as _AxFunction, AxAIService } from '../../ai/types.js';
+import type { AxAIService } from '../../ai/types.js';
 import type {
   AxGEPABootstrapOptions,
   AxMetricFn,

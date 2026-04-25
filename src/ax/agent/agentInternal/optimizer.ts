@@ -229,7 +229,7 @@ export function createAgentOptimizeMetric<
   IN extends AxGenIn,
   OUT extends AxGenOut,
 >(
-  self: any,
+  _self: any,
   judgeAI: Readonly<AxAIService>,
   judgeOptions: Readonly<AxAgentJudgeOptions>
 ): AxMetricFn {

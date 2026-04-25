@@ -30,8 +30,7 @@
     "fix:lint": "biome lint --write .",
     "fix:format": "biome format --write .",
     "doc:build:markdown": "typedoc --readme none",
-    "coverage": "c8 ava",
-    "prepare": "husky install",
+    "coverage": "vitest run --coverage",
     "tsx": "node --env-file=.env --import=tsx",
     "release": "release-it",
     "publish": "npm run build && cd dist && npm publish",
@@ -48,20 +47,6 @@
     "zod": {
       "optional": true
     }
-  },
-  "ava": {
-    "failFast": true,
-    "timeout": "180s",
-    "concurrency": 1,
-    "extensions": {
-      "ts": "module"
-    },
-    "nodeArguments": [
-      "--import=tsimp"
-    ],
-    "files": [
-      "!dist/**/*"
-    ]
   },
   "tsd": {
     "directory": "./"

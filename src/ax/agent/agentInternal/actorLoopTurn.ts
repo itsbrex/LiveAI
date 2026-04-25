@@ -33,7 +33,7 @@ import {
 } from './guidanceHelpers.js';
 import { AxAgentClarificationError } from './types.js';
 
-export async function runActorTurn<IN extends AxGenIn>(
+export async function runActorTurn<_IN extends AxGenIn>(
   ctx: ActorLoopContext,
   turn: number,
   _options: Readonly<AxProgramForwardOptions<string>> | undefined,

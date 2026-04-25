@@ -1,11 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { AxMockAIService } from '../ai/mock/api.js';
-import {
-  AxAgent,
-  AxAgentClarificationError,
-  AxAgentInternal,
-  agent,
-} from './index.js';
+import { AxAgent, AxAgentClarificationError, agent } from './index.js';
 import type { AxCodeRuntime } from './rlm.js';
 
 // ---------------------------------------------------------------------------
@@ -868,17 +863,14 @@ describe('AxAgent coordinator routing', () => {
         runtime: makeRuntime(),
       });
 
-      const a = agent(
-        'docText:string, query:string -> answer:string',
-        {
-          contextFields: ['docText'],
-          functions: [simpleFn],
-          agents: [childAgent],
-          functionDiscovery: true,
-          
-          runtime: makeRuntime(),
-        }
-      );
+      const a = agent('docText:string, query:string -> answer:string', {
+        contextFields: ['docText'],
+        functions: [simpleFn],
+        agents: [childAgent],
+        functionDiscovery: true,
+
+        runtime: makeRuntime(),
+      });
       const coord = a as any;
 
       // ctxAgent exists (Case A) and must not see task-only knobs
@@ -894,16 +886,13 @@ describe('AxAgent coordinator routing', () => {
     });
 
     it('top-level maxTurns applies to taskAgent; contextOptions.maxTurns overrides on ctxAgent', () => {
-      const a = agent(
-        'docText:string, query:string -> answer:string',
-        {
-          contextFields: ['docText'],
-          functions: [simpleFn],
-          maxTurns: 10,
-          contextOptions: { maxTurns: 3 },
-          runtime: makeRuntime(),
-        }
-      );
+      const a = agent('docText:string, query:string -> answer:string', {
+        contextFields: ['docText'],
+        functions: [simpleFn],
+        maxTurns: 10,
+        contextOptions: { maxTurns: 3 },
+        runtime: makeRuntime(),
+      });
       const coord = a as any;
 
       expect(coord.ctxAgent._genOptions.maxTurns).toBe(3);
@@ -911,15 +900,12 @@ describe('AxAgent coordinator routing', () => {
     });
 
     it('top-level maxTurns is shared to ctxAgent when no contextOptions override is set', () => {
-      const a = agent(
-        'docText:string, query:string -> answer:string',
-        {
-          contextFields: ['docText'],
-          functions: [simpleFn],
-          maxTurns: 7,
-          runtime: makeRuntime(),
-        }
-      );
+      const a = agent('docText:string, query:string -> answer:string', {
+        contextFields: ['docText'],
+        functions: [simpleFn],
+        maxTurns: 7,
+        runtime: makeRuntime(),
+      });
       const coord = a as any;
 
       expect(coord.ctxAgent._genOptions.maxTurns).toBe(7);
