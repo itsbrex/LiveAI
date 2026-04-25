@@ -1,5 +1,27 @@
 # Changelog
 
+## [20.0.0](///compare/19.0.44...19.0.45) (2026-04-25)
+
+### Features
+
+* **agent:** add contextOptions to independently bound the ctx distillation stage 7e77158
+* **agent:** drop llmQuery advanced mode, simplify RLM actor prompts 1f2d8a1
+* **agent:** Stage 2+3 — split RLM actor templates and coordinator AxAgent 68cdff3
+
+### Bug Fixes
+
+* **gemini:** default Vertex Gemini to v1 and harden streaming ([#511](undefined/undefined/undefined/issues/511)) 8ee4c3e
+
+### Performance Improvements
+
+* **agent:** shrink RLM actor system prompt by ~480 chars ce46475
+## [19.0.45](///compare/19.0.44...19.0.45) (2026-04-15)
+
+### Features
+
+* node thread worker security upgrades 4a29618
+* support for zod / standard-schema/spec 82583ee
+
 ## [19.0.45](///compare/19.0.43...19.0.44) (2026-04-15)
 
 ### Features
