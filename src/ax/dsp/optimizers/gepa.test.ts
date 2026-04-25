@@ -204,7 +204,9 @@ describe('AxGEPA Optimizer', () => {
             current: instruction,
           },
         ],
-        applyOptimizedComponents: (updates: Readonly<Record<string, string>>) => {
+        applyOptimizedComponents: (
+          updates: Readonly<Record<string, string>>
+        ) => {
           const key = `${id}::instruction`;
           if (typeof updates[key] === 'string') instruction = updates[key]!;
         },

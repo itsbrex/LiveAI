@@ -65,12 +65,7 @@ export async function forwardAgent<T extends Readonly<AxAIService>>(
     const debug = options?.debug ?? s.debug ?? ai?.getOptions()?.debug ?? false;
 
     const { nonContextValues, actorResult, actorFieldValues } =
-      await s._runActorLoop(
-        ai,
-        values,
-        options,
-        effectiveAbortSignal
-      );
+      await s._runActorLoop(ai, values, options, effectiveAbortSignal);
 
     if (actorResult.type === 'askClarification') {
       throw new AxAgentClarificationError(

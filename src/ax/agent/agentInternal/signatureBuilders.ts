@@ -253,5 +253,4 @@ export function buildSplitPrograms(self: any): void {
       description: responderDef,
     }) as unknown as AxGen<any, any>;
   }
-
 }

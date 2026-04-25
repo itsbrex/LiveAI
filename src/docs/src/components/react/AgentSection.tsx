@@ -1,6 +1,6 @@
 import { motion } from 'framer-motion';
-import { GlowCard } from './GlowCard';
 import { Bot, Brain, Zap } from 'lucide-react';
+import { GlowCard } from './GlowCard';
 
 const EASE = [0.25, 0.46, 0.45, 0.94] as const;
 
@@ -32,10 +32,16 @@ function ContextGrowthChart() {
   const toY = (v: number) => padT + chartH - (v / 1000) * chartH;
 
   const naivePath = naive
-    .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
+    .map(
+      (v, i) =>
+        `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`
+    )
     .join(' ');
   const axPath = axagent
-    .map((v, i) => `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`)
+    .map(
+      (v, i) =>
+        `${i === 0 ? 'M' : 'L'}${toX(i).toFixed(1)},${toY(v).toFixed(1)}`
+    )
     .join(' ');
   const naiveArea = `${naivePath} L${toX(turns - 1).toFixed(1)},${toY(0).toFixed(1)} L${toX(0).toFixed(1)},${toY(0).toFixed(1)} Z`;
   const axArea = `${axPath} L${toX(turns - 1).toFixed(1)},${toY(0).toFixed(1)} L${toX(0).toFixed(1)},${toY(0).toFixed(1)} Z`;
@@ -200,7 +206,9 @@ function AgentCodeBlock() {
         <div className="w-2.5 h-2.5 rounded-full bg-red-400/80" />
         <div className="w-2.5 h-2.5 rounded-full bg-amber-400/80" />
         <div className="w-2.5 h-2.5 rounded-full bg-green-400/80" />
-        <span className="ml-2 text-xs text-gray-500 font-mono">researcher.ts</span>
+        <span className="ml-2 text-xs text-gray-500 font-mono">
+          researcher.ts
+        </span>
       </div>
 
       <div className="p-5 font-mono text-[12.5px] leading-[1.85] text-gray-300">
@@ -262,7 +270,9 @@ function AgentCodeBlock() {
           <span className="text-gray-500">{')'}</span>
         </div>
 
-        <div className="mt-3 text-gray-600">{'// Typed output — report: string ✓'}</div>
+        <div className="mt-3 text-gray-600">
+          {'// Typed output — report: string ✓'}
+        </div>
         <div>
           <span className="text-purple-400">const</span>
           <span className="text-gray-500">{' { '}</span>

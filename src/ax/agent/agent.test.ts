@@ -10250,7 +10250,7 @@ describe('judgeOptions / optimize', () => {
 
   const recursiveRuntime = new AxJSRuntime();
 
-  const makeRecursiveOptimizedProgram = (
+  const _makeRecursiveOptimizedProgram = (
     componentMap: Record<string, string> = {
       [`${AX_AGENT_RECURSIVE_TARGET_IDS.shared}::instruction`]:
         'shared recursive guidance',

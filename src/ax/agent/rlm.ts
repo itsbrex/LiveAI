@@ -374,58 +374,58 @@ export function axBuildActorDefinition(
   const actorBody = renderPromptTemplate(
     'rlm/ctx-actor.md',
     {
-    contextVarList,
-    responderOutputFieldTitles,
-    promptLevel: options.promptLevel ?? 'default',
-    llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
-    discoveryMode,
-    hasInspectRuntime: Boolean(options.hasInspectRuntime),
-    primitivesList: renderPrimitivesList(
-      'combined',
-      {
-      hasInspectRuntime: Boolean(options.hasInspectRuntime),
-      hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+      contextVarList,
+      responderOutputFieldTitles,
+      promptLevel: options.promptLevel ?? 'default',
+      llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
       discoveryMode,
-      },
-      options.primitiveOverrides
-    ),
-    hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
-    agentModuleNamespace,
-    agentFunctionsList: sortedAgents
-      .map((fn) =>
-        renderCallableEntry({
-          qualifiedName: `${agentModuleNamespace}.${fn.name}`,
-          parameters: fn.parameters,
-        })
-      )
-      .join('\n'),
-    hasFunctions: !discoveryMode && sortedAgentFunctions.length > 0,
-    functionsList: sortedAgentFunctions
-      .map((fn) =>
-        renderCallableEntry({
-          qualifiedName: `${fn.namespace}.${fn.name}`,
-          parameters: fn.parameters,
-          returns: fn.returns,
-        })
-      )
-      .join('\n'),
-    hasModules: discoveryMode && availableModules.length > 0,
-    modulesList: availableModules
-      .map((module) =>
-        module.selectionCriteria?.trim()
-          ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
-          : `- \`${module.namespace}\``
-      )
-      .join('\n'),
-    runtimeUsageInstructions: String(options.runtimeUsageInstructions),
-    hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
-    discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
-    enforceIncrementalConsoleTurns: Boolean(
-      options.enforceIncrementalConsoleTurns
-    ),
-    hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
-    hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
-    hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+      hasInspectRuntime: Boolean(options.hasInspectRuntime),
+      primitivesList: renderPrimitivesList(
+        'combined',
+        {
+          hasInspectRuntime: Boolean(options.hasInspectRuntime),
+          hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+          discoveryMode,
+        },
+        options.primitiveOverrides
+      ),
+      hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
+      agentModuleNamespace,
+      agentFunctionsList: sortedAgents
+        .map((fn) =>
+          renderCallableEntry({
+            qualifiedName: `${agentModuleNamespace}.${fn.name}`,
+            parameters: fn.parameters,
+          })
+        )
+        .join('\n'),
+      hasFunctions: !discoveryMode && sortedAgentFunctions.length > 0,
+      functionsList: sortedAgentFunctions
+        .map((fn) =>
+          renderCallableEntry({
+            qualifiedName: `${fn.namespace}.${fn.name}`,
+            parameters: fn.parameters,
+            returns: fn.returns,
+          })
+        )
+        .join('\n'),
+      hasModules: discoveryMode && availableModules.length > 0,
+      modulesList: availableModules
+        .map((module) =>
+          module.selectionCriteria?.trim()
+            ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
+            : `- \`${module.namespace}\``
+        )
+        .join('\n'),
+      runtimeUsageInstructions: String(options.runtimeUsageInstructions),
+      hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
+      discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
+      enforceIncrementalConsoleTurns: Boolean(
+        options.enforceIncrementalConsoleTurns
+      ),
+      hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
+      hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
+      hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
     },
     options.templateOverride
   )
@@ -472,20 +472,20 @@ export function axBuildContextActorDefinition(
   const actorBody = renderPromptTemplate(
     'rlm/context-actor.md',
     {
-    contextVarList,
-    promptLevel: options.promptLevel ?? 'default',
-    hasInspectRuntime: Boolean(options.hasInspectRuntime),
-    hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
-    hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
-    primitivesList: renderPrimitivesList(
-      'context',
-      {
+      contextVarList,
+      promptLevel: options.promptLevel ?? 'default',
       hasInspectRuntime: Boolean(options.hasInspectRuntime),
-      hasFinalForUser: Boolean(options.hasFinalForUser),
-      },
-      options.primitiveOverrides
-    ),
-    runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
+      hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
+      hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
+      primitivesList: renderPrimitivesList(
+        'context',
+        {
+          hasInspectRuntime: Boolean(options.hasInspectRuntime),
+          hasFinalForUser: Boolean(options.hasFinalForUser),
+        },
+        options.primitiveOverrides
+      ),
+      runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
     },
     options.templateOverride
   )
@@ -588,59 +588,59 @@ export function axBuildTaskActorDefinition(
   const actorBody = renderPromptTemplate(
     'rlm/task-actor.md',
     {
-    contextVarList,
-    responderOutputFieldTitles,
-    promptLevel: options.promptLevel ?? 'default',
-    llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
-    discoveryMode,
-    hasInspectRuntime: Boolean(options.hasInspectRuntime),
-    primitivesList: renderPrimitivesList(
-      'task',
-      {
-      hasInspectRuntime: Boolean(options.hasInspectRuntime),
-      hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+      contextVarList,
+      responderOutputFieldTitles,
+      promptLevel: options.promptLevel ?? 'default',
+      llmQueryPromptMode: options.llmQueryPromptMode ?? 'simple',
       discoveryMode,
-      },
-      options.primitiveOverrides
-    ),
-    hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
-    agentModuleNamespace,
-    agentFunctionsList: sortedAgents
-      .map((fn) =>
-        renderCallableEntry({
-          qualifiedName: `${agentModuleNamespace}.${fn.name}`,
-          parameters: fn.parameters,
-        })
-      )
-      .join('\n'),
-    hasFunctions: !discoveryMode && sortedAgentFunctions.length > 0,
-    functionsList: sortedAgentFunctions
-      .map((fn) =>
-        renderCallableEntry({
-          qualifiedName: `${fn.namespace}.${fn.name}`,
-          parameters: fn.parameters,
-          returns: fn.returns,
-        })
-      )
-      .join('\n'),
-    hasModules: discoveryMode && availableModules.length > 0,
-    modulesList: availableModules
-      .map((module) =>
-        module.selectionCriteria?.trim()
-          ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
-          : `- \`${module.namespace}\``
-      )
-      .join('\n'),
-    runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
-    hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
-    discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
-    enforceIncrementalConsoleTurns: Boolean(
-      options.enforceIncrementalConsoleTurns
-    ),
-    hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
-    hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
-    hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
-    hasDistilledContext: Boolean(options.hasDistilledContext),
+      hasInspectRuntime: Boolean(options.hasInspectRuntime),
+      primitivesList: renderPrimitivesList(
+        'task',
+        {
+          hasInspectRuntime: Boolean(options.hasInspectRuntime),
+          hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+          discoveryMode,
+        },
+        options.primitiveOverrides
+      ),
+      hasAgentFunctions: !discoveryMode && sortedAgents.length > 0,
+      agentModuleNamespace,
+      agentFunctionsList: sortedAgents
+        .map((fn) =>
+          renderCallableEntry({
+            qualifiedName: `${agentModuleNamespace}.${fn.name}`,
+            parameters: fn.parameters,
+          })
+        )
+        .join('\n'),
+      hasFunctions: !discoveryMode && sortedAgentFunctions.length > 0,
+      functionsList: sortedAgentFunctions
+        .map((fn) =>
+          renderCallableEntry({
+            qualifiedName: `${fn.namespace}.${fn.name}`,
+            parameters: fn.parameters,
+            returns: fn.returns,
+          })
+        )
+        .join('\n'),
+      hasModules: discoveryMode && availableModules.length > 0,
+      modulesList: availableModules
+        .map((module) =>
+          module.selectionCriteria?.trim()
+            ? `- \`${module.namespace}\` - ${module.selectionCriteria.trim()}`
+            : `- \`${module.namespace}\``
+        )
+        .join('\n'),
+      runtimeUsageInstructions: String(options.runtimeUsageInstructions ?? ''),
+      hasDiscoveredDocs: Boolean(options.discoveredDocsMarkdown),
+      discoveredDocsMarkdown: String(options.discoveredDocsMarkdown ?? ''),
+      enforceIncrementalConsoleTurns: Boolean(
+        options.enforceIncrementalConsoleTurns
+      ),
+      hasLiveRuntimeState: Boolean(options.hasLiveRuntimeState),
+      hasCompressedActionReplay: Boolean(options.hasCompressedActionReplay),
+      hasAgentStatusCallback: Boolean(options.hasAgentStatusCallback),
+      hasDistilledContext: Boolean(options.hasDistilledContext),
     },
     options.templateOverride
   )

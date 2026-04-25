@@ -2,9 +2,7 @@ import type { AxAgentRecursiveNodeRole } from '../agentRecursiveOptimize.js';
 import type { AxAgentOptimizationTargetDescriptor } from './types.js';
 
 /** Advanced/recursive llmQuery mode has been removed. Always returns false. */
-export function supportsRecursiveActorSlotOptimization(
-  _self: any
-): boolean {
+export function supportsRecursiveActorSlotOptimization(_self: any): boolean {
   return false;
 }
 

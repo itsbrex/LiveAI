@@ -9,13 +9,13 @@ import type {
 import type {
   AxGenOut,
   AxProgramDemos,
-  AxProgramTrace,
   AxProgrammable,
+  AxProgramTrace,
 } from '../types.js';
 import {
+  type AxGEPAEvaluationState,
   normalizeGEPAScores,
   scalarizeGEPAScores,
-  type AxGEPAEvaluationState,
 } from './gepaEvaluation.js';
 
 type AxGEPABootstrapResult<OUT> = {
@@ -56,10 +56,7 @@ export const resolveBootstrapOptions = (
   const options = bootstrap === true ? {} : bootstrap;
   return {
     scoreThreshold: options.scoreThreshold ?? 0.8,
-    maxBootstrapDemos: Math.max(
-      1,
-      Math.floor(options.maxBootstrapDemos ?? 4)
-    ),
+    maxBootstrapDemos: Math.max(1, Math.floor(options.maxBootstrapDemos ?? 4)),
     maxBootstrapMetricCalls: Math.max(
       1,
       Math.floor(
@@ -92,15 +89,20 @@ export async function bootstrapGEPADemos<IN, OUT extends AxGenOut>(args: {
     args.applyConfig(args.cfg);
 
     try {
-      const prediction = await args.program.forward(args.ai, example as IN, {
-        sampleCount: args.sampleCount,
-      } as any);
+      const prediction = await args.program.forward(
+        args.ai,
+        example as IN,
+        {
+          sampleCount: args.sampleCount,
+        } as any
+      );
       const scores = await normalizeGEPAScores(
         args.metricFn,
         prediction,
         example as AxExample
       );
-      for (const key of Object.keys(scores)) args.state.observedScoreKeys.add(key);
+      for (const key of Object.keys(scores))
+        args.state.observedScoreKeys.add(key);
       const scalar = scalarizeGEPAScores(scores);
 
       metricCalls += 1;

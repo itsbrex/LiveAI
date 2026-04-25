@@ -188,7 +188,7 @@ describe('template integration', () => {
         '',
         '### Rules',
         '1. Base your answer ONLY on evidence in actorResult.',
-        '2. If actorResult lacks sufficient information, give the best possible answer from what\'s available.',
+        "2. If actorResult lacks sufficient information, give the best possible answer from what's available.",
         '3. If actorResult contains `type: askClarification`, surface the clarification question in your output fields instead of a final answer.',
       ].join('\n')
     );

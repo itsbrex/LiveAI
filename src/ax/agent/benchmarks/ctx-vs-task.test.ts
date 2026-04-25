@@ -140,7 +140,9 @@ describe('ctx-vs-task prompt shrink ratio', () => {
     // ctx actor still uses exploration/turn discipline for raw context probing
     expect(ctxActorSystemPrompt).toContain('Exploration & Turn Discipline');
     // task actor skips exploration — it has pre-distilled context from ctx stage
-    expect(taskActorSystemPrompt).not.toContain('Exploration & Turn Discipline');
+    expect(taskActorSystemPrompt).not.toContain(
+      'Exploration & Turn Discipline'
+    );
     expect(taskActorSystemPrompt).toContain('Pre-Distilled Context');
   });
 

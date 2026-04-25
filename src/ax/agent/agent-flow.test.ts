@@ -134,7 +134,6 @@ describe('Agent Split Architecture Flow', () => {
       contextFields: [],
       runtime,
       maxTurns: 3,
-      
     });
 
     const res = await gen.forward(mockAI, {

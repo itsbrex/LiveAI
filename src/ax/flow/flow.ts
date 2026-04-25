@@ -1969,7 +1969,10 @@ export class AxFlow<
 
   public getOptimizableComponents(): readonly AxOptimizableComponent[] {
     const out: AxOptimizableComponent[] = [];
-    if (this.program && typeof (this.program as any).getOptimizableComponents === 'function') {
+    if (
+      this.program &&
+      typeof (this.program as any).getOptimizableComponents === 'function'
+    ) {
       out.push(...(this.program as any).getOptimizableComponents());
     }
     for (const node of this.nodeGenerators.values()) {
@@ -1983,7 +1986,10 @@ export class AxFlow<
   public applyOptimizedComponents(
     updates: Readonly<Record<string, string>>
   ): void {
-    if (this.program && typeof (this.program as any).applyOptimizedComponents === 'function') {
+    if (
+      this.program &&
+      typeof (this.program as any).applyOptimizedComponents === 'function'
+    ) {
       (this.program as any).applyOptimizedComponents(updates);
     }
     for (const node of this.nodeGenerators.values()) {
