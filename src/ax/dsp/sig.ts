@@ -2019,12 +2019,12 @@ export class AxSignature<
       [this.sigHash, this.sigString] = this.updateHash();
     } else if (signature instanceof AxSignature) {
       this.description = signature.getDescription();
-      this.inputFields = structuredClone(
-        signature.getInputFields()
-      ) as AxIField[];
-      this.outputFields = structuredClone(
-        signature.getOutputFields()
-      ) as AxIField[];
+      this.inputFields = signature
+        .getInputFields()
+        .map((v) => this.parseField(v));
+      this.outputFields = signature
+        .getOutputFields()
+        .map((v) => this.parseField(v));
       this.sigHash = signature.hash();
       this.sigString = signature.toString();
       // Copy validation state if the source signature was validated

@@ -735,11 +735,19 @@ export function agent<
 ): AxAgent<TInput, TOutput>;
 
 export function agent(
-  signature: string | AxSignature<any, any>,
+  signature: Readonly<AxSignatureConfig>,
+  config: AxAgentConfig<AxGenIn, AxGenOut>
+): AxAgent<AxGenIn, AxGenOut>;
+export function agent(
+  signature: string | AxSignature<any, any> | Readonly<AxSignatureConfig>,
   config: AxAgentConfig<any, any>
 ): AxAgent<any, any> {
   const typedSignature =
-    typeof signature === 'string' ? AxSignature.create(signature) : signature;
+    typeof signature === 'string'
+      ? AxSignature.create(signature)
+      : signature instanceof AxSignature
+        ? signature
+        : new AxSignature(signature);
   const { ai, judgeAI, agentIdentity, ...options } = config;
 
   return new AxAgent(

@@ -1,7 +1,8 @@
 import { AxGen } from './generate.js';
+import type { AxSignatureConfig } from './sig.js';
 import { AxSignature } from './sig.js';
 import type { ParseSignature } from './sigtypes.js';
-import type { AxProgramForwardOptions } from './types.js';
+import type { AxGenIn, AxGenOut, AxProgramForwardOptions } from './types.js';
 
 /**
  * Creates a type-safe signature from a string template.
@@ -138,6 +139,10 @@ export function ax<
       ? { thought?: string }
       : { [P in ThoughtKey]?: string })
 >;
+export function ax(
+  signature: Readonly<AxSignatureConfig>,
+  options?: Readonly<AxProgramForwardOptions<any>>
+): AxGen<AxGenIn, AxGenOut>;
 export function ax<
   T extends string | AxSignature<any, any>,
   ThoughtKey extends string = 'thought',
