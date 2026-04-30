@@ -1,5 +1,5 @@
-import { RefreshCcw, Upload } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { RefreshCcw, Upload } from 'lucide-react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -289,7 +289,7 @@ export default function AxAgentDocumentDemo() {
             ],
             runtime: new AxJSRuntime(),
             maxTurns: 4,
-            mode: 'simple',
+
             contextPolicy: {
               preset: 'checkpointed',
               budget: 'compact',
