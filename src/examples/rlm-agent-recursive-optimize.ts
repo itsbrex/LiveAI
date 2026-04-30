@@ -233,9 +233,6 @@ const trainingAgent = agent(
     ai: studentAI,
     contextFields: [],
     runtime,
-    recursionOptions: {
-      maxDepth: 2,
-    },
     maxTurns: 6,
     maxSubAgentCalls: 2,
     actorOptions: {
@@ -352,9 +349,6 @@ const optimizedAgent = agent(
     ai: studentAI,
     contextFields: [],
     runtime,
-    recursionOptions: {
-      maxDepth: 2,
-    },
     maxTurns: 6,
     maxSubAgentCalls: 2,
     actorOptions: {

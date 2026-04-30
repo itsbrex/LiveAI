@@ -1,6 +1,6 @@
 import {
-  AxAIGoogleGeminiModel,
   type AxAgentFunctionGroup,
+  AxAIGoogleGeminiModel,
   AxJSRuntime,
   AxJSRuntimePermission,
   agent,
@@ -186,9 +186,6 @@ const analyst = agent(
         '5) Call team.writingCoach with { draft: <summary> } to produce polishedSummary (audience is shared).',
         '6) Use utils.toBulletList with evidence lines for formatting.',
       ].join('\n'),
-    },
-    recursionOptions: {
-      maxDepth: 2,
     },
     maxBatchedLlmQueryConcurrency: 3,
     maxTurns: 12,
