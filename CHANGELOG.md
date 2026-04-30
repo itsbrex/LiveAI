@@ -1,5 +1,27 @@
 # Changelog
 
+## [20.0.1](///compare/19.0.45...20.0.0) (2026-04-30)
+
+### Bug Fixes
+
+* **docs:** remove deleted llmQueryPromptMode field; add typecheck to CI 947fcdf
+* **sig:** avoid structuredClone on Zod-backed fields, expose AxSignatureConfig overloads ([#512](undefined/undefined/undefined/issues/512)) 0222938
+## [20.0.0](///compare/19.0.45...20.0.0) (2026-04-25)
+
+### Features
+
+* **agent:** add contextOptions to independently bound the ctx distillation stage 7e77158
+* **agent:** drop llmQuery advanced mode, simplify RLM actor prompts 1f2d8a1
+* **agent:** Stage 2+3 — split RLM actor templates and coordinator AxAgent 68cdff3
+
+### Bug Fixes
+
+* **gemini:** default Vertex Gemini to v1 and harden streaming ([#511](undefined/undefined/undefined/issues/511)) 8ee4c3e
+
+### Performance Improvements
+
+* **agent:** shrink RLM actor system prompt by ~480 chars ce46475
+
 ## [20.0.0](///compare/19.0.44...19.0.45) (2026-04-25)
 
 ### Features
